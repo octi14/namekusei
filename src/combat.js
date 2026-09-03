@@ -25,13 +25,14 @@ export class Combat {
   melee(at, all) {
     if (at.cooldown > 0 || at.dead || at.stun > 0 || (at.hitstop || 0) > 0) return;
     const now = performance.now() * 0.001;
-    if (!at.comboT || now - at.comboT > 0.62) at.combo = 0;
+    if (!at.comboT || now - at.comboT > 0.78) at.combo = 0;
     const step = at.combo % 3;
     at.combo = step + 1;
     at.comboT = now;
     at.punchStep = step;
-    at.posePunch = step === 2 ? 0.38 : 0.24;
-    at.cooldown = step === 2 ? 0.48 : 0.14;
+    at.posePunch = step === 2 ? 0.48 : 0.34;
+    at.cooldown = step === 2 ? 0.78 : 0.36;
+    at._runT = Math.min(at._runT || 0, 0.15);
     let best = null;
     let bestS = 9;
     const origin = at.pos();
@@ -40,10 +41,10 @@ export class Combat {
       const d = t.pos().clone().sub(origin);
       d.y = 0;
       const dist = d.length();
-      if (dist > 3.1 || dist < 0.2) continue;
+      if (dist > 2.7 || dist < 0.2) continue;
       d.normalize();
       const side = d.dot(fwd(at.yaw));
-      const score = dist - (side > 0.1 ? 1.4 : 0);
+      const score = dist - (side > 0.25 ? 1.4 : 0);
       if (score < bestS) {
         bestS = score;
         best = t;
@@ -56,19 +57,19 @@ export class Combat {
     const f = fwd(at.yaw);
     const finisher = step === 2;
     spawnMeleeArc(this.scene, origin.clone().setY(origin.y + at.height * (finisher ? 0.42 : 0.62)), at.yaw, this.fx);
-    const reach = finisher ? 3.0 : 2.55;
+    const reach = finisher ? 2.55 : 2.15;
     for (const t of all) {
       if (t.faccion === at.faccion || t === at || t.dead) continue;
       const d = t.pos().clone().sub(origin);
       d.y = 0;
       if (d.length() > reach) continue;
-      if (d.normalize().dot(f) < 0.12) continue;
+      if (d.normalize().dot(f) < 0.32) continue;
       let dmg = Math.max(1, Math.round((at.s.ataque * (finisher ? 16 : 10)) / (8 + t.s.defensa)));
       const hitP = t.pos().clone();
       hitP.y += t.height * 0.7;
       spawnHit(this.scene, hitP, this.fx, f);
       this.jolt(hitP, finisher ? 0.28 : 0.16);
-      at.hitstop = Math.max(at.hitstop || 0, finisher ? 0.1 : 0.055);
+      at.hitstop = Math.max(at.hitstop || 0, finisher ? 0.12 : 0.07);
       t.hitstop = Math.max(t.hitstop || 0, finisher ? 0.12 : 0.07);
       this.hurt(t, dmg, false, at, at.pos(), finisher ? 22 : 8);
     }
@@ -161,7 +162,7 @@ export class Combat {
   hurt(t, dmg, ki, atk, from, knock) {
     if (t.dead) return;
     t.s.hp -= dmg;
-    this.float(t, dmg, ki);
+    this.float(t, dmg, ki, atk?.faccion);
     const now = performance.now() * 0.001;
     if (atk) {
       atk.st.dmg += dmg;
@@ -182,21 +183,22 @@ export class Combat {
       t.hitBy = [];
       t.die(this.balls, atk, ki);
       if (atk) {
-        atk.s.ataque *= 1.01;
-        atk.s.defensa *= 1.01;
-        atk.s.velocidad *= 1.01;
-        atk.s.kiMax *= 1.01;
+        atk.s.ataque += 1;
+        atk.s.defensa += 1;
+        atk.s.velocidad += 1;
+        atk.s.kiMax += 8;
       }
       return;
     }
     const src = from || atk?.pos();
     if (src) t.knock(src, knock ?? (ki ? 16 : 9));
-    t.stun = Math.max(t.stun || 0, ki ? 0.36 : knock && knock > 16 ? 0.48 : 0.32);
+    t.stun = Math.max(t.stun || 0, ki ? 0.36 : knock && knock > 16 ? 0.48 : 0.2);
   }
 
-  float(t, dmg, ki) {
+  float(t, dmg, ki, team) {
     const el = document.createElement("div");
-    el.className = ki ? "dmg ki" : "dmg";
+    const side = team === "z" || team === "f" ? team : "";
+    el.className = `dmg${side ? ` ${side}` : ""}${ki ? " ki" : ""}`;
     el.textContent = String(dmg);
     const obj = new CSS2DObject(el);
     obj.position.copy(t.pos());

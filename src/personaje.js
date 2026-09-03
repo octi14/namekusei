@@ -59,6 +59,7 @@ export class Personaje {
     this._launched = false;
     this.vx = 0;
     this.vz = 0;
+    this._runT = 0;
     this.esfera = null;
     this.yaw = def.faccion === "z" ? 0 : Math.PI;
     this.cooldown = 0;
@@ -758,21 +759,35 @@ export class Personaje {
   move(dir, run, dt) {
     if (this.dead || this.stun > 0 || (this.hitstop || 0) > 0) return;
     const charging = this._kiCharge || this._kiSlow || (this.superHold || 0) > 0.04;
-    if (charging) run = false;
+    const punching = (this.posePunch || 0) > 0;
+    if (charging || punching) run = false;
     let mul = this.flyAlt > 0.2 ? 1.42 : 0.42;
     if (charging) mul *= 0.22;
+    if (punching) mul *= 0.16;
     if (this.inSwim()) {
       mul = 0.34;
+      this._runT = 0;
       if (run && this.s.ki > 0) {
         mul = 0.92;
         this.s.ki = Math.max(0, this.s.ki - 26 * dt);
       }
-    } else if (run && this.flyAlt > 0.2 && this.s.ki > 0) {
-      mul *= 1.85;
-      this.s.ki = Math.max(0, this.s.ki - 4 * dt);
-    } else if (run && this.flyAlt <= 0.2) {
-      mul *= 5.03;
-      this.s.ki = Math.max(0, this.s.ki - 1.35 * dt);
+    } else if (this.flyAlt > 0.2) {
+      this._runT = Math.max(0, this._runT - dt / 0.18);
+      if (run && this.s.ki > 0) {
+        mul *= 1.85;
+        this.s.ki = Math.max(0, this.s.ki - 4 * dt);
+      }
+    } else {
+      if (run && this.s.ki > 0) {
+        this._runT = Math.min(1, this._runT + dt / 0.52);
+        this.s.ki = Math.max(0, this.s.ki - 1.35 * dt * this._runT);
+      } else {
+        this._runT = Math.max(0, this._runT - dt / 0.22);
+      }
+      if (this._runT > 0) {
+        const t = this._runT * this._runT;
+        mul *= 1 + 4.03 * t;
+      }
     }
     const spd = this.s.velocidad * mul * (this.esfera != null ? 0.55 : 1);
     this._groundSpd = this.flyAlt > 0.2 || this.inSwim() ? 0 : spd;
@@ -782,9 +797,10 @@ export class Personaje {
     this.stickY();
     this.mesh.rotation.y = this.yaw;
     this.didMove = true;
+    const runFeel = this.inSwim() ? run : this.flyAlt > 0.2 ? run : this._runT > 0.55;
     this.rush = Math.max(
       this.rush || 0,
-      this.inSwim() ? (run ? 0.92 : 0.35) : run ? 1 : this.flyAlt > 0.2 ? 0.75 : 0.5
+      this.inSwim() ? (run ? 0.92 : 0.35) : runFeel ? 1 : this.flyAlt > 0.2 ? 0.75 : 0.5
     );
   }
 
@@ -811,10 +827,10 @@ export class Personaje {
       const a = Math.random() * Math.PI * 2;
       balls.drop(n, this.pos().x + Math.cos(a) * 2.2, this.pos().z + Math.sin(a) * 2.2);
       this.esfera = null;
+      log(`${this.nombre} ha perdido la esfera`, this.faccion);
     }
-    const drop = n != null ? ` · ${n}★` : "";
-    if (killer) logKill(killer.nombre, this.nombre, ki, drop, killer.faccion);
-    else log(`${this.nombre} cayó${drop}`, this.faccion);
+    if (killer) logKill(killer.nombre, this.nombre, ki, "", killer.faccion);
+    else log(`${this.nombre} cayó`, this.faccion);
     for (const k of ["ataque", "defensa", "velocidad", "kiMax"]) {
       this.s[k] = Math.max(this.orig[k] * STAT_FLOOR, this.s[k] * DEATH_MULT);
     }
@@ -868,5 +884,49 @@ export class Personaje {
     this.esfera = null;
     log(`${this.nombre} depositó la esfera ${n}`, this.faccion);
     return true;
+  }
+}
+
+export function resolvePeople(people) {
+  for (let i = 0; i < people.length; i++) {
+    const a = people[i];
+    if (a.dead) continue;
+    const ra = 0.38 + a.height * 0.08;
+    for (let j = i + 1; j < people.length; j++) {
+      const b = people[j];
+      if (b.dead) continue;
+      if (Math.abs(a.mesh.position.y - b.mesh.position.y) > (a.height + b.height) * 0.48) continue;
+      const dx = a.mesh.position.x - b.mesh.position.x;
+      const dz = a.mesh.position.z - b.mesh.position.z;
+      let d = Math.hypot(dx, dz);
+      const minD = ra + 0.38 + b.height * 0.08;
+      if (d >= minD) continue;
+      if (d < 1e-4) {
+        const a0 = Math.random() * Math.PI * 2;
+        a.mesh.position.x += Math.cos(a0) * 0.01;
+        a.mesh.position.z += Math.sin(a0) * 0.01;
+        d = 0.01;
+      }
+      const push = (minD - d) * 0.5;
+      const nx = dx / d;
+      const nz = dz / d;
+      a.mesh.position.x += nx * push;
+      a.mesh.position.z += nz * push;
+      b.mesh.position.x -= nx * push;
+      b.mesh.position.z -= nz * push;
+      const rvx = a.vx - b.vx;
+      const rvz = a.vz - b.vz;
+      if (rvx * nx + rvz * nz < 0) {
+        a.vx -= rvx * 0.5;
+        a.vz -= rvz * 0.5;
+        b.vx += rvx * 0.5;
+        b.vz += rvz * 0.5;
+      }
+      for (const p of [a, b]) {
+        clampMap(p.mesh.position);
+        resolveObstacles(p.mesh.position, p.flyAlt || 0);
+        p.stickY();
+      }
+    }
   }
 }

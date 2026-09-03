@@ -3,7 +3,7 @@ import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer
 import { TEAM_SIZE } from "./config.js";
 import { createWorld, updateWorld, WATER_Y } from "./world.js";
 import { buildRoster } from "./roster.js";
-import { Personaje } from "./personaje.js";
+import { Personaje, resolvePeople } from "./personaje.js";
 import { DragonBalls } from "./dragonBalls.js";
 import { Match } from "./match.js";
 import { Combat } from "./combat.js";
@@ -291,6 +291,7 @@ function loop(now) {
       if (spectating || p !== player) aiTick(p, people, balls, combat, match, dt);
       p.tick(dt);
     }
+    resolvePeople(people);
     combat.tick(dt, people);
     balls.tick(dt);
   }
