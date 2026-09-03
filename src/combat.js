@@ -53,6 +53,11 @@ export class Combat {
     if (best) {
       const to = best.pos().clone().sub(origin);
       at.yaw = Math.atan2(to.x, to.z);
+      // Giro parcial del torso hacia la víctima
+      if (at.limbs?.torsoG) {
+        const localAngle = Math.atan2(to.x, to.z) - at.yaw;
+        at.limbs.torsoG.rotation.y = THREE.MathUtils.clamp(localAngle, -0.45, 0.45);
+      }
     }
     const f = fwd(at.yaw);
     const finisher = step === 2;
@@ -64,6 +69,21 @@ export class Combat {
       d.y = 0;
       if (d.length() > reach) continue;
       if (d.normalize().dot(f) < 0.32) continue;
+      // Parry: si la víctima está atacando justo ahora (ventana ~0.15s), contraataca
+      if ((t.posePunch || 0) > 0.19 && (t.posePunch || 0) < 0.34) {
+        const parryDmg = Math.max(1, Math.round((t.s.ataque * 14) / (8 + at.s.defensa)));
+        const pH = at.pos().clone(); pH.y += at.height * 0.7;
+        spawnHit(this.scene, pH, this.fx, d.clone().negate());
+        this.jolt(pH, 0.32);
+        at.stun = Math.max(at.stun || 0, 0.45);
+        at.hitstop = Math.max(at.hitstop || 0, 0.1);
+        t.hitstop = Math.max(t.hitstop || 0, 0.1);
+        at.knock(t.pos(), 18);
+        at.s.hp -= parryDmg;
+        this.float(at, parryDmg, false, t.faccion);
+        if (at.s.hp <= 0) { this.match.noteKill(t, at); t.st.k++; at.st.d++; at.die(this.balls, t, false); }
+        continue;
+      }
       let dmg = Math.max(1, Math.round((at.s.ataque * (finisher ? 16 : 10)) / (8 + t.s.defensa)));
       const hitP = t.pos().clone();
       hitP.y += t.height * 0.7;
@@ -71,6 +91,13 @@ export class Combat {
       this.jolt(hitP, finisher ? 0.28 : 0.16);
       at.hitstop = Math.max(at.hitstop || 0, finisher ? 0.12 : 0.07);
       t.hitstop = Math.max(t.hitstop || 0, finisher ? 0.12 : 0.07);
+      // Inclinación: atacante lunge adelante, víctima recoil atrás
+      at.punchLunge = Math.max(at.punchLunge || 0, finisher ? 0.35 : 0.22);
+      t.hitRecoil = Math.max(t.hitRecoil || 0, finisher ? 0.38 : 0.25);
+      // Sacudida: desplazar mesh de víctima en dirección del golpe
+      t.hitShakeX = f.x * (finisher ? 0.4 : 0.2);
+      t.hitShakeZ = f.z * (finisher ? 0.4 : 0.2);
+      t.hitShakeT = 0.18;
       this.hurt(t, dmg, false, at, at.pos(), finisher ? 22 : 8);
     }
   }
@@ -161,6 +188,7 @@ export class Combat {
 
   hurt(t, dmg, ki, atk, from, knock) {
     if (t.dead) return;
+    if ((t.iframes || 0) > 0 && (t.stun || 0) <= 0) return; // invulnerable post-recovery
     t.s.hp -= dmg;
     this.float(t, dmg, ki, atk?.faccion);
     const now = performance.now() * 0.001;
@@ -191,8 +219,13 @@ export class Combat {
       return;
     }
     const src = from || atk?.pos();
-    if (src) t.knock(src, knock ?? (ki ? 16 : 9));
-    t.stun = Math.max(t.stun || 0, ki ? 0.36 : knock && knock > 16 ? 0.48 : 0.2);
+    const finisher = knock && knock > 16;
+    const kbForce = ki ? 18 : finisher ? 26 : 9;
+    if (src) t.knock(src, kbForce);
+    const stunTime = ki ? 0.36 : finisher ? 0.52 : 0.2;
+    t.stun = Math.max(t.stun || 0, stunTime);
+    // i-frames post-stun: breve invulnerabilidad tras recuperarse
+    if (finisher || ki) t.iframes = Math.max(t.iframes || 0, stunTime + 0.25);
   }
 
   float(t, dmg, ki, team) {

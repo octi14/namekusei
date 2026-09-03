@@ -14,7 +14,7 @@ export function superRank(ki, kiMax, atk) {
   if (atk >= SUPER_ATK2) return 2;
   return 1;
 }
-export const MATCH_SEC = 8 * 60;
+export const MATCH_SEC = 15 * 60;
 export const STAT_FLOOR = 0.4;
 export const DEATH_MULT = 0.97;
 export const HP_REGEN = 0.4;

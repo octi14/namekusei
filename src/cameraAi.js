@@ -231,6 +231,40 @@ function rivalDist(p, people, x, z) {
   return d;
 }
 
+/** Devuelve un vector de desvío para evitar zonas con enemigos cercanos.
+ *  Samplea ~8 enemigos y empuja en dirección opuesta ponderado por cercanía. */
+function heatAvoid(p, people, goalDir) {
+  let ax = 0, az = 0;
+  for (const o of people) {
+    if (o.dead || o.faccion === p.faccion) continue;
+    const dx = o.pos().x - p.pos().x;
+    const dz = o.pos().z - p.pos().z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > 2500) continue;           // >50u → ignora
+    const d = Math.sqrt(d2) + 0.1;
+    const w = 1 / (d * d);             // peso cuadrático inverso
+    ax -= dx / d * w;
+    az -= dz / d * w;
+  }
+  const len = Math.hypot(ax, az);
+  if (len < 1e-4) return null;
+  // normaliza y escala; mezclar con goalDir afuera
+  return { x: ax / len, z: az / len, strength: Math.min(len * 200, 1) };
+}
+
+/** Devuelve un ángulo de flanqueo: intenta llegar al enemigo desde un costado. */
+function flankAngle(p, foe, dt) {
+  // lado preferido estable por seed
+  const side = seed(p) > 0.5 ? 1 : -1;
+  const dx = foe.pos().x - p.pos().x;
+  const dz = foe.pos().z - p.pos().z;
+  const direct = Math.atan2(dx, dz);
+  // offset lateral ~40-65° según distancia
+  const dist = Math.hypot(dx, dz);
+  const off = dist > 12 ? 0.85 : dist > 5 ? 0.55 : 0.2;
+  return direct + side * off;
+}
+
 function allyById(people, id) {
   return people.find((o) => o.id === id) || null;
 }
@@ -252,8 +286,8 @@ function escortCount(carrier, people, ignore) {
   for (const o of people) {
     if (o === ignore || o === carrier || o.dead || o.faccion !== carrier.faccion) continue;
     if (o.esfera != null) continue;
+    // Solo contar a quienes explícitamente escoltan a este portador
     if (o.aiMode === "help" && o.aiHelpId === carrier.id) n++;
-    else if (o.pos().distanceTo(carrier.pos()) < 22) n++;
   }
   return n;
 }
@@ -263,7 +297,8 @@ const MAX_ESCORTS = 2;
 function allyToHelp(p, people) {
   if (p.aiHelpId) {
     const cur = allyById(people, p.aiHelpId);
-    if (cur && !cur.dead && cur.faccion === p.faccion && cur.esfera != null) return cur;
+    if (cur && !cur.dead && cur.faccion === p.faccion && cur.esfera != null
+        && escortCount(cur, people, p) < MAX_ESCORTS) return cur;
     p.aiHelpId = null;
   }
   let best = null;
@@ -571,18 +606,33 @@ export function aiTick(p, people, balls, combat, match, dt) {
 
   if (p.aiMode === "deliver" && carrying) {
     dir.set(-p.pos().x, 0, homeZ - p.pos().z);
+    // Evitar zonas calientes: desviar ruta si hay enemigos cerca
+    const avoid = heatAvoid(p, people, dir);
+    if (avoid && avoid.strength > 0.15) {
+      const mix = Math.min(avoid.strength * 0.6, 0.55);
+      dir.normalize();
+      dir.x = dir.x * (1 - mix) + avoid.x * mix;
+      dir.z = dir.z * (1 - mix) + avoid.z * mix;
+    }
   } else if (fighting) {
     const dist = foe.pos().distanceTo(p.pos());
     const rng = powerStyle(p.nombre, p.faccion).range || 55;
     dir.set(foe.pos().x - p.pos().x, 0, foe.pos().z - p.pos().z);
     const inKiRange = dist < rng * 0.92 && dist > 2.2;
     const close = dist < 3.2;
-    smoothYaw(p, Math.atan2(dir.x, dir.z), dt, 6);
+    // Flanqueo: aproximarse desde un ángulo lateral
+    const approachYaw = dist > 4.5 ? flankAngle(p, foe, dt) : Math.atan2(dir.x, dir.z);
+    smoothYaw(p, approachYaw, dt, 6);
     if (dir.lengthSq() > 0.4) {
       dir.normalize();
       // Mantener ~media distancia para ki; cerrar si ki bajo
       if (p.s.ki < 10 && dist > 2.4) p.move(dir, true, dt);
-      else if (dist > Math.min(18, rng * 0.35)) p.move(dir, dist > 10, dt);
+      else if (dist > Math.min(18, rng * 0.35)) {
+        // Moverse con ángulo de flanqueo en vez de directo
+        const fd = new THREE.Vector3(Math.sin(approachYaw), 0, Math.cos(approachYaw));
+        fd.lerp(dir, 0.3).normalize();
+        p.move(fd, dist > 10, dt);
+      }
       else if (dist < 5.5 && p.s.ki > 14) p.move(dir.clone().multiplyScalar(-1), false, dt);
     }
     if (inKiRange && p.s.ki >= 12 && Math.random() < 0.22) {
@@ -637,8 +687,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
   // Intención de vuelo sticky (evita subir/bajar nervioso)
   let flyWish = false;
   if (carrying) flyWish = baseDist > 18 && p.aiMode === "deliver";
-  else if (mustSwim) flyWish = false;
-  else if (wetZone) flyWish = true;
+  else if (mustSwim && !overWater) flyWish = false;
+  else if (wetZone) flyWish = true;  // siempre intentar volar para salir del agua
   else if (p.aiMode === "charge" || fighting) flyWish = false;
   else if (kiOk && (goalDist > 90 || p.aiMode === "raid" || (p.aiMode === "ball" && goalDist > 70))) flyWish = true;
   else if (kiOk && isWater(p.pos().x + dir.x * 14, p.pos().z + dir.z * 14)) flyWish = true;
@@ -669,11 +719,14 @@ export function aiTick(p, people, balls, combat, match, dt) {
   else if (p.flyAlt > 0 && !wantFly && !wetZone) p.descend(dt);
 
   if (!fighting && dir.lengthSq() > 0.25) {
-    if (!carrying && !mustSwim && !flying && !wantFly) {
+    // Evitar entrar al agua caminando (cualquier modo, no solo sin esfera)
+    if (!mustSwim && !flying && !wantFly) {
       const px = p.pos().x;
       const pz = p.pos().z;
-      if (isWater(px, pz) || isWater(px + dir.x * 10, pz + dir.z * 10)) {
-        const out = shoreDir(px, pz) || shoreDir(px + dir.x * 10, pz + dir.z * 10);
+      const ahead1 = isWater(px + dir.x * 6, pz + dir.z * 6);
+      const ahead2 = isWater(px + dir.x * 14, pz + dir.z * 14);
+      if (isWater(px, pz) || ahead1 || ahead2) {
+        const out = shoreDir(px, pz) || shoreDir(px + dir.x * 8, pz + dir.z * 8);
         if (out) {
           dir.x = out.x;
           dir.z = out.z;
@@ -683,9 +736,10 @@ export function aiTick(p, people, balls, combat, match, dt) {
     dir.normalize();
     smoothYaw(p, Math.atan2(dir.x, dir.z), dt, carrying ? 5.5 : 3.8);
     const moveDir = new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw));
-    // mezcla ligera hacia el objetivo para no derivar
     moveDir.lerp(dir, 0.35).normalize();
-    p.move(moveDir, wantRun || turbo, dt);
+    // No esprintar en agua — gasta ki muy rápido
+    const runOk = (wantRun || turbo) && !swimming;
+    p.move(moveDir, runOk, dt);
   }
   p.tryGrab(balls, dt, match);
   p.tryDeposit(match, balls);

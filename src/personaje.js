@@ -184,6 +184,16 @@ export class Personaje {
 
   tick(dt) {
     this.cooldown = Math.max(0, this.cooldown - dt);
+    this.iframes = Math.max(0, (this.iframes || 0) - dt);
+    this.punchLunge = Math.max(0, (this.punchLunge || 0) - dt * 4);
+    this.hitRecoil = Math.max(0, (this.hitRecoil || 0) - dt * 3.5);
+    // Sacudida: spring back
+    if ((this.hitShakeT || 0) > 0) {
+      this.hitShakeT -= dt;
+      const t = Math.max(0, this.hitShakeT) / 0.18;
+      this.mesh.position.x += (this.hitShakeX || 0) * t * dt * 12;
+      this.mesh.position.z += (this.hitShakeZ || 0) * t * dt * 12;
+    }
     if (this.dead) {
       this.deadT -= dt;
       this.flyAlt = 0;
@@ -337,12 +347,13 @@ export class Personaje {
       o.rotation.z += (t - o.rotation.z) * k;
     };
     if (this.stun > 0) {
+      const recoil = this.hitRecoil || 0;
       lx(armL, 0.7);
       lx(armR, 0.7);
       lz(armL, 0.2);
       lz(armR, -0.2);
-      lx(torsoG, -0.25);
-      lx(headG, 0.2);
+      lx(torsoG, -0.25 - recoil * 0.5);  // inclina más atrás al recibir
+      lx(headG, 0.2 + recoil * 0.3);
       if (kneeL) lx(kneeL, 0.35);
       if (kneeR) lx(kneeR, 0.35);
       if (elbowL) lx(elbowL, -0.5);
@@ -351,6 +362,7 @@ export class Personaje {
       return;
     }
     if (this.posePunch > 0) {
+      const lunge = this.punchLunge || 0;
       const st = this.punchStep || 0;
       if (st === 1) {
         armL.rotation.x = -2.15;
@@ -363,8 +375,8 @@ export class Personaje {
         lx(legR, 0.28);
         if (kneeL) lx(kneeL, 0.15);
         if (kneeR) lx(kneeR, 0.4);
-        lx(torsoG, 0.22);
-        lx(headG, -0.12);
+        lx(torsoG, 0.22 + lunge * 0.4);
+        lx(headG, -0.12 - lunge * 0.15);
       } else if (st === 2) {
         armL.rotation.x = -0.35;
         armR.rotation.x = -0.55;
@@ -376,8 +388,8 @@ export class Personaje {
         lx(legR, -1.38);
         if (kneeL) lx(kneeL, 0.45);
         if (kneeR) lx(kneeR, -0.22);
-        lx(torsoG, 0.08);
-        lx(headG, 0.1);
+        lx(torsoG, 0.08 + lunge * 0.5);
+        lx(headG, 0.1 - lunge * 0.2);
       } else {
         armR.rotation.x = -2.2;
         armR.rotation.z = -0.35;
@@ -389,21 +401,27 @@ export class Personaje {
         lx(legR, -0.18);
         if (kneeL) lx(kneeL, 0.35);
         if (kneeR) lx(kneeR, 0.2);
-        lx(torsoG, 0.28);
-        lx(headG, -0.15);
+        lx(torsoG, 0.28 + lunge * 0.45);
+        lx(headG, -0.15 - lunge * 0.15);
       }
       this.didMove = false;
       return;
     }
     if (this.poseBlast > 0) {
-      lx(armR, -1.45);
-      lx(armL, -1.25);
-      lz(armR, 0.25);
-      lz(armL, -0.25);
-      lx(legL, 0.15);
-      lx(legR, 0.15);
-      lx(torsoG, 0.28);
-      lx(headG, -0.15);
+      const t = Math.min(1, this.poseBlast * 3); // intensidad según tiempo restante
+      // Brazos extendidos hacia adelante y separados del cuerpo
+      lx(armR, -1.65 * t);
+      lx(armL, -1.65 * t);
+      lz(armR, 0.55 * t);   // separar del cuerpo
+      lz(armL, -0.55 * t);
+      if (elbowR) lx(elbowR, -0.15 * t); // brazos casi rectos
+      if (elbowL) lx(elbowL, -0.15 * t);
+      lx(legL, 0.22);
+      lx(legR, 0.22);
+      if (kneeL) lx(kneeL, 0.18);
+      if (kneeR) lx(kneeR, 0.18);
+      lx(torsoG, 0.32 * t);  // inclinarse hacia adelante
+      lx(headG, -0.18 * t);
       this.didMove = false;
       return;
     }
@@ -538,18 +556,18 @@ export class Personaje {
       if (kneeR) lx(kneeR, 0.35);
     } else if (this.volando) {
       this._strideBob = 0;
-      lx(armL, 0.15);
-      lx(armR, 0.15);
-      lz(armL, 0.35);
-      lz(armR, -0.35);
-      lx(legL, 0.05);
-      lx(legR, 0.05);
-      if (kneeL) lx(kneeL, 0.2);
-      if (kneeR) lx(kneeR, 0.2);
-      if (elbowL) lx(elbowL, -0.35);
-      if (elbowR) lx(elbowR, -0.35);
-      lx(torsoG, 0);
-      lx(headG, 0);
+      lx(armL, 0.28);
+      lx(armR, 0.28);
+      lz(armL, -0.28);  // brazos abiertos, no pegados al torso
+      lz(armR, 0.28);
+      lx(legL, 0.12);
+      lx(legR, 0.12);
+      if (kneeL) lx(kneeL, 0.28);
+      if (kneeR) lx(kneeR, 0.28);
+      if (elbowL) lx(elbowL, -0.12);
+      if (elbowR) lx(elbowR, -0.12);
+      lx(torsoG, 0.04);
+      lx(headG, 0.02);
     } else if (this.didMove) {
       const rush = this.rush || 0;
       const sprint = rush > 0.82;
@@ -615,6 +633,12 @@ export class Personaje {
       lx(torsoG, 0);
       torsoG.rotation.y += (0 - torsoG.rotation.y) * k;
       lx(headG, 0);
+    }
+    // Hit recoil residual (fuera de stun) — inclinación hacia atrás que decae
+    if ((this.hitRecoil || 0) > 0.05 && this.stun <= 0) {
+      const r = this.hitRecoil;
+      torsoG.rotation.x -= r * 0.35;
+      headG.rotation.x += r * 0.2;
     }
     const c = this._crouch || 0;
     if (c > 0.04 && this.flyAlt < 0.4) {
@@ -865,9 +889,15 @@ export class Personaje {
       return;
     }
     this._grabbing = true;
+    // Si recibe daño mientras agarra, cancela
+    if ((this.stun || 0) > 0 || (this.hitRecoil || 0) > 0.05) {
+      this.grabT = 0;
+      this._grabbing = false;
+      return;
+    }
     this.yaw = Math.atan2(b.mesh.position.x - this.pos().x, b.mesh.position.z - this.pos().z);
     this.grabT = (this.grabT || 0) + dt;
-    if (this.grabT >= 0.52) {
+    if (this.grabT >= 1.5) {
       const got = balls.pickup(this);
       if (got?.stole) match.syncBalls(balls);
       this.grabT = 0;
