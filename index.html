@@ -97,12 +97,12 @@
         position: absolute; top: 86px; right: 10px; width: 280px; max-width: 34vw;
         pointer-events: auto; font-family: Segoe UI, sans-serif; font-size: 12px; font-weight: 600;
       }
-      #log-scroll { max-height: 220px; overflow-y: auto; }
+      #log-scroll { overflow: hidden; pointer-events: none; }
       #log-list { margin: 0; padding: 0; list-style: none; }
       #log-list li {
         margin: 3px 0; padding: 4px 8px;
         background: #0007; border-left: 3px solid #fff3;
-        display: flex; align-items: center; gap: 6px;
+        display: flex; align-items: center; gap: 6px; color: #eceff1;
       }
       #log-list .ko-ic {
         width: 16px; height: 16px; flex: none;
@@ -111,9 +111,11 @@
       #log-list .ko-ic.fist { color: #ffcc80; filter: drop-shadow(0 0 3px #ff9800); }
       #log-list .ko-ic.ki { color: #80d8ff; filter: drop-shadow(0 0 4px #29b6f6); }
       #log-list .ko-drop { opacity: 0.7; font-size: 0.9em; }
-      #log-list .log-z { color: #ff8a80; border-color: #e53935; }
-      #log-list .log-f { color: #82b1ff; border-color: #2979ff; }
-      #log-list .log-x { color: #eceff1; }
+      #log-list .nm-z { color: #ff6d00; }
+      #log-list .nm-f { color: #40c4ff; }
+      #log-list .log-z { border-color: #e53935; }
+      #log-list .log-f { border-color: #2979ff; }
+      #log-list .log-x { border-color: #fff3; }
       #panel-keys {
         position: absolute; bottom: 14px; right: 324px; left: auto;
         font-family: Segoe UI, sans-serif; font-size: 11px; line-height: 1.5;
@@ -132,10 +134,26 @@
         border: 1px solid #fff5; background: #fff1; font-size: 10px;
       }
       #click-msg {
-        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(0,0,0,.5); pointer-events: auto; cursor: pointer; font-size: 28px;
         letter-spacing: 0.12em;
       }
+      #boot {
+        position: fixed; inset: 0; z-index: 30; pointer-events: auto;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: radial-gradient(ellipse at 50% 30%, #1b4d2ecc, #05080dee);
+        color: #fff; text-shadow: 0 2px 0 #000;
+      }
+      #boot h1 { font-size: 42px; letter-spacing: 0.14em; margin: 0 0 8px; }
+      #boot p { font-family: Segoe UI, sans-serif; opacity: 0.85; margin: 0 0 22px; }
+      #boot .maps { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+      #boot button {
+        width: 240px; padding: 22px 16px; cursor: pointer;
+        border: 2px solid #ffeb3b; background: #111c; color: #fff;
+        font: inherit; letter-spacing: 0.08em; font-size: 20px;
+      }
+      #boot button:hover { background: #ff6f0033; }
+      #boot button small { display: block; margin-top: 8px; font-size: 12px; opacity: 0.75; font-family: Segoe UI, sans-serif; }
       #end {
         display: none; position: absolute; inset: 0; align-items: center; justify-content: center;
         background: radial-gradient(ellipse at center, #0008, #000d);
@@ -171,6 +189,17 @@
       }
       #announce.pop { animation: bang 0.45s ease-out; }
       #announce.go { color: #ffeb3b; font-size: 96px; }
+      #ball-toast {
+        display: none; position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+        pointer-events: none; text-align: center; padding: 10px 28px;
+        background: #000a; border: 2px solid #fff4;
+        clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+        letter-spacing: 0.08em; font-size: 22px; text-shadow: 0 0 10px #000;
+      }
+      #ball-toast.on { display: block; }
+      #ball-toast.z { border-color: #ff6d00; color: #ffab40; }
+      #ball-toast.f { border-color: #40c4ff; color: #80d8ff; }
+      #ball-toast b { color: #fff; }
       @keyframes bang {
         0% { transform: scale(2.4); opacity: 0; }
         35% { transform: scale(0.92); opacity: 1; }
@@ -257,6 +286,7 @@
       .lock-xh i:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; }
       .lock-xh i:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; }
       .lock-xh i:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+      .nametag {
         font-size: 11px; font-weight: 600; white-space: nowrap;
         text-shadow: 0 0 4px #000; pointer-events: none; text-align: center;
         font-family: Segoe UI, sans-serif;
@@ -299,7 +329,7 @@
       <div id="scoreboard">
         <div class="side z"><span class="lab">Z</span><span class="n" id="sc-z">0</span></div>
         <div class="clock"><div id="clock">8:00</div><div class="balls" id="sc-orbs"></div></div>
-        <div class="side f"><span class="n" id="sc-f">0</span><span class="lab">FREEZER</span></div>
+        <div class="side f"><span class="n" id="sc-f">0</span><span class="lab" id="sc-f-lab">FREEZER</span></div>
       </div>
       <div id="panel-left">
         <div class="tag" id="pl-team">GUERREROS Z</div>
@@ -323,14 +353,15 @@
         <kbd>WASD</kbd> mover · <kbd>Shift</kbd> correr / turbo<br />
         <kbd>Espacio</kbd> salto · 2× volar · <kbd>C</kbd> bajar · <kbd>V</kbd> cámara · <kbd>H</kbd> ayudas<br />
         <kbd>Click</kbd> golpe · <kbd>Der.</kbd> poder · <kbd>T</kbd> disparo largo · <kbd>F</kbd> super · <kbd>R</kbd> ki<br />
-        <kbd>Q</kbd> / rueda clic lock-on · <kbd>E</kbd> mantener recoger · <kbd>G</kbd> soltar<br />
+        <kbd>Q</kbd> / rueda clic lock-on · <kbd>E</kbd> mantener recoger · <kbd>G</kbd> soltar · <kbd>B</kbd> SSJ<br />
         <kbd>Tab</kbd> puntuación · <kbd>M</kbd> menú
       </div>
       <div id="tab-board">
         <div class="col z"><h3>GUERREROS Z</h3><table id="tab-z"></table></div>
-        <div class="col f"><h3>FREEZER</h3><table id="tab-f"></table></div>
+        <div class="col f"><h3 id="tab-f-h">FREEZER</h3><table id="tab-f"></table></div>
       </div>
       <div id="announce"></div>
+      <div id="ball-toast"></div>
       <div id="ko-fx">
         <div class="ko-big">KO</div>
         <div class="ko-by" id="ko-by"></div>
@@ -354,9 +385,18 @@
           <p>Spectate: ← → personaje · M menú</p>
           <div class="cols">
             <div class="col"><b>Guerreros Z</b><div id="menu-z"></div></div>
-            <div class="col"><b>Freezer</b><div id="menu-f"></div></div>
+            <div class="col"><b id="menu-f-h">Freezer</b><div id="menu-f"></div></div>
           </div>
         </div>
+      </div>
+    </div>
+    <div id="boot">
+      <h1>NAMEKUSEI</h1>
+      <p>Elige el mapa</p>
+      <div class="maps">
+        <button type="button" data-map="namek">NAMEK<small>Z vs Freezer</small></button>
+        <button type="button" data-map="earth">TIERRA<small>Saga saiyajin</small></button>
+        <button type="button" data-map="cell">TIERRA<small>Saga Cell</small></button>
       </div>
     </div>
     <script type="module" src="/src/main.js"></script>

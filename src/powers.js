@@ -18,10 +18,28 @@ const STYLES = {
   Ginyu: { kind: "ball", color: 0xea80fc, speed: 28, r: 0.32, life: 1.3, range: 60 },
   Kiwy: { kind: "ball", color: 0x80cbc4, speed: 30, r: 0.24, life: 1.2, range: 54 },
   Appule: { kind: "ball", color: 0xce93d8, speed: 29, r: 0.22, life: 1.15, range: 50 },
+  "Ten Shin Han": { kind: "beam", color: 0xffee58, speed: 40, r: 0.16, life: 1.7, range: 90 },
+  Yamcha: { kind: "ball", color: 0xffcc80, speed: 32, r: 0.24, life: 1.2, range: 58 },
+  Chaoz: { kind: "ball", color: 0xeeeeee, speed: 22, r: 0.18, life: 1.0, range: 42 },
+  Yajirobee: { kind: "ball", color: 0xff8a65, speed: 20, r: 0.32, life: 0.9, range: 36 },
+  Kami: { kind: "beam", color: 0xa5d6a7, speed: 36, r: 0.12, life: 1.8, range: 80 },
+  Nappa: { kind: "ball", color: 0xffab40, speed: 24, r: 0.4, life: 1.0, range: 48 },
+  Raditz: { kind: "beam", color: 0x81c784, speed: 38, r: 0.16, life: 1.9, range: 100 },
+  Saibaman: { kind: "ball", color: 0x9ccc65, speed: 22, r: 0.2, life: 0.9, range: 36 },
+  Trunks: { kind: "beam", color: 0xce93d8, speed: 44, r: 0.16, life: 2.0, range: 110 },
+  "Mr. Satan": { kind: "ball", color: 0xef5350, speed: 16, r: 0.28, life: 0.7, range: 28 },
+  Cell: { kind: "beam", color: 0x69f0ae, speed: 50, r: 0.14, life: 2.4, range: 140 },
+  "Nº16": { kind: "ball", color: 0x90a4ae, speed: 26, r: 0.38, life: 1.1, range: 50 },
+  "Nº17": { kind: "beam", color: 0x81d4fa, speed: 42, r: 0.12, life: 1.9, range: 100 },
+  "Nº18": { kind: "beam", color: 0xf8bbd0, speed: 42, r: 0.12, life: 1.9, range: 100 },
+  "Nº19": { kind: "ball", color: 0xef9a9a, speed: 22, r: 0.3, life: 1.0, range: 44 },
+  "Dr. Gero": { kind: "ball", color: 0xb0bec5, speed: 24, r: 0.22, life: 1.1, range: 48 },
 };
 
 export function powerStyle(nombre, faccion) {
   if (STYLES[nombre]) return { ...STYLES[nombre] };
+  if (nombre.startsWith("Saibaman")) return { ...STYLES.Saibaman };
+  if (nombre.startsWith("Cell Jr.")) return { kind: "beam", color: 0xa5d6a7, speed: 36, r: 0.1, life: 1.6, range: 80 };
   if (faccion === "z") return { kind: "ball", color: 0x81c784, speed: 28, r: 0.22, life: 1.15, range: 50 };
   return { kind: "ball", color: 0x90caf9, speed: 26, r: 0.2, life: 1.1, range: 48 };
 }

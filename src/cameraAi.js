@@ -72,27 +72,30 @@ export class PlayerCamera {
     }
     this.camera.up.set(0, 1, 0);
     if (third) {
-      const lean = Math.sin(p.mesh.rotation.x);
-      const look = p.pos().clone().addScaledVector(f, lean * p.height * 0.62);
-      look.y += 0.9 + b * 0.08;
-      const dist = 4.15 + b * 1.55;
       const pit = this.pitch;
-      const back = f.clone().multiplyScalar(-dist * Math.cos(pit));
+      const cy = Math.cos(pit);
+      const aim = new THREE.Vector3(Math.sin(yaw) * cy, Math.sin(pit), Math.cos(yaw) * cy);
       const right = new THREE.Vector3(f.z, 0, -f.x);
-      back.addScaledVector(right, this._bank * 0.85);
-      const dest = look.clone().add(back);
-      dest.y += 0.55 - dist * Math.sin(pit);
-      dest.y = Math.max(p.pos().y + 0.4, dest.y);
+      const torso = p.pos().clone();
+      torso.y += 0.88 + b * 0.06;
+      const look = torso.clone().addScaledVector(aim, 14);
+      const dist = 4.15 + b * 1.55;
+      const dest = torso.clone().addScaledVector(aim, -dist);
+      dest.y += 0.28;
+      dest.addScaledVector(right, this._bank * 0.85);
+      dest.y = Math.max(surfaceHeight(dest.x, dest.z) + 0.35, dest.y);
       if (!this._cpos) this._cpos = dest.clone();
       const chase = 8 + (1 - fly) * 10;
       this._cpos.lerp(dest, 1 - Math.exp(-chase * dt));
       this.camera.position.copy(this._cpos);
-      this.camera.lookAt(look.x, look.y + 0.15, look.z);
+      this.camera.lookAt(look.x, look.y, look.z);
       this.camera.rotateZ(this._bank);
     } else {
       this._setFp(p, true);
       p.mesh.updateMatrixWorld(true);
-      const ff = new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw));
+      const pit = this.pitch;
+      const cy = Math.cos(pit);
+      const aim = new THREE.Vector3(Math.sin(p.yaw) * cy, Math.sin(pit), Math.cos(p.yaw) * cy);
       const eye = new THREE.Vector3();
       const head = p.limbs?.headG;
       if (head) {
@@ -102,9 +105,8 @@ export class PlayerCamera {
         eye.copy(p.pos());
         eye.y += p.height * 0.84;
       }
-      eye.addScaledVector(ff, 0.22);
-      const look = eye.clone().addScaledVector(ff, 5.5);
-      look.y += this.pitch * 3.2;
+      eye.addScaledVector(aim, 0.18);
+      const look = eye.clone().addScaledVector(aim, 8);
       this.camera.position.copy(eye);
       this.camera.lookAt(look);
       this._fpPos = eye;
@@ -141,6 +143,15 @@ function kiBand(p) {
   const lo = THREE.MathUtils.clamp(THREE.MathUtils.lerp(0.34, 0.12, a) + jitter, 0.1, 0.38);
   const span = THREE.MathUtils.lerp(0.46, 0.2, a);
   return { lo, hi: Math.min(0.86, lo + span) };
+}
+
+function temper(p) {
+  const hp = p.s.hp / p.s.hpMax;
+  const ki = p.s.ki / p.s.kiMax;
+  const heat = THREE.MathUtils.clamp(p.aiHeat || 0, -3.2, 3.2);
+  const kd = (p.st.k || 0) - (p.st.d || 0) * 1.15;
+  const front = THREE.MathUtils.clamp(heat * 0.32 + kd * 0.1 + (hp - 0.48) * 0.85 + (ki - 0.38) * 0.4, -1, 1);
+  return { hp, ki, heat, front };
 }
 
 function ballByN(balls, n) {
@@ -279,6 +290,57 @@ function smoothYaw(p, wantYaw, dt, rate = 4.2) {
 function commitMode(p, mode, sec) {
   p.aiMode = mode;
   p.aiModeT = sec;
+}
+
+function utilBest(p, ctx) {
+  const { mood, carrying, enemy, enemyDist, enemyCarrier, ball, help, loot, needCharge, inHomeAir, lowHp, agg } = ctx;
+  if (carrying) return "deliver";
+  const h = (m) => (p.aiMode === m ? 16 : 0);
+  const rows = [];
+  let fight = -80;
+  if (enemy && !lowHp) {
+    fight =
+      38 +
+      mood.front * 26 +
+      Math.max(0, 62 - enemyDist) * 0.62 +
+      (enemyCarrier ? 52 : 0) +
+      agg * 12 -
+      (inHomeAir ? 28 : 0) -
+      (mood.ki < 0.14 ? 20 : 0);
+  }
+  rows.push(["fight", fight + h("fight")]);
+  let ballS = -40;
+  if (ball) {
+    const d = Math.hypot(ball.mesh.position.x - p.pos().x, ball.mesh.position.z - p.pos().z);
+    ballS = 20 - d * 0.05 + (ball.inBase ? 8 : 0) - (isWater(ball.mesh.position.x, ball.mesh.position.z) ? 18 : 0);
+  }
+  rows.push(["ball", ballS + h("ball")]);
+  rows.push(["help", help ? 15 + h("help") : -50]);
+  rows.push(["raid", loot.length && !lowHp && mood.front > -0.1 ? 11 + mood.front * 16 + h("raid") : -45]);
+  rows.push(["charge", needCharge ? 32 - mood.front * 10 + h("charge") : -35]);
+  rows.push(["wander", 7 + (mood.front > 0.25 ? 6 : 0) + h("wander")]);
+  let best = "wander";
+  let bestV = -1e9;
+  for (const [k, v] of rows) {
+    if (v > bestV) {
+      bestV = v;
+      best = k;
+    }
+  }
+  return best;
+}
+
+function faceLock(p, foe, dt, hold) {
+  if (!foe || foe.dead) {
+    p.lockT = 0;
+    p.lockFoe = null;
+    return false;
+  }
+  p.lockFoe = foe;
+  p.lockT = Math.max(p.lockT || 0, hold);
+  const to = foe.pos().clone().sub(p.pos());
+  smoothYaw(p, Math.atan2(to.x, to.z), dt, 8.5);
+  return true;
 }
 
 function escortCount(carrier, people, ignore) {
@@ -482,14 +544,17 @@ export function aiTick(p, people, balls, combat, match, dt) {
   p.aiRaid = Math.max(0, (p.aiRaid || 0) - dt);
   p.aiCarry = Math.max(0, (p.aiCarry || 0) - dt);
   p.aiModeT = Math.max(0, (p.aiModeT || 0) - dt);
+  const mood = temper(p);
+  p.aiHeat = THREE.MathUtils.damp(p.aiHeat || 0, 0, 0.07, dt);
   const agg = seed(p);
-  const lowHp = p.s.hp < p.s.hpMax * 0.4;
+  const lowHp = mood.hp < (mood.front > 0.25 ? 0.28 : mood.front < -0.25 ? 0.52 : 0.4);
   const carrying = p.esfera != null;
   const homeZ = p.faccion === "z" ? -BASE_Z : BASE_Z;
+  const enemyZ = -homeZ;
   const baseDist = Math.hypot(p.pos().x, p.pos().z - homeZ);
   const nearOwnBase = baseDist < 12;
-  const inHomeAir = baseDist < 56;
-  const kiFrac = p.s.ki / p.s.kiMax;
+  const inHomeAir = baseDist < (mood.front < -0.2 ? 72 : 56);
+  const kiFrac = mood.ki;
   const band = kiBand(p);
 
   const loot = balls.items.filter((b) => !b.held && b.inBase && b.inBase !== p.faccion);
@@ -507,101 +572,68 @@ export function aiTick(p, people, balls, combat, match, dt) {
     p.aiFight = 0;
     p.aiRaid = 0;
     p.aiHelpId = null;
-    if (p.aiMode !== "deliver") commitMode(p, "deliver", 99);
   }
 
-  if (!carrying && inHomeAir) p.aiFight = 0;
-
-  if (p.aiFoe && (p.aiFoe.s.hp <= 0 || p.aiFoe.dead || p.aiFoe.pos().distanceTo(p.pos()) > 36)) {
-    p.aiFoe = null;
-    if (p.aiMode === "fight") p.aiModeT = 0;
-  }
-  const enemy = pickFoe(p, people, carrying ? 16 : 72);
-  if (enemy && p.aiFight > 0) p.aiFoe = enemy;
+  if (p.aiFoe && (p.aiFoe.s.hp <= 0 || p.aiFoe.dead || p.aiFoe.pos().distanceTo(p.pos()) > 42)) p.aiFoe = null;
+  const enemy = pickFoe(p, people, carrying ? 14 : 78);
   const enemyDist = enemy ? enemy.pos().distanceTo(p.pos()) : 1e9;
   const enemyCarrier = !!(enemy && enemy.esfera != null);
-  const wantEngage =
-    !carrying &&
-    !inHomeAir &&
-    !lowHp &&
-    enemy &&
-    (enemyCarrier || enemyDist < 20 || (agg > 0.42 && enemyDist < 38));
 
-  // Candidatos (baratos); el modo sticky decide si los usa
   const helpCand = !carrying ? allyToHelp(p, people) : null;
   const ballCand = !carrying ? claimBall(p, people, balls) : null;
-  const needCharge = !carrying && kiFrac < band.lo && p.flyAlt < 0.2 && !isWater(p.pos().x, p.pos().z);
+  const needCharge =
+    !carrying &&
+    kiFrac < (mood.front < -0.15 ? band.lo + 0.08 : band.lo) &&
+    p.flyAlt < 0.2 &&
+    !isWater(p.pos().x, p.pos().z);
 
-  const modeOk = (() => {
-    switch (p.aiMode) {
-      case "deliver":
-        return carrying;
-      case "help":
-        return !!(helpCand && p.aiHelpId === helpCand.id);
-      case "ball":
-        return !!ballByN(balls, p.aiBall);
-      case "raid":
-        return p.aiRaid > 0 && loot.length > 0 && !carrying;
-      case "fight":
-        return p.aiFight > 0 && p.aiFoe && !p.aiFoe.dead;
-      case "charge":
-        return kiFrac < band.hi && !carrying && p.flyAlt < 0.25 && !isWater(p.pos().x, p.pos().z);
-      case "wander":
-        return !carrying;
-      default:
-        return false;
-    }
-  })();
-
-  // Interrumpir caza/carga/vagar si hay pelea urgente (portador enemigo o cuerpo a cuerpo)
-  if (
-    wantEngage &&
-    (enemyCarrier || enemyDist < 16) &&
-    (p.aiMode === "ball" || p.aiMode === "wander" || p.aiMode === "charge" || p.aiMode === "raid")
-  ) {
-    p.aiFight = Math.max(p.aiFight || 0, 4 + agg * 2.5);
-    p.aiFoe = enemy;
-    commitMode(p, "fight", p.aiFight);
-  }
-
-  if (!modeOk || p.aiModeT <= 0) {
-    if (carrying) commitMode(p, "deliver", 99);
-    else if (helpCand) commitMode(p, "help", 9 + seed(p) * 3);
-    else if (wantEngage && (enemyCarrier || enemyDist < 24 || Math.random() < 0.55 + agg * 0.3)) {
-      p.aiFight = 4 + agg * 3;
+  const pick = utilBest(p, {
+    mood,
+    carrying,
+    enemy,
+    enemyDist,
+    enemyCarrier,
+    ball: ballCand,
+    help: helpCand,
+    loot,
+    needCharge,
+    inHomeAir,
+    lowHp,
+    agg,
+  });
+  const interrupt = pick === "fight" && p.aiMode !== "fight" && p.aiMode !== "deliver";
+  if (interrupt || p.aiMode !== pick || p.aiModeT <= 0) {
+    if (pick === "fight" && enemy) {
       p.aiFoe = enemy;
+      p.aiFight = 5 + agg * 3 + Math.max(0, mood.front) * 3;
       commitMode(p, "fight", p.aiFight);
-    } else if (ballCand) commitMode(p, "ball", 10 + seed(p) * 4);
-    else if (p.aiRaid > 0 && loot.length) commitMode(p, "raid", Math.min(12, p.aiRaid));
-    else if (needCharge) commitMode(p, "charge", 2.2 + seed(p));
+    } else if (pick === "deliver") commitMode(p, "deliver", 99);
+    else if (pick === "help") commitMode(p, "help", 8 + seed(p) * 3);
+    else if (pick === "ball") commitMode(p, "ball", 9 + seed(p) * 4);
+    else if (pick === "raid") {
+      p.aiRaid = Math.max(p.aiRaid || 0, 12);
+      commitMode(p, "raid", 10);
+    } else if (pick === "charge") commitMode(p, "charge", 2.2 + seed(p));
     else {
       if (p.aiWander <= 0) {
         p.aiHeading = p.yaw + (seed(p) - 0.5) * 0.9;
         p.aiWander = 4 + seed(p) * 4;
       }
-      commitMode(p, "wander", Math.max(2.5, p.aiWander));
+      commitMode(p, "wander", Math.max(2.2, p.aiWander));
     }
   }
-
-  // Pelea oportunista aunque estén en ball (menos urgente)
-  if (
-    wantEngage &&
-    !carrying &&
-    p.aiMode !== "help" &&
-    p.aiMode !== "deliver" &&
-    p.aiFight <= 0 &&
-    Math.random() < (enemyCarrier ? 0.045 : 0.022) * dt * 60
-  ) {
-    p.aiFight = 3.5 + agg * 2.8;
-    p.aiFoe = enemy;
-    commitMode(p, "fight", p.aiFight);
-  }
+  if (p.aiMode === "fight" && enemy) p.aiFoe = enemy;
 
   let dir = new THREE.Vector3();
   let ball = ballCand;
   let help = helpCand;
   const foe = p.aiFoe || enemy;
   const fighting = p.aiMode === "fight" && foe && !lowHp;
+  if (p.canSsj) {
+    const ratio = p.s.ki / p.s.kiMax;
+    if (fighting && ratio > 0.42) p.setSsj(true);
+    else if (ratio < 0.18) p.setSsj(false);
+  }
   const raiding = p.aiMode === "raid" && loot.length > 0;
 
   if (p.aiMode === "deliver" && carrying) {
@@ -618,52 +650,68 @@ export function aiTick(p, people, balls, combat, match, dt) {
     const dist = foe.pos().distanceTo(p.pos());
     const rng = powerStyle(p.nombre, p.faccion).range || 55;
     dir.set(foe.pos().x - p.pos().x, 0, foe.pos().z - p.pos().z);
+    const preferKi = mood.ki > 0.22 && (mood.front < 0.15 || p.s.ki > 14);
+    const hold = preferKi ? Math.min(22, rng * (mood.front < 0 ? 0.42 : 0.32)) : 4.2;
     const inKiRange = dist < rng * 0.92 && dist > 2.2;
-    const close = dist < 3.2;
-    // Flanqueo: aproximarse desde un ángulo lateral
-    const approachYaw = dist > 4.5 ? flankAngle(p, foe, dt) : Math.atan2(dir.x, dir.z);
-    smoothYaw(p, approachYaw, dt, 6);
+    const close = dist < 3.4;
+    const lockChance = (0.012 + agg * 0.02 + Math.max(0, mood.front) * 0.025) * dt * 60;
+    const locked = (p.lockFoe === foe && (p.lockT || 0) > 0) || (dist < rng * 0.88 && Math.random() < lockChance);
+    if (locked) faceLock(p, foe, dt, 1.25 + agg * 0.8);
+    else {
+      p.lockT = Math.max(0, (p.lockT || 0) - dt);
+      const approachYaw = dist > 4.5 ? flankAngle(p, foe, dt) : Math.atan2(dir.x, dir.z);
+      smoothYaw(p, approachYaw, dt, 6);
+    }
+    const lookYaw = Math.atan2(dir.x, dir.z);
     if (dir.lengthSq() > 0.4) {
       dir.normalize();
-      // Mantener ~media distancia para ki; cerrar si ki bajo
-      if (p.s.ki < 10 && dist > 2.4) p.move(dir, true, dt);
-      else if (dist > Math.min(18, rng * 0.35)) {
-        // Moverse con ángulo de flanqueo en vez de directo
-        const fd = new THREE.Vector3(Math.sin(approachYaw), 0, Math.cos(approachYaw));
-        fd.lerp(dir, 0.3).normalize();
-        p.move(fd, dist > 10, dt);
-      }
-      else if (dist < 5.5 && p.s.ki > 14) p.move(dir.clone().multiplyScalar(-1), false, dt);
+      const side = seed(p) > 0.5 ? 1 : -1;
+      const strafe = new THREE.Vector3(Math.cos(lookYaw) * side, 0, -Math.sin(lookYaw) * side);
+      if (mood.hp < 0.32 && mood.front < 0.1 && dist < 8) p.move(dir.clone().multiplyScalar(-1), true, dt);
+      else if (p.s.ki < 10 && dist > 2.4) p.move(dir, true, dt);
+      else if (dist > hold) {
+        const fd = dir.clone().lerp(strafe, locked ? 0.35 : 0.22).normalize();
+        p.move(fd, dist > 8, dt);
+      } else if (dist < hold * 0.55 && p.s.ki > 12 && preferKi) p.move(dir.clone().multiplyScalar(-1).lerp(strafe, 0.4).normalize(), false, dt);
+      else if (locked) p.move(strafe, false, dt);
     }
-    if (inKiRange && p.s.ki >= 12 && Math.random() < 0.22) {
-      combat.blast(p, p.s.ki > p.s.kiMax * 0.78 && Math.random() < 0.25, people, dist > 48);
+    const blastOdds = (mood.front < 0 ? 0.28 : 0.16) * (mood.ki > 0.35 ? 1.25 : 0.7) * (locked ? 1.2 : 1);
+    if (inKiRange && p.s.ki >= 12 && Math.random() < blastOdds) {
+      combat.blast(p, p.s.ki > p.s.kiMax * 0.78 && mood.front > 0.2 && Math.random() < 0.25, people, dist > 48);
     }
-    if (close && Math.random() < 0.14) combat.melee(p, people);
-  } else if (raiding) {
-    const t = loot.reduce((a, b) => {
-      const da = Math.hypot(a.mesh.position.x - p.pos().x, a.mesh.position.z - p.pos().z);
-      const db = Math.hypot(b.mesh.position.x - p.pos().x, b.mesh.position.z - p.pos().z);
-      return db < da ? b : a;
-    });
-    const far = Math.abs(p.pos().z - t.mesh.position.z) > 70;
-    if (far) dir.set((p.aiRaidX || 90) - p.pos().x, 0, t.mesh.position.z - p.pos().z);
-    else dir.set(t.mesh.position.x - p.pos().x, 0, t.mesh.position.z - p.pos().z);
-  } else if (p.aiMode === "help" && help) {
-    dir.set(help.pos().x - p.pos().x, 0, help.pos().z - p.pos().z);
-  } else if (p.aiMode === "ball" && ball) {
-    dir.set(ball.mesh.position.x - p.pos().x, 0, ball.mesh.position.z - p.pos().z);
-  } else if (p.aiMode === "charge") {
-    dir.set(0, 0, 0);
-    p.aiCharge = true;
+    const meleeOdds = close ? (mood.front > 0.2 ? 0.22 : 0.1) : 0;
+    if (close && Math.random() < meleeOdds) combat.melee(p, people);
   } else {
-    if (p.aiWander <= 0) {
-      p.aiHeading = p.yaw + (seed(p) - 0.5) * 0.8;
-      p.aiWander = 4 + seed(p) * 4;
-    }
-    dir.set(Math.sin(p.aiHeading), 0, Math.cos(p.aiHeading));
-    if (inHomeAir) {
-      dir.set(p.pos().x, 0, p.pos().z - homeZ);
-      if (dir.lengthSq() < 4) dir.set(Math.sin(p.aiHeading), 0, Math.cos(p.aiHeading));
+    if ((p.lockT || 0) > 0) p.lockT = Math.max(0, p.lockT - dt * 2.2);
+    if (p.lockT <= 0) p.lockFoe = null;
+    if (raiding) {
+      const t = loot.reduce((a, b) => {
+        const da = Math.hypot(a.mesh.position.x - p.pos().x, a.mesh.position.z - p.pos().z);
+        const db = Math.hypot(b.mesh.position.x - p.pos().x, b.mesh.position.z - p.pos().z);
+        return db < da ? b : a;
+      });
+      const far = Math.abs(p.pos().z - t.mesh.position.z) > 70;
+      if (far) dir.set((p.aiRaidX || 90) - p.pos().x, 0, t.mesh.position.z - p.pos().z);
+      else dir.set(t.mesh.position.x - p.pos().x, 0, t.mesh.position.z - p.pos().z);
+    } else if (p.aiMode === "help" && help) {
+      dir.set(help.pos().x - p.pos().x, 0, help.pos().z - p.pos().z);
+    } else if (p.aiMode === "ball" && ball) {
+      dir.set(ball.mesh.position.x - p.pos().x, 0, ball.mesh.position.z - p.pos().z);
+    } else if (p.aiMode === "charge") {
+      dir.set(0, 0, 0);
+      p.aiCharge = true;
+    } else {
+      if (p.aiWander <= 0) {
+        p.aiHeading = p.yaw + (seed(p) - 0.5) * 0.8;
+        p.aiWander = 4 + seed(p) * 4;
+      }
+      dir.set(Math.sin(p.aiHeading), 0, Math.cos(p.aiHeading));
+      if (mood.front > 0.3 && !lowHp) dir.set(-p.pos().x * 0.15, 0, enemyZ - p.pos().z);
+      else if (mood.front < -0.28 || lowHp) dir.set(-p.pos().x, 0, homeZ - p.pos().z);
+      if (inHomeAir && mood.front > -0.1) {
+        dir.set(p.pos().x, 0, p.pos().z - homeZ);
+        if (dir.lengthSq() < 4) dir.set(Math.sin(p.aiHeading), 0, Math.cos(p.aiHeading));
+      }
     }
   }
 
@@ -689,7 +737,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
   if (carrying) flyWish = baseDist > 18 && p.aiMode === "deliver";
   else if (mustSwim && !overWater) flyWish = false;
   else if (wetZone) flyWish = true;  // siempre intentar volar para salir del agua
-  else if (p.aiMode === "charge" || fighting) flyWish = false;
+  else if (p.aiMode === "charge" || (fighting && mood.front < 0.2)) flyWish = false;
   else if (kiOk && (goalDist > 90 || p.aiMode === "raid" || (p.aiMode === "ball" && goalDist > 70))) flyWish = true;
   else if (kiOk && isWater(p.pos().x + dir.x * 14, p.pos().z + dir.z * 14)) flyWish = true;
 
@@ -752,24 +800,25 @@ const _to = new THREE.Vector3();
 
 export function updateSeenBars(camera, player, people) {
   camera.getWorldDirection(_fwd);
+  const from = player.pos();
   for (const p of people) {
     const el = p.nameLabel?.element;
     const fill = p.hpFill;
-    if (!el || !fill) continue;
+    if (!el || !fill || !p.hpWrap) continue;
     let seen = false;
-    if (p !== player) {
+    if (p !== player && !p.dead) {
+      const dist = p.pos().distanceTo(from);
       _to.copy(p.pos()).sub(camera.position);
-      const dist = _to.length();
-      _to.y *= 0.4;
-      _to.normalize();
-      seen = dist > 1.2 && dist < (p.faccion === player.faccion ? 86 : 48) && _to.dot(_fwd) > 0.42;
+      const camD = _to.length();
+      _to.y *= 0.3;
+      if (_to.lengthSq() > 1e-8) _to.normalize();
+      const maxD = p.faccion === player.faccion ? 96 : 68;
+      seen = dist > 0.9 && dist < maxD && camD > 1.05 && _to.dot(_fwd) > 0.08;
     }
-    if (p._tagOn !== seen) {
-      p._tagOn = seen;
-      el.style.display = seen ? "" : "none";
-      p.hpWrap.style.display = seen ? "block" : "none";
-      p.nameLabel.visible = seen;
-    }
+    el.style.display = seen ? "" : "none";
+    p.hpWrap.style.display = seen ? "block" : "none";
+    p.nameLabel.visible = seen;
+    p._tagOn = seen;
     if (seen) fill.style.width = `${Math.max(0, (p.s.hp / p.s.hpMax) * 100)}%`;
   }
 }

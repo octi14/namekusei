@@ -20,12 +20,67 @@ export const LOOK = {
   Ginyu: L(0x7e57c2, 0xb39ddb, "ginyu", 0x4a148c, "armor", 0xffffff, { suit: 0x4a148c }),
   Kiwy: L(0x26a69a, 0x80cbc4, "cui", 0x004d40, "soldier", 0x37474f, { helm: 0x00695c }),
   Appule: L(0xab47bc, 0xce93d8, "appule", 0x6a1b9a, "soldier", 0x37474f, { helm: 0x8e24aa }),
+  "Ten Shin Han": L(0x2e7d32, 0xe8b896, "tien", 0x111, "gi", 0x1b5e20, {
+    pants: 0x1b5e20, sash: 0xffeb3b, boots: 0x212121, thirdEye: true,
+  }),
+  Yamcha: L(0xef6c00, 0xe8b896, "goku", 0x1a1208, "gi", 0x1565c0, { pants: 0x1565c0, sash: 0xffeb3b, boots: 0x0d47a1 }),
+  Chaoz: L(0xfafafa, 0xffe0b2, "bald", 0x111, "gi", 0xeeeeee, { pants: 0xf5f5f5, sash: 0x1565c0, boots: 0x37474f }),
+  Yajirobee: L(0xef6c00, 0xe8b896, "bald", 0x111, "brute", 0xbf360c, { pants: 0x6d4c41, boots: 0x3e2723 }),
+  Kami: L(0x2e7d32, 0x66bb6a, "piccolo", 0x1b5e20, "namek", 0xffc107, { cape: 0xfafafa, sash: 0xffc107 }),
+  Nappa: L(0x37474f, 0xe8b896, "bald", 0x111, "brute", 0xffffff, { suit: 0x455a64, boots: 0xffffff }),
+  Raditz: L(0x0d47a1, 0xe8b896, "goku", 0x1a1208, "armor", 0xffffff, { suit: 0x1565c0, scouter: 0xd32f2f, boots: 0xffffff }),
+  Saibaman: L(0x558b2f, 0x7cb342, "bald", 0x33691e, "brute", 0x1b5e20),
+  Trunks: L(0x1565c0, 0xe8b896, "goku", 0x7e57c2, "armor", 0xffffff, { suit: 0x1565c0, boots: 0xffffff }),
+  "Mr. Satan": L(0xc62828, 0xe8b896, "bald", 0x111, "gi", 0xc62828, { pants: 0x212121, sash: 0xffeb3b, boots: 0x212121 }),
+  Cell: L(0x33691e, 0x9ccc65, "frieza", 0x1b5e20, "frost", 0x7cb342, { boots: 0x1b5e20 }),
+  "Nº16": L(0x455a64, 0xb0bec5, "bald", 0x111, "brute", 0x1b5e20, { boots: 0x37474f }),
+  "Nº17": L(0x212121, 0xe8b896, "goku", 0x111111, "gi", 0x1565c0, { pants: 0x1565c0, sash: 0xffeb3b, boots: 0x212121 }),
+  "Nº18": L(0x212121, 0xe8b896, "gohan", 0xffe082, "gi", 0x1565c0, { pants: 0x1565c0, sash: 0xffeb3b, boots: 0x212121 }),
+  "Nº19": L(0xc62828, 0xffcdd2, "bald", 0x111, "brute", 0xb71c1c),
+  "Dr. Gero": L(0x546e7a, 0xbcaaa4, "helm", 0x37474f, "soldier", 0x90a4ae, { helm: 0x455a64 }),
+  "Cell Jr.": L(0x558b2f, 0xaed581, "frieza", 0x33691e, "frost", 0x8bc34a, { boots: 0x33691e }),
 };
+
+const CELL_JR_TINT = [0x9ccc65, 0x66bb6a, 0xaed581, 0x7cb342, 0xc5e1a5, 0x81c784, 0xdce775, 0x4db6ac, 0xba68c8, 0xff8a65];
 
 const SOLDIER_BODY = [0x546e7a, 0x607d8b, 0x455a64, 0x78909c, 0x37474f];
 
-export function lookFor(nombre, faccion, id) {
+export function lookFor(nombre, faccion, id, mapId = "namek") {
+  if (nombre.startsWith("Cell Jr.")) {
+    const n = parseInt(String(id).split("-")[1], 10) || 0;
+    const tint = CELL_JR_TINT[n % CELL_JR_TINT.length];
+    return { ...LOOK["Cell Jr."], who: "celljr", skin: tint, body: tint, accent: tint };
+  }
   if (LOOK[nombre]) return { ...LOOK[nombre], who: nombre };
+  if (mapId === "earth" || mapId === "cell") {
+    const n = parseInt(String(id).split("-")[1], 10) || 0;
+    if (faccion === "f" && mapId === "earth") {
+      return {
+        who: "saiyajin",
+        body: 0x1565c0,
+        skin: 0xe8b896,
+        hair: n % 2 ? "vegeta" : "goku",
+        hairC: 0x1a1208,
+        kit: "armor",
+        accent: 0xffffff,
+        suit: n % 3 === 0 ? 0x0d47a1 : 0x1565c0,
+        scouter: 0xd32f2f,
+        boots: 0xffffff,
+      };
+    }
+    return {
+      who: "terrícola",
+      body: n % 2 ? 0x1565c0 : 0xef6c00,
+      skin: 0xe8b896,
+      hair: n % 3 === 0 ? "bald" : "goku",
+      hairC: 0x1a1208,
+      kit: "gi",
+      accent: 0x1565c0,
+      pants: 0x1565c0,
+      sash: 0xffeb3b,
+      boots: 0x0d47a1,
+    };
+  }
   if (faccion === "z") {
     return {
       who: "namek",

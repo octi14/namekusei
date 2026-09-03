@@ -1,15 +1,16 @@
 import * as THREE from "three";
 import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
-import { TEAM_SIZE } from "./config.js";
+import { TEAM_SIZE, superRank } from "./config.js";
 import { createWorld, updateWorld, WATER_Y } from "./world.js";
 import { buildRoster } from "./roster.js";
+import { setScenario, current } from "./scenario.js";
 import { Personaje, resolvePeople } from "./personaje.js";
 import { DragonBalls } from "./dragonBalls.js";
 import { Match } from "./match.js";
 import { Combat } from "./combat.js";
 import { PlayerCamera, aiTick, updateSeenBars } from "./cameraAi.js";
 import { renderHud } from "./ui.js";
-import { setAudioListener } from "./sfx.js";
+import { setAudioListener, playSfx, stopSfxLoop, atPos } from "./sfx.js";
 import { powerStyle } from "./powers.js";
 
 const canvas = document.getElementById("c");
@@ -27,25 +28,28 @@ labelR.domElement.style.pointerEvents = "none";
 document.getElementById("hud").prepend(labelR.domElement);
 
 const scene = new THREE.Scene();
-const skyTex = (() => {
+function makeSky(stops) {
   const c = document.createElement("canvas");
   c.width = 8;
   c.height = 256;
   const g = c.getContext("2d");
   const grd = g.createLinearGradient(0, 0, 0, 256);
-  grd.addColorStop(0, "#8bc34a");
-  grd.addColorStop(0.32, "#cddc39");
-  grd.addColorStop(0.62, "#dce775");
-  grd.addColorStop(1, "#fff59d");
+  for (const [t, col] of stops) grd.addColorStop(t, col);
   g.fillStyle = grd;
   g.fillRect(0, 0, 8, 256);
   const sky = new THREE.CanvasTexture(c);
   sky.colorSpace = THREE.SRGBColorSpace;
   sky.magFilter = THREE.LinearFilter;
   return sky;
-})();
+}
+let skyTex = makeSky([
+  [0, "#8bc34a"],
+  [0.32, "#cddc39"],
+  [0.62, "#dce775"],
+  [1, "#fff59d"],
+]);
 scene.background = skyTex;
-const fogLand = new THREE.Fog(0x9ccc65, 90, 1200);
+let fogLand = new THREE.Fog(0x9ccc65, 220, 1600);
 const fogWater = new THREE.Fog(0x0277bd, 3, 70);
 scene.fog = fogLand;
 const uwEl = document.getElementById("uw");
@@ -53,38 +57,79 @@ const colWater = new THREE.Color(0x01579b);
 let underWater = false;
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 2600);
 const _earFwd = new THREE.Vector3();
-createWorld(scene);
+camera.position.set(0, 48, 90);
 
-const roster = buildRoster();
-const zTeam = roster.filter((r) => r.faccion === "z");
-const fTeam = roster.filter((r) => r.faccion === "f");
-const people = roster.map((def) => {
-  const team = def.faccion === "z" ? zTeam : fTeam;
-  const i = team.indexOf(def);
-  return new Personaje(def, i, TEAM_SIZE, scene);
-});
-
-const balls = new DragonBalls(scene);
-const match = new Match();
-const cam = new PlayerCamera(camera);
-const combat = new Combat(scene, balls, cam, match);
-let player = people.find((p) => p.nombre === "Gokú");
-player.controller = "humano";
-player.nameLabel.element.classList.add("yo");
-const lockEl = document.createElement("div");
-lockEl.className = "lock-xh";
-lockEl.innerHTML = "<i></i><i></i><i></i><i></i>";
-const lockMark = new CSS2DObject(lockEl);
-lockMark.visible = false;
+let people = [];
+let balls;
+let match;
+let cam;
+let combat;
+let player;
+let worldReady = false;
 
 const keys = new Set();
 let keysOn = true;
 let locked = false;
 let menuOpen = false;
 const menuEl = document.getElementById("menu");
-
 let spectating = false;
 let spectateIdx = 0;
+
+function applyLabels() {
+  document.getElementById("sc-f-lab").textContent = current.fShort;
+  document.getElementById("tab-f-h").textContent = current.fLabel;
+  document.getElementById("menu-f-h").textContent = current.fLabel;
+}
+
+function startGame(id) {
+  setScenario(id);
+  if (id === "earth" || id === "cell") {
+    skyTex = makeSky([
+      [0, "#1565c0"],
+      [0.35, "#42a5f5"],
+      [0.7, "#90caf9"],
+      [1, "#e3f2fd"],
+    ]);
+    fogLand = new THREE.Fog(id === "earth" ? 0x7cb342 : 0x90caf9, id === "earth" ? 70 : 220, id === "earth" ? 680 : 1600);
+  } else {
+    skyTex = makeSky([
+      [0, "#8bc34a"],
+      [0.32, "#cddc39"],
+      [0.62, "#dce775"],
+      [1, "#fff59d"],
+    ]);
+    fogLand = new THREE.Fog(0x9ccc65, 220, 1600);
+  }
+  scene.background = skyTex;
+  scene.fog = fogLand;
+  createWorld(scene, id);
+  const roster = buildRoster(id);
+  const zTeam = roster.filter((r) => r.faccion === "z");
+  const fTeam = roster.filter((r) => r.faccion === "f");
+  people = roster.map((def) => {
+    const team = def.faccion === "z" ? zTeam : fTeam;
+    const i = team.indexOf(def);
+    return new Personaje(def, i, TEAM_SIZE, scene);
+  });
+  balls = new DragonBalls(scene);
+  match = new Match();
+  cam = new PlayerCamera(camera);
+  combat = new Combat(scene, balls, cam, match);
+  player = people.find((p) => p.nombre === "Gokú") || people[0];
+  player.controller = "humano";
+  player.nameLabel.element.classList.add("yo");
+  fillMenu();
+  applyLabels();
+  worldReady = true;
+  document.getElementById("boot").style.display = "none";
+  document.getElementById("click-msg").style.display = "flex";
+}
+
+const lockEl = document.createElement("div");
+lockEl.className = "lock-xh";
+lockEl.innerHTML = "<i></i><i></i><i></i><i></i>";
+const lockMark = new CSS2DObject(lockEl);
+lockMark.visible = false;
 
 function viewChar() {
   return spectating ? people[spectateIdx] : player;
@@ -94,7 +139,8 @@ function setMenu(open) {
   menuOpen = open;
   menuEl.classList.toggle("open", open);
   if (open) document.exitPointerLock();
-  document.getElementById("click-msg").style.display = locked || open ? "none" : "flex";
+  document.getElementById("click-msg").style.display =
+    !worldReady || locked || open ? "none" : "flex";
 }
 
 function takeControl(p) {
@@ -135,7 +181,6 @@ function fillMenu() {
     }
   }
 }
-fillMenu();
 document.getElementById("btn-continuar").onclick = () => setMenu(false);
 document.getElementById("btn-spectate").onclick = () => startSpectate();
 
@@ -155,16 +200,18 @@ document.getElementById("click-msg").onclick = () => {
 };
 document.addEventListener("pointerlockchange", () => {
   locked = document.pointerLockElement === canvas;
-  document.getElementById("click-msg").style.display = locked || menuOpen ? "none" : "flex";
-  if (locked) match.start();
+  document.getElementById("click-msg").style.display =
+    !worldReady || locked || menuOpen ? "none" : "flex";
+  if (locked && match) match.start();
 });
 addEventListener("mousemove", (e) => {
   if (!locked) return;
   if (spectating) cam.orbit -= e.movementX * 0.00115;
   else player.yaw -= e.movementX * 0.00115;
-  cam.pitch = Math.max(-1.15, Math.min(0.85, cam.pitch - e.movementY * 0.0009));
+  cam.pitch = Math.max(-1.45, Math.min(1.28, cam.pitch - e.movementY * 0.00135));
 });
 addEventListener("keydown", (e) => {
+  if (!worldReady) return;
   if (e.code === "KeyM") {
     e.preventDefault();
     setMenu(!menuOpen);
@@ -190,7 +237,7 @@ addEventListener("keydown", (e) => {
   if (menuOpen || match.phase !== "play") return;
   if (spectating) return;
   if (e.code === "KeyQ") lockOn();
-  if (e.code === "KeyT") combat.blast(player, false, people, true);
+  if (e.code === "KeyB") player.setSsj(!player.ssj);
 });
 addEventListener("keyup", (e) => keys.delete(e.code));
 addEventListener("mousedown", (e) => {
@@ -234,6 +281,10 @@ function loop(now) {
   if (now - lastDraw < 1000 / FPS) return;
   lastDraw = now;
   const dt = Math.min(0.05, clock.getDelta());
+  if (!worldReady) {
+    renderer.render(scene, camera);
+    return;
+  }
   if (!menuOpen) match.tick(dt);
   if (match.banner === "GO" && match.flash !== loop._go) {
     loop._go = match.flash;
@@ -277,15 +328,29 @@ function loop(now) {
         player.grabT = 0;
         player._grabbing = false;
       }
-      if (keys.has("Space") && (player.flyAlt > 0.22 || player.inSwim())) player.climb(dt);
+      if (keys.has("Space") && (player._launched || player.inSwim())) player.climb();
       if (keys.has("KeyC")) player.descend(dt);
       if (keys.has("KeyF")) {
         if (player.superHold !== -99) {
+          if (!player._sfxSuper) {
+            const [x, y, z] = atPos(player);
+            playSfx("chargingBigBlast", x, y, z, 0.5);
+            playSfx("chargingSuperLoop", x, y, z, 0.35, true);
+            if (player.nombre === "Gokú" && superRank(player.s.ki, player.s.kiMax, player.s.ataque) >= 3)
+              playSfx("kameCharge", x, y, z, 0.55);
+            player._sfxSuper = true;
+          }
           player.superHold = (player.superHold || 0) + dt;
           if (player.superHold >= 0.42 && combat.blast(player, true, people))
             player.superHold = -99;
         }
-      } else player.superHold = 0;
+      } else {
+        if (player._sfxSuper) {
+          stopSfxLoop("chargingSuperLoop");
+          player._sfxSuper = false;
+        }
+        player.superHold = 0;
+      }
     }
     for (const p of people) {
       if (spectating || p !== player) aiTick(p, people, balls, combat, match, dt);
@@ -338,3 +403,6 @@ function loop(now) {
   labelR.render(scene, camera);
 }
 requestAnimationFrame(loop);
+document.querySelectorAll("#boot [data-map]").forEach((b) => {
+  b.onclick = () => startGame(b.dataset.map);
+});

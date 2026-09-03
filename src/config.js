@@ -17,6 +17,6 @@ export function superRank(ki, kiMax, atk) {
 export const MATCH_SEC = 15 * 60;
 export const STAT_FLOOR = 0.4;
 export const DEATH_MULT = 0.97;
-export const HP_REGEN = 0.4;
+export const HP_REGEN = 4;
 export const KI_REGEN = 18;
 export const KI_REGEN_PASSIVE = 2.2;

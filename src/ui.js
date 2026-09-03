@@ -1,7 +1,19 @@
 import { superRank, MAP, BASE_Z } from "./config.js";
 import { logLines, logVersion } from "./log.js";
+import { current } from "./scenario.js";
 import { powerStyle } from "./powers.js";
 
+function paintNames(text, people) {
+  if (!people?.length) return text;
+  const names = [...new Set(people.map((o) => o.nombre))].sort((a, b) => b.length - a.length);
+  let s = text;
+  for (const n of names) {
+    const fac = people.find((o) => o.nombre === n)?.faccion;
+    if (!fac) continue;
+    s = s.split(n).join(`<span class="nm-${fac}">${n}</span>`);
+  }
+  return s;
+}
 let lastLog = -1;
 let lastFlash = -1;
 
@@ -28,11 +40,24 @@ function drawMinimap(p, people, balls) {
   ctx.beginPath();
   ctx.arc(fx, fz, br, 0, Math.PI * 2);
   ctx.fill();
-  const vis = powerStyle(p.nombre, p.faccion).range || 50;
+  const visMe = powerStyle(p.nombre, p.faccion).range || 50;
   for (const o of people) {
     if (o.dead) continue;
     const foe = o.faccion !== p.faccion;
-    if (foe && o.esfera == null && o.pos().distanceTo(p.pos()) > vis) continue;
+    if (foe && o.esfera == null) {
+      let spotted = o.pos().distanceTo(p.pos()) <= visMe;
+      if (!spotted) {
+        for (const a of people) {
+          if (a === o || a.dead || a.faccion !== p.faccion) continue;
+          const vis = powerStyle(a.nombre, a.faccion).range || 50;
+          if (o.pos().distanceTo(a.pos()) <= vis) {
+            spotted = true;
+            break;
+          }
+        }
+      }
+      if (!spotted) continue;
+    }
     const [px, pz] = mmap(ctx, o.pos().x, o.pos().z);
     const team = o.faccion === "z" ? "#ff5252" : "#40c4ff";
     if (o === p) {
@@ -93,7 +118,7 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
   const name = document.getElementById("pl-name");
   name.textContent = p.nombre;
   name.className = `who ${p.faccion}`;
-  document.getElementById("pl-team").textContent = p.faccion === "z" ? "GUERREROS Z" : "FREEZER";
+  document.getElementById("pl-team").textContent = p.faccion === "z" ? current.zLabel : current.fLabel;
   document.getElementById("bar-hp").style.width = `${hp}%`;
   document.getElementById("bar-ki").style.width = `${ki}%`;
   const kiWrap = document.getElementById("bar-ki-wrap");
@@ -125,12 +150,11 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
             ? `<svg class="ko-ic ki" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 1.6 13.8 9l7.6 1.2-6.2 4.6 2 7.4L12 18.2 6.8 22.2l2-7.4L2.6 10.2 10.2 9z"/></svg>`
             : `<svg class="ko-ic fist" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8.2 10.2V6.4a1.8 1.8 0 1 1 3.6 0v3.8h.9V7.2a1.8 1.8 0 1 1 3.6 0v3h.9V8.1a1.8 1.8 0 1 1 3.6 0V15a5.4 5.4 0 0 1-5.4 5.4H11A5.2 5.2 0 0 1 5.8 15v-2.2a1.8 1.8 0 1 1 3.6 0v-.4H8.2z"/></svg>`;
           const drop = l.drop ? `<span class="ko-drop">${l.drop}</span>` : "";
-          return `<li class="log-${l.team || "x"}">${l.a}${ic}${l.b}${drop}</li>`;
+          return `<li class="log-${l.team || "x"}">${paintNames(l.a, people)}${ic}${paintNames(l.b, people)}${drop}</li>`;
         }
-        return `<li class="log-${l.team || "x"}">${l.msg}</li>`;
+        return `<li class="log-${l.team || "x"}">${paintNames(l.msg, people)}</li>`;
       })
       .join("");
-    document.getElementById("log-scroll").scrollTop = 9999;
   }
   document.getElementById("panel-keys").classList.toggle("hidden", !keysOn);
   const an = document.getElementById("announce");
@@ -147,6 +171,13 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
   } else {
     an.style.display = "none";
   }
+  const toast = document.getElementById("ball-toast");
+  if (match.toast && match.phase === "play") {
+    const d = match.toast;
+    const team = d.faccion === "z" ? current.zLabel : current.fLabel;
+    toast.className = `on ${d.faccion}`;
+    toast.innerHTML = `<b>${d.nombre}</b> depositó la esfera ${d.n} · ${team} ${match.score.z}–${match.score.f}`;
+  } else toast.className = "";
   document.getElementById("hud").classList.toggle("koed", p.dead);
   const ko = document.getElementById("ko-fx");
   if (p.dead) {
@@ -159,7 +190,7 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
         : `<svg class="ko-ic" viewBox="0 0 24 24"><path fill="currentColor" d="M8.2 10.2V6.4a1.8 1.8 0 1 1 3.6 0v3.8h.9V7.2a1.8 1.8 0 1 1 3.6 0v3h.9V8.1a1.8 1.8 0 1 1 3.6 0V15a5.4 5.4 0 0 1-5.4 5.4H11A5.2 5.2 0 0 1 5.8 15v-2.2a1.8 1.8 0 1 1 3.6 0v-.4H8.2z"/></svg>`;
       by.innerHTML = `${ic}<span>${p.killedBy}</span>`;
     } else by.textContent = "CAÍDA";
-    const t = Math.max(0, p.deadT / 2.8);
+    const t = Math.max(0, p.deadT / Math.max(0.2, p.deadMax || 2.8));
     document.getElementById("ko-bar").style.transform = `scaleX(${t})`;
     document.getElementById("ko-sub").textContent = `REAPARECE EN ${Math.ceil(p.deadT)}`;
   } else ko.classList.remove("on");

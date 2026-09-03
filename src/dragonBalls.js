@@ -1,7 +1,13 @@
 import * as THREE from "three";
 import { MAP, BASE_Z } from "./config.js";
 import { log } from "./log.js";
-import { surfaceHeight } from "./world.js";
+import { surfaceHeight, groundHeight, WATER_Y, isWater } from "./world.js";
+
+function ballRestY(x, z) {
+  const floor = groundHeight(x, z) + 0.55;
+  if (floor >= WATER_Y + 0.2) return floor;
+  return Math.max(floor, WATER_Y - 1.7);
+}
 
 export class DragonBalls {
   constructor(scene) {
@@ -11,12 +17,17 @@ export class DragonBalls {
   }
 
   spawn(n) {
-    const m = MAP / 2 - 16;
-    let x, z;
+    const m = MAP / 2 - 40;
+    let x, z, tries = 0;
     do {
-      x = (Math.random() * 2 - 1) * (m * 0.55);
-      z = (Math.random() * 2 - 1) * 220;
-    } while (Math.abs(z) > BASE_Z - 16 && Math.abs(x) < 16);
+      x = (Math.random() * 2 - 1) * m;
+      z = (Math.random() * 2 - 1) * m;
+      tries++;
+    } while (
+      tries < 70 &&
+      (groundHeight(x, z) < WATER_Y + 2.2 ||
+        (Math.abs(z) > BASE_Z - 48 && Math.abs(x) < 22))
+    );
     const g = new THREE.Group();
     const ball = new THREE.Mesh(
       new THREE.SphereGeometry(0.48, 16, 14),
@@ -58,18 +69,22 @@ export class DragonBalls {
     g.add(ring);
     g.position.set(x, surfaceHeight(x, z) + 0.55, z);
     this.scene.add(g);
-    this.items.push({ n, mesh: g, ball, glow, ring, held: false, inBase: null, cold: 0, pulse: Math.random() * 6 });
+    this.items.push({ n, mesh: g, ball, glow, ring, held: false, inBase: null, cold: 0, pulse: Math.random() * 6, vy: 0 });
   }
 
   near(personaje) {
     if (personaje.esfera != null) return null;
-    if ((personaje.flyAlt || 0) > 0.35) return null;
+    const wetP = personaje.inSwim?.() || isWater(personaje.pos().x, personaje.pos().z);
+    if (!wetP && (personaje.flyAlt || 0) > 0.35) return null;
     const p = personaje.pos();
     for (const b of this.items) {
       if (b.held || b.cold > 0) continue;
       if (b.inBase === personaje.faccion) continue;
-      if (Math.abs(p.y - b.mesh.position.y) > 2.4) continue;
-      if (Math.hypot(b.mesh.position.x - p.x, b.mesh.position.z - p.z) < 2.2) return b;
+      const wetB = isWater(b.mesh.position.x, b.mesh.position.z);
+      const yMax = wetP || wetB ? 6.2 : 3.6;
+      if (Math.abs(p.y - b.mesh.position.y) > yMax) continue;
+      const xz = wetP || wetB ? 3.4 : 2.2;
+      if (Math.hypot(b.mesh.position.x - p.x, b.mesh.position.z - p.z) < xz) return b;
     }
     return null;
   }
@@ -98,13 +113,24 @@ export class DragonBalls {
     b.inBase = null;
     b.cold = 0.7;
     b.mesh.visible = true;
-    b.mesh.position.set(x, surfaceHeight(x, z) + 0.55, z);
+    b.vy = 2.4;
+    b.mesh.position.set(x, surfaceHeight(x, z) + 1.1, z);
   }
 
   tick(dt) {
     for (const b of this.items) {
       b.cold = Math.max(0, (b.cold || 0) - dt);
       if (b.held) continue;
+      if (!b.inBase) {
+        const rest = ballRestY(b.mesh.position.x, b.mesh.position.z);
+        const wet = rest < WATER_Y + 0.15;
+        b.vy = (b.vy || 0) - (wet ? 14 : 28) * dt;
+        b.mesh.position.y += b.vy * dt;
+        if (b.mesh.position.y <= rest) {
+          b.mesh.position.y = rest;
+          b.vy = 0;
+        }
+      }
       b.pulse = (b.pulse || 0) + dt * 3.2;
       const p = 1 + Math.sin(b.pulse) * 0.08;
       b.mesh.scale.setScalar(p);

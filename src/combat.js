@@ -2,6 +2,13 @@ import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { SUPER_KI, superRank } from "./config.js";
 import { powerStyle, makePowerMesh, alignBeam, spawnBurst, spawnClash, spawnHit, spawnMuzzle, spawnMeleeArc } from "./powers.js";
+import { playSfx, atPos, stopSfxLoop } from "./sfx.js";
+
+function meleeYOk(at, t) {
+  const ay = at.pos().y + at.height * 0.55;
+  const ty = t.pos().y + t.height * 0.55;
+  return Math.abs(ay - ty) <= 1.85;
+}
 
 function fwd(yaw) {
   return new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
@@ -30,9 +37,22 @@ export class Combat {
     at.combo = step + 1;
     at.comboT = now;
     at.punchStep = step;
-    at.posePunch = step === 2 ? 0.48 : 0.34;
-    at.cooldown = step === 2 ? 0.78 : 0.36;
-    at._runT = Math.min(at._runT || 0, 0.15);
+    const flying = (at.flyAlt || 0) > 0.38 && (at.flyBlend || 0) > 0.28;
+    const dash = flying && ((at.rush || 0) > 0.7 || at.didMove);
+    at.airMelee = flying ? (dash ? "elbow" : "upright") : null;
+    at.posePunch = at.airMelee === "elbow" ? 0.42 : step === 2 ? 0.48 : 0.34;
+    at.cooldown = at.airMelee === "elbow" ? 0.52 : step === 2 ? 0.78 : 0.36;
+    {
+      const [sx, sy, sz] = atPos(at);
+      playSfx(step === 2 ? "throwKick" : "throwPunch", sx, sy, sz, 0.42);
+    }
+    if (at.airMelee !== "elbow") at._runT = Math.min(at._runT || 0, 0.15);
+    if (at.airMelee === "elbow") {
+      const dashF = fwd(at.yaw);
+      at.vx += dashF.x * 20;
+      at.vz += dashF.z * 20;
+      at.punchLunge = Math.max(at.punchLunge || 0, 0.55);
+    }
     let best = null;
     let bestS = 9;
     const origin = at.pos();
@@ -41,7 +61,7 @@ export class Combat {
       const d = t.pos().clone().sub(origin);
       d.y = 0;
       const dist = d.length();
-      if (dist > 2.7 || dist < 0.2) continue;
+      if (dist > 2.7 || dist < 0.2 || !meleeYOk(at, t)) continue;
       d.normalize();
       const side = d.dot(fwd(at.yaw));
       const score = dist - (side > 0.25 ? 1.4 : 0);
@@ -62,16 +82,16 @@ export class Combat {
     const f = fwd(at.yaw);
     const finisher = step === 2;
     spawnMeleeArc(this.scene, origin.clone().setY(origin.y + at.height * (finisher ? 0.42 : 0.62)), at.yaw, this.fx);
-    const reach = finisher ? 2.55 : 2.15;
+      const reach = at.airMelee === "elbow" ? 3.15 : finisher ? 2.55 : 2.15;
     for (const t of all) {
       if (t.faccion === at.faccion || t === at || t.dead) continue;
       const d = t.pos().clone().sub(origin);
       d.y = 0;
-      if (d.length() > reach) continue;
+      if (d.length() > reach || !meleeYOk(at, t)) continue;
       if (d.normalize().dot(f) < 0.32) continue;
       // Parry: si la víctima está atacando justo ahora (ventana ~0.15s), contraataca
       if ((t.posePunch || 0) > 0.19 && (t.posePunch || 0) < 0.34) {
-        const parryDmg = Math.max(1, Math.round((t.s.ataque * 14) / (8 + at.s.defensa)));
+        const parryDmg = Math.max(1, Math.round((t.s.ataque * 140) / (8 + at.s.defensa)));
         const pH = at.pos().clone(); pH.y += at.height * 0.7;
         spawnHit(this.scene, pH, this.fx, d.clone().negate());
         this.jolt(pH, 0.32);
@@ -84,10 +104,15 @@ export class Combat {
         if (at.s.hp <= 0) { this.match.noteKill(t, at); t.st.k++; at.st.d++; at.die(this.balls, t, false); }
         continue;
       }
-      let dmg = Math.max(1, Math.round((at.s.ataque * (finisher ? 16 : 10)) / (8 + t.s.defensa)));
+      let dmg = Math.max(1, Math.round((at.s.ataque * (finisher ? 160 : 100)) / (8 + t.s.defensa)));
       const hitP = t.pos().clone();
       hitP.y += t.height * 0.7;
       spawnHit(this.scene, hitP, this.fx, f);
+      {
+        const [hx, hy, hz] = atPos(t);
+        playSfx(finisher ? "kickHit" : "bodyHit", hx, hy, hz, 0.55);
+        playSfx("bodyGetsHit", hx, hy, hz, 0.38);
+      }
       this.jolt(hitP, finisher ? 0.28 : 0.16);
       at.hitstop = Math.max(at.hitstop || 0, finisher ? 0.12 : 0.07);
       t.hitstop = Math.max(t.hitstop || 0, finisher ? 0.12 : 0.07);
@@ -112,7 +137,18 @@ export class Combat {
     at.s.ki -= superOn ? need * (0.38 + rank * 0.16) : need;
     at.cooldown = superOn ? 1.05 + rank * 0.18 : snipe ? 0.62 : 0.38;
     at.poseBlast = superOn ? 0.48 + rank * 0.12 : snipe ? 0.42 : 0.32;
-    const dir = fwd(at.yaw);
+    {
+      const [sx, sy, sz] = atPos(at);
+      if (superOn) {
+        stopSfxLoop("chargingSuperLoop");
+        at._sfxSuper = false;
+        playSfx(at.faccion === "f" ? "freezerSuperInit" : rank >= 2 ? "bestBigInit" : "enhancedBigInit", sx, sy, sz, 0.62);
+        playSfx("bigBlastShoot", sx, sy, sz, 0.7);
+        if (at.nombre === "Gokú" && rank >= 3) playSfx("kameShoot", sx, sy, sz, 0.75);
+      } else if (snipe || style.kind === "beam") playSfx("longBlastShoot", sx, sy, sz, 0.55);
+      else playSfx(Math.random() < 0.5 ? "smallBlast" : "smallBlastShoot2", sx, sy, sz, 0.5);
+    }
+    const dir = this.shotDir(at);
     const mesh = makePowerMesh(style, superOn, rank);
     mesh.position.copy(at.pos()).addScaledVector(dir, 1.4);
     mesh.position.y = at.pos().y + at.height * 0.7;
@@ -124,8 +160,8 @@ export class Combat {
     spawnMuzzle(this.scene, hand.clone().add(off), style.color, this.fx);
     spawnMuzzle(this.scene, hand.clone().sub(off), style.color, this.fx);
     const dmg = superOn
-      ? Math.round((18 + at.s.kiMax * 0.12) * (0.78 + rank * 0.36))
-      : Math.round((snipe ? 6 : 8) + at.s.kiMax * 0.04);
+      ? Math.round((180 + at.s.kiMax * 1.2) * (0.78 + rank * 0.36))
+      : Math.round((snipe ? 60 : 80) + at.s.kiMax * 0.4);
     const hitR = (style.r || 0.22) * (superOn ? 1.6 + rank * 0.55 : 1.15) + 0.7;
     const rng = (style.range || 55) * (snipe ? 1.45 : 1) * (superOn ? 1.08 + rank * 0.1 : 1);
     const life = (style.life || 1.4) * (snipe ? 1.5 : 1) * (superOn ? 1.1 + rank * 0.12 : 1);
@@ -145,9 +181,19 @@ export class Combat {
       home: ((superOn ? 0.1 + rank * 0.03 : 0.07) * (style.range > 100 ? 0.7 : 1)),
       aoe: superOn,
       aoeR: superOn ? 6.2 + rank * 3.4 : 0,
+      snipe: !!snipe,
     });
     if (superOn || snipe) this.jolt(at.pos(), snipe ? 0.14 : 0.16 + rank * 0.1);
     return true;
+  }
+
+  shotDir(at) {
+    if (at.controller === "humano" && this.cam?.camera) {
+      const d = new THREE.Vector3();
+      this.cam.camera.getWorldDirection(d);
+      if (d.lengthSq() > 1e-6) return d.normalize();
+    }
+    return fwd(at.yaw);
   }
 
   boom(s, people) {
@@ -155,6 +201,7 @@ export class Combat {
     spawnBurst(this.scene, pos, s.color, this.fx);
     spawnBurst(this.scene, pos, s.color, this.fx);
     this.jolt(pos, 0.42);
+    playSfx("superHitsLand", pos.x, pos.y, pos.z, 0.72);
     for (const t of people) {
       if (t.faccion === s.faccion || t.dead) continue;
       const d = pos.distanceTo(t.pos().clone().setY(t.pos().y + t.height * 0.7));
@@ -208,9 +255,11 @@ export class Combat {
         }
       }
       t.st.d++;
+      t.aiHeat = (t.aiHeat || 0) - 1.15;
       t.hitBy = [];
       t.die(this.balls, atk, ki);
       if (atk) {
+        atk.aiHeat = (atk.aiHeat || 0) + 0.95;
         atk.s.ataque += 1;
         atk.s.defensa += 1;
         atk.s.velocidad += 1;
@@ -318,7 +367,12 @@ export class Combat {
             this.hurt(t, s.dmg, true, s.atk, s.mesh.position);
             spawnBurst(this.scene, s.mesh.position, s.color, this.fx);
             this.jolt(s.mesh.position, 0.2);
+            const hp = s.mesh.position;
+            playSfx(s.snipe || s.kind === "beam" ? "longBlastLand" : "smallBlastHit", hp.x, hp.y, hp.z, 0.5);
           }
+        } else if (!s.aoe) {
+          const hp = s.mesh.position;
+          playSfx(s.snipe || s.kind === "beam" ? "longBlastLand" : "smallBlastLand", hp.x, hp.y, hp.z, 0.4);
         }
         this.scene.remove(s.mesh);
         this.shots.splice(i, 1);

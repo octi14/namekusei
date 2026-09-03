@@ -4,7 +4,7 @@ import { FLY_MAX, HP_REGEN, KI_REGEN, KI_REGEN_PASSIVE, DEATH_MULT, STAT_FLOOR }
 import { spawnPos, clampMap, resolveObstacles, inOwnBase, surfaceHeight, isWater, groundHeight, WATER_Y } from "./world.js";
 import { log, logKill } from "./log.js";
 import { makeBody } from "./body.js";
-import { footstep } from "./sfx.js";
+import { footstep, playSfx, atPos, stopSfxLoop } from "./sfx.js";
 
 const _c = new THREE.Vector3();
 let _trailTex;
@@ -64,6 +64,9 @@ export class Personaje {
     this.yaw = def.faccion === "z" ? 0 : Math.PI;
     this.cooldown = 0;
     this.controller = "ia";
+    this.canSsj = !!def.canSsj;
+    this.ssj = false;
+    this.lookHairC = def.look?.hairC ?? 0x111111;
     this.orig = {
       ataque: this.s.ataque,
       defensa: this.s.defensa,
@@ -166,6 +169,21 @@ export class Personaje {
     this.kiHalo.visible = false;
     this.kiHalo.position.y = this.height * 0.42;
     this.mesh.add(this.kiHalo);
+    this.kiBubble = new THREE.Mesh(
+      new THREE.SphereGeometry(this.height * 1.05, 22, 16),
+      new THREE.MeshBasicMaterial({
+        color: 0x4dd0e1,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      })
+    );
+    this.kiBubble.position.y = this.height * 0.42;
+    this.kiBubble.visible = false;
+    this.mesh.add(this.kiBubble);
+    this._kiBubbleT = 0;
     this._kiCharge = false;
     this._kiPulse = 0;
     this.animT = 0;
@@ -173,8 +191,12 @@ export class Personaje {
     this.limbs = this.mesh.userData.limbs;
     this.dead = false;
     this.deadT = 0;
+    this.deadMax = 2.8;
+    this.aliveFor = 0;
+    this.spawnWave = 0;
     this.stun = 0;
     this.st = { k: 0, a: 0, d: 0, dmg: 0, esf: 0 };
+    this.aiHeat = 0;
     this.hitBy = [];
   }
 
@@ -182,8 +204,26 @@ export class Personaje {
     return this.mesh.position;
   }
 
+  setSsj(on) {
+    if (!this.canSsj) return;
+    on = !!on;
+    if (this.ssj === on) return;
+    this.ssj = on;
+    this.s.ataque = this.orig.ataque * (on ? 1.28 : 1);
+    this.s.velocidad = this.orig.velocidad * (on ? 1.14 : 1);
+    const col = on ? 0xffe082 : this.lookHairC;
+    this.mesh.traverse((o) => {
+      if (o.material?.userData?.ssjHair) o.material.color.setHex(col);
+    });
+    if (this.kiAura?.material) this.kiAura.material.color.setHex(on ? 0xffe082 : 0x80deea);
+  }
+
   tick(dt) {
     this.cooldown = Math.max(0, this.cooldown - dt);
+    if (this.ssj) {
+      this.s.ki = Math.max(0, this.s.ki - dt * 6);
+      if (this.s.ki <= 1) this.setSsj(false);
+    }
     this.iframes = Math.max(0, (this.iframes || 0) - dt);
     this.punchLunge = Math.max(0, (this.punchLunge || 0) - dt * 4);
     this.hitRecoil = Math.max(0, (this.hitRecoil || 0) - dt * 3.5);
@@ -196,21 +236,28 @@ export class Personaje {
     }
     if (this.dead) {
       this.deadT -= dt;
-      this.flyAlt = 0;
-      this.swim = 0;
       this.volando = false;
+      this.swim = 0;
+      if (this.flyAlt > 0.04) {
+        this.vy = Math.max(-24, (this.vy || 0) - 32 * dt);
+        this.flyAlt = Math.max(0, this.flyAlt + this.vy * dt);
+      } else {
+        this.flyAlt = 0;
+        this.vy = 0;
+      }
       this.vx *= Math.exp(-8 * dt);
       this.vz *= Math.exp(-8 * dt);
       this.mesh.position.x += this.vx * dt;
       this.mesh.position.z += this.vz * dt;
       this.mesh.rotation.x = Math.min(1.22, this.mesh.rotation.x + dt * 5);
       clampMap(this.mesh.position);
-      resolveObstacles(this.mesh.position, 0);
+      resolveObstacles(this.mesh.position, this.flyAlt || 0);
       this.stickY();
       if (this.teamRing) this.teamRing.visible = false;
       if (this.deadT <= 0) this.respawn();
       return;
     }
+    this.aliveFor = (this.aliveFor || 0) + dt;
     if (this.s.ki > 0) this.s.hp = Math.min(this.s.hpMax, this.s.hp + HP_REGEN * dt);
     this.s.ki = Math.min(this.s.kiMax, this.s.ki + KI_REGEN_PASSIVE * dt);
     if (this.flyAlt > 0.2 && !this.inSwim()) {
@@ -242,6 +289,13 @@ export class Personaje {
       this.kiAura.material.size = this.height * (supering ? 1.9 : 1.55);
       this.kiHalo.material.size = this.height * (supering ? 3.1 : 2.6);
     }
+    if ((this._kiBubbleT || 0) > 0) {
+      this._kiBubbleT -= dt;
+      const u = Math.max(0, this._kiBubbleT / 2.4);
+      this.kiBubble.visible = u > 0.03 && !this._fpCam;
+      this.kiBubble.material.opacity = 0.32 * u;
+      this.kiBubble.scale.setScalar(1.05 + (1 - u) * 0.55);
+    } else if (this.kiBubble) this.kiBubble.visible = false;
     if ((this.hitstop || 0) <= 0) {
       this.mesh.position.x += this.vx * dt;
       this.mesh.position.z += this.vz * dt;
@@ -257,6 +311,17 @@ export class Personaje {
     this.animate(dt);
     this._kiSlow = this._kiCharge;
     this._kiCharge = false;
+    if (!this._kiSlow) {
+      if (this._sfxKi) {
+        stopSfxLoop(`ki-${this.id}`);
+        if (this.s.ki >= this.s.kiMax * 0.98) {
+          const [x, y, z] = atPos(this);
+          playSfx("fullKi", x, y, z, 0.4);
+          this._kiBubbleT = 2.4;
+        }
+      }
+      this._sfxKi = false;
+    }
     this.mesh.rotation.y = this.yaw;
     this.updateTrail();
     if (this.teamRing) {
@@ -306,18 +371,23 @@ export class Personaje {
     const swimming = this.inSwim();
     const swimGo = swimming && (this.didMove || (this.rush || 0) > 0.18);
     const hopping = !!(this._hop || this._wantJump);
-    const target =
+    const airHit = (this.posePunch || 0) > 0 ? this.airMelee : null;
+    let target =
       hopping || swimGo || (this.volando && !swimming && !hopping && (this.didMove || (this.rush || 0) > 0.28))
         ? hopping
           ? 0
           : 1
         : 0;
+    if (airHit === "upright") target = 0;
+    else if (airHit === "elbow") target = 1;
     const lam = target > this.flyBlend ? 2.15 : 3.35;
     this.flyBlend = THREE.MathUtils.damp(this.flyBlend, target, lam, dt);
     const u = this.flyBlend;
     const s = u * u * (3 - 2 * u);
     let pitch = 1.52 * s;
-    if (this._kiCharge || (this.superHold || 0) > 0.04 || hopping) pitch = 0;
+    if (airHit === "upright") pitch = 0;
+    else if (airHit === "elbow") pitch = 1.58;
+    else if (this._kiCharge || (this.superHold || 0) > 0.04 || hopping) pitch = 0;
     else if (!swimming && this.didMove && this.flyAlt < 0.2) {
       pitch = (this.rush || 0) > 0.82 ? 0.38 : 0.12;
     }
@@ -364,6 +434,27 @@ export class Personaje {
     if (this.posePunch > 0) {
       const lunge = this.punchLunge || 0;
       const st = this.punchStep || 0;
+      if (this.airMelee === "elbow") {
+        const left = st === 1;
+        const lead = left ? armL : armR;
+        const back = left ? armR : armL;
+        const leadEl = left ? elbowL : elbowR;
+        const backEl = left ? elbowR : elbowL;
+        lead.rotation.x = -0.35;
+        lead.rotation.z = left ? 1.15 : -1.15;
+        back.rotation.x = 0.55;
+        back.rotation.z = left ? -0.2 : 0.2;
+        if (leadEl) leadEl.rotation.x = -1.55;
+        if (backEl) backEl.rotation.x = -0.4;
+        lx(legL, 0.12);
+        lx(legR, 0.08);
+        if (kneeL) lx(kneeL, 0.18);
+        if (kneeR) lx(kneeR, 0.18);
+        lx(torsoG, 0.08 + lunge * 0.25);
+        lx(headG, 0.18);
+        this.didMove = true;
+        return;
+      }
       if (st === 1) {
         armL.rotation.x = -2.15;
         armL.rotation.z = 0.55;
@@ -556,49 +647,55 @@ export class Personaje {
       if (kneeR) lx(kneeR, 0.35);
     } else if (this.volando) {
       this._strideBob = 0;
-      lx(armL, 0.28);
-      lx(armR, 0.28);
-      lz(armL, -0.28);  // brazos abiertos, no pegados al torso
-      lz(armR, 0.28);
-      lx(legL, 0.12);
-      lx(legR, 0.12);
-      if (kneeL) lx(kneeL, 0.28);
-      if (kneeR) lx(kneeR, 0.28);
-      if (elbowL) lx(elbowL, -0.12);
-      if (elbowR) lx(elbowR, -0.12);
-      lx(torsoG, 0.04);
-      lx(headG, 0.02);
+      this.animT += dt * 1.15;
+      const w = Math.sin(this.animT);
+      lx(armL, 0.58 + w * 0.1);
+      lx(armR, 0.7 - w * 0.1);
+      lz(armL, -0.78);
+      lz(armR, 0.78);
+      lx(legL, 0.48 + w * 0.07);
+      lx(legR, 0.62 - w * 0.07);
+      if (kneeL) lx(kneeL, 0.72);
+      if (kneeR) lx(kneeR, 0.82);
+      if (elbowL) lx(elbowL, -0.95);
+      if (elbowR) lx(elbowR, -0.88);
+      lx(torsoG, 0.1);
+      lx(headG, 0.04 + w * 0.03);
+      this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, w * 0.04, 4, dt);
     } else if (this.didMove) {
       const rush = this.rush || 0;
       const sprint = rush > 0.82;
-      const hz = sprint ? 1.88 : 0.92;
+      const v = this._groundSpd || 0;
+      const stride = sprint ? 1.68 : 1.12;
+      const hz = THREE.MathUtils.clamp(v / (2 * stride), sprint ? 2.2 : 1.2, sprint ? 3.75 : 2.1);
       this.animT += dt * hz * Math.PI * 2;
+      const stance = sprint ? 0.42 : 0.54;
       const hip = (ph) => {
         let u = ph / (Math.PI * 2);
         u -= Math.floor(u);
-        const fwd = sprint ? -1.48 : -0.92;
-        const back = sprint ? 1.08 : 0.58;
-        if (u < 0.64) {
-          const t = u / 0.64;
+        const fwd = sprint ? -1.62 : -1.18;
+        const back = sprint ? 1.22 : 0.78;
+        if (u < stance) {
+          const t = u / stance;
           const e = t * t * (3 - 2 * t);
           return THREE.MathUtils.lerp(fwd, back, e);
         }
-        const t = (u - 0.64) / 0.36;
+        const t = (u - stance) / (1 - stance);
         const e = t * t * (3 - 2 * t);
         return THREE.MathUtils.lerp(back, fwd, e);
       };
       const kn = (ph) => {
         let u = ph / (Math.PI * 2);
         u -= Math.floor(u);
-        if (u < 0.64) return 0.08 + Math.sin((u / 0.64) * Math.PI) * 0.16;
-        const t = (u - 0.64) / 0.36;
+        if (u < stance) return 0.08 + Math.sin((u / stance) * Math.PI) * 0.16;
+        const t = (u - stance) / (1 - stance);
         return 0.22 + Math.sin(t * Math.PI) * (sprint ? 1.92 : 1.32);
       };
       const p = this.animT;
       const q = p + Math.PI;
-      const g = Math.min(1, dt * 6.2);
-      const sx = (o, v) => {
-        o.rotation.x += (v - o.rotation.x) * g;
+      const g = Math.min(1, dt * 10.5);
+      const sx = (o, val) => {
+        o.rotation.x += (val - o.rotation.x) * g;
       };
       sx(legL, hip(p));
       sx(legR, hip(q));
@@ -658,6 +755,13 @@ export class Personaje {
 
   charge(dt) {
     if (this.stun > 0) return;
+    if (!this._sfxKi) {
+      const [x, y, z] = atPos(this);
+      playSfx("chargingKiInit", x, y, z, 0.4);
+      const loop = this.s.ki / this.s.kiMax > 0.55 ? "kiChargeLoop2" : "kiChargeLoop";
+      playSfx(loop, x, y, z, 0.28, true, `ki-${this.id}`);
+      this._sfxKi = true;
+    }
     this._kiCharge = true;
     this.s.ki = Math.min(this.s.kiMax, this.s.ki + (KI_REGEN - KI_REGEN_PASSIVE) * dt);
   }
@@ -701,18 +805,24 @@ export class Personaje {
         if (this.flyAlt < 0.08 && !this.inSwim()) {
           this.vy = 7.4;
           this._hop = true;
+          const [jx, jy, jz] = atPos(this);
+          playSfx("jump1", jx, jy, jz, 0.45);
         }
       }
     }
-    if (this._hop && lift <= 0) {
+    if (this._hop) {
       this.vy -= 26 * dt;
       this._crouch = 0;
-    } else if (lift > 0 && !this._launched && this.flyAlt < 0.28 && !this._hop) {
+    } else if (lift > 0 && !this._launched && this.flyAlt < 0.28) {
       this._crouch = Math.min(1, (this._crouch || 0) + dt / 0.14);
       if (this._crouch >= 1) {
         this.vy = 10.8;
         this._launched = true;
         this._crouch = 0;
+        {
+          const [ax, ay, az] = atPos(this);
+          playSfx("auraBurst", ax, ay, az, 0.4);
+        }
       }
     } else if (lift > 0) {
       this.vy = Math.min(11, this.vy + 15 * dt);
@@ -740,7 +850,7 @@ export class Personaje {
 
   spaceDown() {
     if (this.stun > 0 || this.dead) return;
-    if (this.inSwim() || this.flyAlt > 0.22) {
+    if (this.inSwim() || this._launched) {
       this.climb();
       return;
     }
@@ -752,6 +862,10 @@ export class Personaje {
       this._launched = true;
       this.vy = 10.8;
       this.climb();
+      {
+        const [ax, ay, az] = atPos(this);
+        playSfx("auraBurst", ax, ay, az, 0.4);
+      }
     } else {
       this._spaceT = t;
       this._wantJump = true;
@@ -784,10 +898,12 @@ export class Personaje {
     if (this.dead || this.stun > 0 || (this.hitstop || 0) > 0) return;
     const charging = this._kiCharge || this._kiSlow || (this.superHold || 0) > 0.04;
     const punching = (this.posePunch || 0) > 0;
-    if (charging || punching) run = false;
-    let mul = this.flyAlt > 0.2 ? 1.42 : 0.42;
+    const elbowDash = punching && this.airMelee === "elbow";
+    if (charging || (punching && !elbowDash)) run = false;
+    let mul = this.flyAlt > 0.2 ? 1.42 : 0.39;
     if (charging) mul *= 0.22;
-    if (punching) mul *= 0.16;
+    if (elbowDash) mul *= 1.18;
+    else if (punching) mul *= 0.16;
     if (this.inSwim()) {
       mul = 0.34;
       this._runT = 0;
@@ -810,7 +926,7 @@ export class Personaje {
       }
       if (this._runT > 0) {
         const t = this._runT * this._runT;
-        mul *= 1 + 4.03 * t;
+        mul *= 1 + 3.72 * t;
       }
     }
     const spd = this.s.velocidad * mul * (this.esfera != null ? 0.55 : 1);
@@ -838,14 +954,22 @@ export class Personaje {
 
   die(balls, killer, ki) {
     if (this.dead) return;
+    const lived = this.aliveFor || 0;
+    if (lived < 16) this.spawnWave = Math.min(4, (this.spawnWave || 0) + 1);
+    else this.spawnWave = 0;
+    this.deadMax = 2.8 + this.spawnWave * 7.5;
     this.dead = true;
-    this.deadT = 2.8;
+    this.deadT = this.deadMax;
     this.killedBy = killer?.nombre || "";
     this.killedKi = !!ki;
     this.killedTeam = killer?.faccion || "";
     this.s.hp = 0;
-    this.setFly(false);
+    this.setSsj(false);
     this.volando = false;
+    this._launched = false;
+    this._hop = false;
+    this._wantJump = false;
+    this.vy = Math.min(this.vy || 0, -2);
     const n = this.esfera;
     if (n != null) {
       const a = Math.random() * Math.PI * 2;
@@ -865,6 +989,7 @@ export class Personaje {
   respawn() {
     this.dead = false;
     this.deadT = 0;
+    this.aliveFor = 0;
     this.killedBy = "";
     this.mesh.rotation.x = 0;
     this.s.hp = this.s.hpMax;
@@ -877,7 +1002,8 @@ export class Personaje {
   }
 
   tryGrab(balls, dt, match) {
-    if (this.dead || this.esfera != null || this.volando || this.flyAlt > 0.2) {
+    const wet = this.inSwim() || isWater(this.pos().x, this.pos().z);
+    if (this.dead || this.esfera != null || (!wet && (this.volando || this.flyAlt > 0.2))) {
       this.grabT = 0;
       this._grabbing = false;
       return;

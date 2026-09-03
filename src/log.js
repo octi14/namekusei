@@ -3,7 +3,7 @@ let version = 0;
 
 export function log(msg, team) {
   lines.push({ msg, team: team === "z" || team === "f" ? team : "" });
-  if (lines.length > 40) lines.shift();
+  if (lines.length > 8) lines.shift();
   version++;
 }
 
@@ -16,7 +16,7 @@ export function logKill(killer, victim, ki, drop, team) {
     drop: drop || "",
     team: team === "z" || team === "f" ? team : "",
   });
-  if (lines.length > 40) lines.shift();
+  if (lines.length > 8) lines.shift();
   version++;
 }
 

@@ -1,5 +1,6 @@
 import { MATCH_SEC } from "./config.js";
 import { log } from "./log.js";
+import { current } from "./scenario.js";
 
 export class Match {
   constructor() {
@@ -31,6 +32,7 @@ export class Match {
 
   deposit(faccion, n, nombre, balls) {
     this.lastDeposit = { nombre, faccion, n };
+    this.toast = { nombre, faccion, n, t: 3.2 };
     this.syncBalls(balls);
     if (this.score.z >= 7 || this.score.f >= 7) this.endByBalls();
   }
@@ -62,7 +64,7 @@ export class Match {
 
   winnerName() {
     if (this.score.z > this.score.f) return "Guerreros Z";
-    if (this.score.f > this.score.z) return "Freezer";
+    if (this.score.f > this.score.z) return current.fWin;
     return "Empate";
   }
 
@@ -114,6 +116,10 @@ export class Match {
       return;
     }
     if (this.phase !== "play" || this.over) return;
+    if (this.toast) {
+      this.toast.t -= dt;
+      if (this.toast.t <= 0) this.toast = null;
+    }
     this.t -= dt;
     if (this.t <= 0) this.endByTime();
   }
