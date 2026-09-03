@@ -552,7 +552,7 @@ export class Personaje {
     } else if (this.didMove) {
       const rush = this.rush || 0;
       const sprint = rush > 0.82;
-      const hz = sprint ? 1.52 : 0.92;
+      const hz = sprint ? 1.88 : 0.92;
       this.animT += dt * hz * Math.PI * 2;
       const hip = (ph) => {
         let u = ph / (Math.PI * 2);
