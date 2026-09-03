@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Namekusei</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; font-family: Impact, Haettenschweiler, "Arial Black", sans-serif; }
+      #c { display: block; width: 100%; height: 100%; }
+      #uw {
+        display: none; position: absolute; inset: 0; pointer-events: none;
+        background:
+          radial-gradient(ellipse at 50% 40%, #26c6da33 0%, #01579bcc 72%, #002f4d 100%);
+        mix-blend-mode: multiply;
+        box-shadow: inset 0 0 120px #004d80aa;
+      }
+      #uw.on { display: block; }
+      #uw::after {
+        content: ""; position: absolute; inset: -20%;
+        background: repeating-radial-gradient(circle at 50% -10%, #80deea22 0 18px, transparent 32px 70px);
+        animation: uwcaust 7s linear infinite;
+        opacity: 0.55;
+      }
+      @keyframes uwcaust {
+        to { transform: translateY(8%) rotate(8deg); }
+      }
+      #hud {
+        position: fixed; inset: 0; pointer-events: none;
+        color: #fff; text-shadow: 0 2px 0 #000, 0 0 8px #000;
+      }
+      #scoreboard {
+        position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+        display: flex; align-items: stretch; gap: 0; min-width: 420px;
+      }
+      .side {
+        display: flex; align-items: center; gap: 10px; padding: 8px 16px;
+        clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+      }
+      .side.z { background: linear-gradient(90deg, #c62828cc, #ff8a00aa); justify-content: flex-end; }
+      .side.f { background: linear-gradient(90deg, #5e35b1aa, #1565c0cc); }
+      .side .lab { font-size: 13px; letter-spacing: 0.12em; opacity: 0.9; }
+      .side .n { font-size: 32px; line-height: 1; min-width: 1.2em; text-align: center; }
+      .clock {
+        background: #111c; border: 2px solid #ffeb3b; padding: 6px 14px;
+        font-size: 22px; letter-spacing: 0.08em; color: #fff59d;
+      }
+      .balls { font-size: 11px; letter-spacing: 0.12em; opacity: 0.9; text-align: center; margin-top: 3px; display: flex; justify-content: center; gap: 4px; }
+      .orb {
+        width: 11px; height: 11px; border-radius: 50%;
+        background: #222; border: 1px solid #ffeb3b66; box-shadow: inset 0 0 4px #000;
+      }
+      .orb.z { background: radial-gradient(circle at 35% 30%, #ffe082, #e65100); border-color: #ffcc80; box-shadow: 0 0 6px #ff6f00; }
+      .orb.f { background: radial-gradient(circle at 35% 30%, #e1bee7, #4527a0); border-color: #b39ddb; box-shadow: 0 0 6px #7e57c2; }
+      #panel-left {
+        position: absolute; left: 14px; bottom: 18px; width: min(360px, 42vw);
+      }
+      #panel-left .who {
+        font-size: 22px; letter-spacing: 0.06em; margin-bottom: 4px;
+      }
+      #panel-left .who.z { color: #ffab40; }
+      #panel-left .who.f { color: #b39ddb; }
+      #panel-left .tag { font-size: 11px; letter-spacing: 0.18em; opacity: 0.75; font-family: Segoe UI, sans-serif; }
+      .row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+      .row span {
+        width: 28px; font-size: 12px; letter-spacing: 0.08em;
+        font-family: Segoe UI, sans-serif; font-weight: 700;
+      }
+      .bar {
+        flex: 1; height: 16px; background: #0a0a0acc;
+        border: 2px solid #111; box-shadow: inset 0 0 0 1px #fff2;
+        transform: skewX(-12deg); overflow: hidden;
+      }
+      .bar > i { display: block; height: 100%; transform: skewX(0); }
+      .hp { background: linear-gradient(180deg, #76ff03, #1b5e20); }
+      .ki { background: linear-gradient(180deg, #4fc3f7, #01579b); }
+      .bar { position: relative; }
+      .ki-mark {
+        position: absolute; left: 80%; top: -1px; bottom: -1px; width: 2px;
+        background: #ffeb3b; box-shadow: 0 0 6px #ffc107; z-index: 2;
+      }
+      .bar.super-ok { box-shadow: inset 0 0 0 1px #fff2, 0 0 12px #ffb30099; border-color: #ffc107; }
+      .bar.super-ok .ki { background: linear-gradient(180deg, #ffe082, #0288d1); }
+      .ki-hold {
+        position: absolute; left: 0; bottom: 0; height: 3px; width: 0;
+        background: #ff6f00; z-index: 3;
+      }
+      .meta #pl-super { color: #ffeb3b; letter-spacing: 0.12em; opacity: 0; }
+      .meta #pl-super.on { opacity: 1; text-shadow: 0 0 8px #ffc107; }
+      .meta {
+        display: flex; gap: 14px; margin-top: 6px;
+        font-family: Segoe UI, sans-serif; font-size: 12px; font-weight: 700;
+        letter-spacing: 0.04em; opacity: 0.9;
+      }
+      .meta b { color: #fff59d; }
+      #panel-right {
+        position: absolute; top: 86px; right: 10px; width: 280px; max-width: 34vw;
+        pointer-events: auto; font-family: Segoe UI, sans-serif; font-size: 12px; font-weight: 600;
+      }
+      #log-scroll { max-height: 220px; overflow-y: auto; }
+      #log-list { margin: 0; padding: 0; list-style: none; }
+      #log-list li {
+        margin: 3px 0; padding: 4px 8px;
+        background: #0007; border-left: 3px solid #fff3;
+        display: flex; align-items: center; gap: 6px;
+      }
+      #log-list .ko-ic {
+        width: 16px; height: 16px; flex: none;
+        display: inline-block;
+      }
+      #log-list .ko-ic.fist { color: #ffcc80; filter: drop-shadow(0 0 3px #ff9800); }
+      #log-list .ko-ic.ki { color: #80d8ff; filter: drop-shadow(0 0 4px #29b6f6); }
+      #log-list .ko-drop { opacity: 0.7; font-size: 0.9em; }
+      #log-list .log-z { color: #ff8a80; border-color: #e53935; }
+      #log-list .log-f { color: #82b1ff; border-color: #2979ff; }
+      #log-list .log-x { color: #eceff1; }
+      #panel-keys {
+        position: absolute; bottom: 14px; right: 324px; left: auto;
+        font-family: Segoe UI, sans-serif; font-size: 11px; line-height: 1.5;
+        background: #0006; padding: 8px 10px; max-width: 280px;
+      }
+      #panel-keys.hidden { display: none; }
+      #minimap {
+        position: absolute; right: 12px; bottom: 14px;
+        width: 300px; height: 300px; border-radius: 8px;
+        border: 2px solid #cfd8dc55; background: #12180fcc;
+        box-shadow: 0 0 12px #0008;
+      }
+      #hud.koed #minimap, #tab-board.on ~ #minimap { opacity: 0.35; }
+      kbd {
+        display: inline-block; min-width: 1.4em; padding: 1px 5px;
+        border: 1px solid #fff5; background: #fff1; font-size: 10px;
+      }
+      #click-msg {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        background: rgba(0,0,0,.5); pointer-events: auto; cursor: pointer; font-size: 28px;
+        letter-spacing: 0.12em;
+      }
+      #end {
+        display: none; position: absolute; inset: 0; align-items: center; justify-content: center;
+        background: radial-gradient(ellipse at center, #0008, #000d);
+        pointer-events: auto; text-align: center;
+      }
+      #end.show { display: flex; }
+      .end-card {
+        padding: 28px 48px; min-width: 420px;
+        clip-path: polygon(16px 0, 100% 0, calc(100% - 16px) 100%, 0 100%);
+        border: 3px solid #ffeb3b;
+        background: linear-gradient(180deg, #1a1008ee, #050505ee);
+        box-shadow: 0 0 60px #ff6f0044;
+      }
+      .end-card.z { border-color: #ff5252; box-shadow: 0 0 60px #e5393544; }
+      .end-card.f { border-color: #7e57c2; box-shadow: 0 0 60px #5e35b144; }
+      .end-kicker {
+        font-family: Segoe UI, sans-serif; font-size: 12px; letter-spacing: 0.35em;
+        color: #fff59d; margin-bottom: 8px;
+      }
+      .end-title {
+        font-size: 48px; letter-spacing: 0.12em; line-height: 1.05; color: #fff;
+        text-shadow: 0 0 24px #ffeb3b88;
+      }
+      .end-sub {
+        font-family: Segoe UI, sans-serif; font-size: 16px; font-weight: 700;
+        margin-top: 14px; opacity: 0.95; max-width: 480px;
+      }
+      .end-score { font-size: 28px; margin-top: 16px; color: #fff59d; letter-spacing: 0.2em; }
+      #announce {
+        display: none; position: absolute; inset: 0; align-items: center; justify-content: center;
+        font-size: 140px; letter-spacing: 0.08em; pointer-events: none;
+        text-shadow: 0 8px 0 #000, 0 0 40px #ffeb3b;
+      }
+      #announce.pop { animation: bang 0.45s ease-out; }
+      #announce.go { color: #ffeb3b; font-size: 96px; }
+      @keyframes bang {
+        0% { transform: scale(2.4); opacity: 0; }
+        35% { transform: scale(0.92); opacity: 1; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+      #ko-fx {
+        display: none; position: absolute; inset: 0;
+        background: radial-gradient(ellipse at center, transparent 28%, #4a000088 70%, #1a0000cc);
+        align-items: center; justify-content: center; flex-direction: column;
+        pointer-events: none;
+      }
+      #ko-fx.on { display: flex; animation: koIn 0.35s ease-out; }
+      @keyframes koIn {
+        0% { opacity: 0; }
+        100% { opacity: 1; }
+      }
+      #ko-fx .ko-big {
+        font-size: clamp(52px, 12vw, 110px); letter-spacing: 0.14em; color: #ff1744;
+        text-shadow: 0 6px 0 #3b0000, 0 0 28px #ff1744; line-height: 0.9;
+      }
+      #ko-fx .ko-by {
+        margin-top: 12px; font-family: Segoe UI, sans-serif; font-size: 16px; font-weight: 700;
+        letter-spacing: 0.12em; display: flex; align-items: center; gap: 8px;
+      }
+      #ko-fx .ko-by.z { color: #ff8a80; }
+      #ko-fx .ko-by.f { color: #82b1ff; }
+      #ko-fx .ko-ic { width: 22px; height: 22px; }
+      #ko-fx .ko-wait {
+        margin-top: 18px; width: min(280px, 50vw); height: 6px; background: #0008;
+        border: 1px solid #ff174466; overflow: hidden;
+      }
+      #ko-fx .ko-wait > i {
+        display: block; height: 100%; width: 100%;
+        background: linear-gradient(90deg, #ff1744, #ff8a80);
+        transform-origin: left;
+      }
+      #ko-fx .ko-sub {
+        margin-top: 8px; font-family: Segoe UI, sans-serif; font-size: 11px;
+        letter-spacing: 0.28em; opacity: 0.75;
+      }
+      #hud.koed #panel-left { filter: grayscale(0.5); opacity: 0.7; }
+      #tab-board {
+        display: none; position: absolute; left: 50%; top: 10%;
+        transform: translateX(-50%);
+        width: max-content; max-width: 92vw; max-height: 80vh;
+        background: #05070ccc; border: 2px solid #ffeb3b88;
+        clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+        padding: 12px 14px; pointer-events: none;
+        font-family: Segoe UI, sans-serif;
+      }
+      #tab-board.on { display: flex; gap: 22px; transform: translateX(-50%); }
+      #tab-board .col { flex: 0 0 auto; overflow: auto; }
+      #tab-board h3 {
+        margin: 0 0 8px; font-family: Impact, sans-serif; letter-spacing: 0.12em; font-size: 20px;
+      }
+      #tab-board .col.z h3 { color: #ffab40; }
+      #tab-board .col.f h3 { color: #b39ddb; }
+      #tab-board table { width: auto; border-collapse: collapse; font-size: 12px; font-weight: 700; }
+      #tab-board th { text-align: left; opacity: 0.55; font-size: 10px; letter-spacing: 0.08em; padding: 2px 8px 2px 4px; }
+      #tab-board td { padding: 2px 8px 2px 4px; border-bottom: 1px solid #fff1; white-space: nowrap; }
+      #tab-board th:not(:first-child), #tab-board td:not(:first-child) { text-align: right; width: 2.4em; }
+      #tab-board tr.t-z td:first-child { color: #ffcc80; }
+      #tab-board tr.t-f td:first-child { color: #ce93d8; }
+      #tab-board tr.me { background: #fff2; }
+      .dmg {
+        color: #ffeb3b; font-weight: 700; font-size: 20px;
+        text-shadow: 0 0 6px #000; pointer-events: none; white-space: nowrap;
+        font-family: Impact, sans-serif;
+      }
+      .lock-xh {
+        width: 52px; height: 52px; position: relative; pointer-events: none;
+        transform: translate(-50%, -50%);
+      }
+      .lock-xh i {
+        position: absolute; width: 12px; height: 12px;
+        border: 2px solid #ffeb3b;
+        box-shadow: 0 0 8px #ffc107;
+      }
+      .lock-xh i:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+      .lock-xh i:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+      .lock-xh i:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+      .lock-xh i:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+        font-size: 11px; font-weight: 600; white-space: nowrap;
+        text-shadow: 0 0 4px #000; pointer-events: none; text-align: center;
+        font-family: Segoe UI, sans-serif;
+      }
+      .hp-mini {
+        display: none; width: 52px; height: 5px; margin: 3px auto 0;
+        background: #111; border: 1px solid #333; overflow: hidden;
+      }
+      .hp-mini i { display: block; height: 100%; background: #76ff03; }
+      .nametag.z { color: #ff6d00; text-shadow: 0 0 6px #000, 0 0 8px #ff3d00; }
+      .nametag.f { color: #40c4ff; text-shadow: 0 0 6px #000, 0 0 8px #2979ff; }
+      .nametag.yo { font-size: 12px; color: #fff59d; }
+      #menu {
+        display: none; position: absolute; inset: 0; pointer-events: auto;
+        background: rgba(0,0,0,.7); align-items: center; justify-content: center;
+        font-family: Segoe UI, sans-serif;
+      }
+      #menu.open { display: flex; }
+      #menu-box {
+        background: linear-gradient(180deg, #1a1208ee, #0d0d0dee);
+        border: 2px solid #ff8f00; padding: 20px 22px;
+        max-width: 640px; max-height: 80vh; overflow: auto; min-width: 320px;
+        box-shadow: 0 0 40px #ff6f0044;
+      }
+      #menu-box h2 { margin: 0 0 8px; font-size: 26px; font-family: Impact, sans-serif; letter-spacing: 0.1em; color: #ffcc80; }
+      #menu-box button {
+        pointer-events: auto; cursor: pointer; margin: 3px; padding: 7px 12px;
+        background: #bf360c; color: #fff; border: 1px solid #ffab40; font-weight: 700;
+      }
+      #menu-box .cols { display: flex; gap: 16px; flex-wrap: wrap; }
+      #menu-box .col { flex: 1; min-width: 200px; }
+      #menu-box p { font-size: 12px; opacity: 0.85; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="uw"></div>
+    <div id="hud">
+      <div id="click-msg">CLICK PARA LUCHAR</div>
+      <div id="scoreboard">
+        <div class="side z"><span class="lab">Z</span><span class="n" id="sc-z">0</span></div>
+        <div class="clock"><div id="clock">8:00</div><div class="balls" id="sc-orbs"></div></div>
+        <div class="side f"><span class="n" id="sc-f">0</span><span class="lab">FREEZER</span></div>
+      </div>
+      <div id="panel-left">
+        <div class="tag" id="pl-team">GUERREROS Z</div>
+        <div class="who z" id="pl-name">—</div>
+        <div class="row"><span>HP</span><div class="bar"><i class="hp" id="bar-hp"></i></div></div>
+        <div class="row"><span>KI</span><div class="bar" id="bar-ki-wrap"><i class="ki" id="bar-ki"></i><b class="ki-mark"></b><i class="ki-hold" id="ki-hold"></i></div></div>
+        <div class="meta">
+          <span>ESFERA <b id="pl-ball">—</b></span>
+          <span id="pl-fly">TIERRA</span>
+          <span>ATK <b id="pl-atk">0</b></span>
+          <span>VEL <b id="pl-vel">0</b></span>
+          <span>ALC <b id="pl-rng">0</b></span>
+          <span id="pl-super">SUPER</span>
+        </div>
+      </div>
+      <div id="panel-right">
+        <div id="log-scroll"><ul id="log-list"></ul></div>
+      </div>
+      <canvas id="minimap" width="300" height="300"></canvas>
+      <div id="panel-keys">
+        <kbd>WASD</kbd> mover · <kbd>Shift</kbd> correr / turbo<br />
+        <kbd>Espacio</kbd> salto · 2× volar · <kbd>C</kbd> bajar · <kbd>V</kbd> cámara · <kbd>H</kbd> ayudas<br />
+        <kbd>Click</kbd> golpe · <kbd>Der.</kbd> poder · <kbd>T</kbd> disparo largo · <kbd>F</kbd> super · <kbd>R</kbd> ki<br />
+        <kbd>Q</kbd> / rueda clic lock-on · <kbd>E</kbd> mantener recoger · <kbd>G</kbd> soltar<br />
+        <kbd>Tab</kbd> puntuación · <kbd>M</kbd> menú
+      </div>
+      <div id="tab-board">
+        <div class="col z"><h3>GUERREROS Z</h3><table id="tab-z"></table></div>
+        <div class="col f"><h3>FREEZER</h3><table id="tab-f"></table></div>
+      </div>
+      <div id="announce"></div>
+      <div id="ko-fx">
+        <div class="ko-big">KO</div>
+        <div class="ko-by" id="ko-by"></div>
+        <div class="ko-wait"><i id="ko-bar"></i></div>
+        <div class="ko-sub" id="ko-sub">REAPARECIENDO</div>
+      </div>
+      <div id="end">
+        <div class="end-card" id="end-card">
+          <div class="end-kicker" id="end-kicker"></div>
+          <div class="end-title" id="end-title"></div>
+          <div class="end-sub" id="end-sub"></div>
+          <div class="end-score" id="end-score"></div>
+        </div>
+      </div>
+      <div id="menu">
+        <div id="menu-box">
+          <h2>PAUSA</h2>
+          <p>M cierra · el combate se detiene</p>
+          <button type="button" id="btn-continuar">CONTINUAR</button>
+          <button type="button" id="btn-spectate">SPECTEAR</button>
+          <p>Spectate: ← → personaje · M menú</p>
+          <div class="cols">
+            <div class="col"><b>Guerreros Z</b><div id="menu-z"></div></div>
+            <div class="col"><b>Freezer</b><div id="menu-f"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
