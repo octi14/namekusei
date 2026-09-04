@@ -1,4 +1,4 @@
-export const TEAM_SIZE = 20;
+export const TEAM_SIZE = 15;
 export const MAP = 2200;
 export const BASE_Z = 960;
 export const FLY_MAX = 32;

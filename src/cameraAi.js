@@ -140,8 +140,8 @@ function kiBand(p) {
   let h = 0;
   for (const c of p.nombre || p.id) h = (h * 17 + c.charCodeAt(0)) | 0;
   const jitter = (Math.abs(h % 1000) / 1000 - 0.5) * 0.06;
-  const lo = THREE.MathUtils.clamp(THREE.MathUtils.lerp(0.34, 0.12, a) + jitter, 0.1, 0.38);
-  const span = THREE.MathUtils.lerp(0.46, 0.2, a);
+  const lo = THREE.MathUtils.clamp(THREE.MathUtils.lerp(0.46, 0.28, a) + jitter, 0.24, 0.5);
+  const span = THREE.MathUtils.lerp(0.38, 0.22, a);
   return { lo, hi: Math.min(0.86, lo + span) };
 }
 
@@ -150,7 +150,7 @@ function temper(p) {
   const ki = p.s.ki / p.s.kiMax;
   const heat = THREE.MathUtils.clamp(p.aiHeat || 0, -3.2, 3.2);
   const kd = (p.st.k || 0) - (p.st.d || 0) * 1.15;
-  const front = THREE.MathUtils.clamp(heat * 0.32 + kd * 0.1 + (hp - 0.48) * 0.85 + (ki - 0.38) * 0.4, -1, 1);
+  const front = THREE.MathUtils.clamp(heat * 0.28 + kd * 0.08 + (hp - 0.48) * 0.7 + (ki - 0.5) * 0.95, -1, 1);
   return { hp, ki, heat, front };
 }
 
@@ -195,19 +195,111 @@ function claimBall(p, people, balls) {
 }
 
 function pickFoe(p, people, maxD) {
+  const sniping = p.aiMode === "snipe";
+  const air = (p.flyAlt || 0) > 3.2;
+  const cap = sniping ? maxD : air ? maxD : Math.min(maxD, 34);
   let best = null;
   let bestS = 1e9;
   for (const o of people) {
     if (o.faccion === p.faccion || o.dead) continue;
     const d = o.pos().distanceTo(p.pos());
-    if (d > maxD) continue;
-    const s = d - (o.esfera != null ? 40 : 0);
+    if (d > cap) continue;
+    const s = d - (o.esfera != null ? 40 : 0) - ((o.flyAlt || 0) > 5 ? 12 : 0);
     if (s < bestS) {
       bestS = s;
       best = o;
     }
   }
   return best;
+}
+
+function pickSnipeFoe(p, people, rng) {
+  let best = null;
+  let bestS = 1e9;
+  for (const o of people) {
+    if (o.faccion === p.faccion || o.dead) continue;
+    const d = o.pos().distanceTo(p.pos());
+    if (d < 32 || d > rng * 0.95) continue;
+    const s = d * 0.35 - (o.esfera != null ? 50 : 0) - ((o.flyAlt || 0) > 4 ? 18 : 0);
+    if (s < bestS) {
+      bestS = s;
+      best = o;
+    }
+  }
+  return best;
+}
+
+function canSnipe(p) {
+  const r = powerStyle(p.nombre, p.faccion).range || 55;
+  return r >= 88 || seed(p) > 0.84;
+}
+
+function pickNest(p, foe) {
+  const px = p.pos().x;
+  const pz = p.pos().z;
+  let bx = px;
+  let bz = pz;
+  let best = -1e9;
+  for (let i = 0; i < 12; i++) {
+    const a = seed(p) * 6.28 + i * 0.55;
+    const d = 28 + (i % 4) * 18;
+    const x = px + Math.sin(a) * d;
+    const z = pz + Math.cos(a) * d;
+    if (isWater(x, z)) continue;
+    let s = groundHeight(x, z);
+    if (foe && !foe.dead) {
+      const fd = Math.hypot(foe.pos().x - x, foe.pos().z - z);
+      if (fd < 30) s -= 24;
+      else if (fd > 155) s -= 8;
+      else s += 6;
+    }
+    if (s > best) {
+      best = s;
+      bx = x;
+      bz = z;
+    }
+  }
+  return { x: bx, z: bz };
+}
+
+/** Camina por ladera / costado: avanza al objetivo sin asomarse. */
+function hideSteer(px, pz, gx, gz, foe) {
+  const tx = gx - px;
+  const tz = gz - pz;
+  const glen = Math.hypot(tx, tz) || 1;
+  const nx = tx / glen;
+  const nz = tz / glen;
+  const base = Math.atan2(nx, nz);
+  const side = Math.sin(px * 0.013 + pz * 0.009) >= 0 ? 1 : -1;
+  let bx = nx;
+  let bz = nz;
+  let best = -1e9;
+  const offs = [0, 0.5 * side, -0.5 * side, 1.05 * side, -0.95 * side, 1.55 * side];
+  for (const off of offs) {
+    const a = base + off;
+    const dx = Math.sin(a);
+    const dz = Math.cos(a);
+    const sx = px + dx * 16;
+    const sz = pz + dz * 16;
+    if (isWater(sx, sz)) continue;
+    const prog = dx * nx + dz * nz;
+    let s = prog * 2.1 - Math.abs(off) * 0.18 + groundHeight(sx, sz) * 0.06;
+    if (foe && !foe.dead) {
+      const fx = foe.pos().x;
+      const fz = foe.pos().z;
+      const mx = (sx + fx) * 0.5;
+      const mz = (sz + fz) * 0.5;
+      const ridge = groundHeight(mx, mz);
+      if (ridge > foe.pos().y - 1.5 && ridge > groundHeight(sx, sz) - 0.6) s += 1.55;
+      if (Math.hypot(sx - fx, sz - fz) < 22) s -= 1.1;
+    }
+    if (s > best) {
+      best = s;
+      bx = dx;
+      bz = dz;
+    }
+  }
+  return { x: bx, z: bz };
 }
 
 function nearWater(x, z, r = 20) {
@@ -231,6 +323,36 @@ function shoreDir(x, z) {
     }
   }
   return null;
+}
+
+/** Rumbo a base: prueba varios ángulos y elige el que avanza y evita agua. */
+function steerHome(px, pz, homeZ) {
+  const gx = -px;
+  const gz = homeZ - pz;
+  const glen = Math.hypot(gx, gz) || 1;
+  const nx = gx / glen;
+  const nz = gz / glen;
+  const base = Math.atan2(nx, nz);
+  let bx = nx;
+  let bz = nz;
+  let best = -1e9;
+  const offs = [0, 0.35, -0.35, 0.75, -0.75, 1.2, -1.2, 1.7, -1.7];
+  for (const off of offs) {
+    const a = base + off;
+    const dx = Math.sin(a);
+    const dz = Math.cos(a);
+    const prog = dx * nx + dz * nz;
+    if (prog < 0.05 && Math.abs(off) > 0.4) continue;
+    let score = prog * 2.4 - Math.abs(off) * 0.12;
+    if (isWater(px + dx * 7, pz + dz * 7)) score -= 3.2;
+    else if (isWater(px + dx * 16, pz + dz * 16)) score -= 0.85;
+    if (score > best) {
+      best = score;
+      bx = dx;
+      bz = dz;
+    }
+  }
+  return { x: bx, z: bz };
 }
 
 function rivalDist(p, people, x, z) {
@@ -293,7 +415,7 @@ function commitMode(p, mode, sec) {
 }
 
 function utilBest(p, ctx) {
-  const { mood, carrying, enemy, enemyDist, enemyCarrier, ball, help, loot, needCharge, inHomeAir, lowHp, agg } = ctx;
+  const { mood, carrying, enemy, enemyDist, enemyCarrier, ball, help, loot, needCharge, inHomeAir, lowHp, agg, snipeOk } = ctx;
   if (carrying) return "deliver";
   const h = (m) => (p.aiMode === m ? 16 : 0);
   const rows = [];
@@ -306,19 +428,24 @@ function utilBest(p, ctx) {
       (enemyCarrier ? 52 : 0) +
       agg * 12 -
       (inHomeAir ? 28 : 0) -
-      (mood.ki < 0.14 ? 20 : 0);
+      (mood.ki < 0.32 ? 28 : 0) -
+      (mood.ki < 0.18 ? 22 : 0);
   }
   rows.push(["fight", fight + h("fight")]);
   let ballS = -40;
   if (ball) {
     const d = Math.hypot(ball.mesh.position.x - p.pos().x, ball.mesh.position.z - p.pos().z);
-    ballS = 20 - d * 0.05 + (ball.inBase ? 8 : 0) - (isWater(ball.mesh.position.x, ball.mesh.position.z) ? 18 : 0);
+    ballS = 20 - d * 0.05 + (ball.inBase ? 8 : 0) - (isWater(ball.mesh.position.x, ball.mesh.position.z) ? 18 : 0) + (inHomeAir ? 10 : 0);
   }
   rows.push(["ball", ballS + h("ball")]);
   rows.push(["help", help ? 15 + h("help") : -50]);
   rows.push(["raid", loot.length && !lowHp && mood.front > -0.1 ? 11 + mood.front * 16 + h("raid") : -45]);
-  rows.push(["charge", needCharge ? 32 - mood.front * 10 + h("charge") : -35]);
-  rows.push(["wander", 7 + (mood.front > 0.25 ? 6 : 0) + h("wander")]);
+  rows.push(["charge", needCharge ? 48 + (0.52 - mood.ki) * 55 - mood.front * 6 + h("charge") : -20]);
+  rows.push([
+    "snipe",
+    snipeOk ? 24 + mood.ki * 20 + (enemyDist > 36 ? 14 : -18) - agg * 6 + h("snipe") : -70,
+  ]);
+  rows.push(["wander", 7 + (mood.front > 0.25 ? 6 : 0) - (inHomeAir ? 12 : 0) + h("wander")]);
   let best = "wander";
   let bestV = -1e9;
   for (const [k, v] of rows) {
@@ -482,7 +609,7 @@ function runUnstick(p, people, balls, combat, match, dt) {
     p.aiBreak = "home";
     dir.set(-p.pos().x, 0, homeZ - p.pos().z);
     const d = Math.hypot(dir.x, dir.z);
-    fly = d > 55 && p.s.ki > p.s.kiMax * 0.15;
+    fly = d > 55 && p.s.ki > p.s.kiMax * 0.22;
     if (d < 40 || inOwnBase(p.pos(), p.faccion)) {
       fly = false;
       p.descend(dt);
@@ -572,20 +699,27 @@ export function aiTick(p, people, balls, combat, match, dt) {
     p.aiFight = 0;
     p.aiRaid = 0;
     p.aiHelpId = null;
+    p.aiCharge = false;
+    commitMode(p, "deliver", 99);
   }
 
-  if (p.aiFoe && (p.aiFoe.s.hp <= 0 || p.aiFoe.dead || p.aiFoe.pos().distanceTo(p.pos()) > 42)) p.aiFoe = null;
-  const enemy = pickFoe(p, people, carrying ? 14 : 78);
-  const enemyDist = enemy ? enemy.pos().distanceTo(p.pos()) : 1e9;
+  if (p.aiFoe && (p.aiFoe.s.hp <= 0 || p.aiFoe.dead || p.aiFoe.pos().distanceTo(p.pos()) > (p.aiMode === "snipe" ? 170 : 42))) p.aiFoe = null;
+  const sniper = !carrying && canSnipe(p);
+  let nSnipe = 0;
+  if (sniper) {
+    for (const o of people) if (o.faccion === p.faccion && o.aiMode === "snipe") nSnipe++;
+  }
+  const snipeFoe = sniper && kiFrac > 0.38 && !lowHp && nSnipe < 2 ? pickSnipeFoe(p, people, powerStyle(p.nombre, p.faccion).range || 90) : null;
+  const enemy = pickFoe(p, people, carrying ? 14 : 52) || (p.aiMode === "snipe" ? snipeFoe : null);
+  const enemyDist = enemy ? enemy.pos().distanceTo(p.pos()) : snipeFoe ? snipeFoe.pos().distanceTo(p.pos()) : 1e9;
   const enemyCarrier = !!(enemy && enemy.esfera != null);
+  const snipeOk = !!(snipeFoe || (p.aiMode === "snipe" && p.aiFoe));
 
   const helpCand = !carrying ? allyToHelp(p, people) : null;
   const ballCand = !carrying ? claimBall(p, people, balls) : null;
+  const dry = !isWater(p.pos().x, p.pos().z);
   const needCharge =
-    !carrying &&
-    kiFrac < (mood.front < -0.15 ? band.lo + 0.08 : band.lo) &&
-    p.flyAlt < 0.2 &&
-    !isWater(p.pos().x, p.pos().z);
+    dry && !carrying && kiFrac < (mood.front < -0.1 ? band.lo + 0.14 : band.lo + 0.06);
 
   const pick = utilBest(p, {
     mood,
@@ -600,10 +734,17 @@ export function aiTick(p, people, balls, combat, match, dt) {
     inHomeAir,
     lowHp,
     agg,
+    snipeOk,
   });
-  const interrupt = pick === "fight" && p.aiMode !== "fight" && p.aiMode !== "deliver";
+  const interrupt = pick === "fight" && p.aiMode !== "fight" && p.aiMode !== "deliver" && p.aiMode !== "snipe";
   if (interrupt || p.aiMode !== pick || p.aiModeT <= 0) {
-    if (pick === "fight" && enemy) {
+    if (pick === "snipe") {
+      p.aiFoe = snipeFoe || p.aiFoe || enemy;
+      const nest = pickNest(p, p.aiFoe);
+      p.aiNestX = nest.x;
+      p.aiNestZ = nest.z;
+      commitMode(p, "snipe", 9 + seed(p) * 5);
+    } else if (pick === "fight" && enemy) {
       p.aiFoe = enemy;
       p.aiFight = 5 + agg * 3 + Math.max(0, mood.front) * 3;
       commitMode(p, "fight", p.aiFight);
@@ -623,12 +764,14 @@ export function aiTick(p, people, balls, combat, match, dt) {
     }
   }
   if (p.aiMode === "fight" && enemy) p.aiFoe = enemy;
+  if (p.aiMode === "snipe" && (snipeFoe || p.aiFoe)) p.aiFoe = snipeFoe || p.aiFoe;
 
   let dir = new THREE.Vector3();
   let ball = ballCand;
   let help = helpCand;
-  const foe = p.aiFoe || enemy;
-  const fighting = p.aiMode === "fight" && foe && !lowHp;
+  const foe = p.aiFoe || enemy || snipeFoe;
+  const sniping = !carrying && p.aiMode === "snipe" && foe && !lowHp;
+  const fighting = !carrying && p.aiMode === "fight" && foe && !lowHp;
   if (p.canSsj) {
     const ratio = p.s.ki / p.s.kiMax;
     if (fighting && ratio > 0.42) p.setSsj(true);
@@ -636,15 +779,35 @@ export function aiTick(p, people, balls, combat, match, dt) {
   }
   const raiding = p.aiMode === "raid" && loot.length > 0;
 
-  if (p.aiMode === "deliver" && carrying) {
-    dir.set(-p.pos().x, 0, homeZ - p.pos().z);
-    // Evitar zonas calientes: desviar ruta si hay enemigos cerca
-    const avoid = heatAvoid(p, people, dir);
-    if (avoid && avoid.strength > 0.15) {
-      const mix = Math.min(avoid.strength * 0.6, 0.55);
-      dir.normalize();
-      dir.x = dir.x * (1 - mix) + avoid.x * mix;
-      dir.z = dir.z * (1 - mix) + avoid.z * mix;
+  if (carrying) {
+    const home = steerHome(p.pos().x, p.pos().z, homeZ);
+    dir.set(home.x, 0, home.z);
+    if (kiFrac > 0.22) {
+      const avoid = heatAvoid(p, people, dir);
+      if (avoid && avoid.strength > 0.35 && enemyDist < 22) {
+        const mix = Math.min(avoid.strength * 0.28, 0.22);
+        const prog = dir.x * home.x + dir.z * home.z;
+        const nx = dir.x * (1 - mix) + avoid.x * mix;
+        const nz = dir.z * (1 - mix) + avoid.z * mix;
+        if (nx * home.x + nz * home.z > prog * 0.35) {
+          dir.x = nx;
+          dir.z = nz;
+        }
+      }
+    }
+  } else if (sniping) {
+    if (!p.aiNestX) {
+      const nest = pickNest(p, foe);
+      p.aiNestX = nest.x;
+      p.aiNestZ = nest.z;
+    }
+    const nd = Math.hypot(p.aiNestX - p.pos().x, p.aiNestZ - p.pos().z);
+    const dist = foe.pos().distanceTo(p.pos());
+    if (nd > 7) dir.set(p.aiNestX - p.pos().x, 0, p.aiNestZ - p.pos().z);
+    else dir.set(0, 0, 0);
+    faceLock(p, foe, dt, 1.8);
+    if (nd < 9 && dist > 28 && dist < (powerStyle(p.nombre, p.faccion).range || 90) * 1.05 && p.s.ki > 24 && Math.random() < 0.018 * dt * 60) {
+      combat.blast(p, false, people, true);
     }
   } else if (fighting) {
     const dist = foe.pos().distanceTo(p.pos());
@@ -668,15 +831,23 @@ export function aiTick(p, people, balls, combat, match, dt) {
       const side = seed(p) > 0.5 ? 1 : -1;
       const strafe = new THREE.Vector3(Math.cos(lookYaw) * side, 0, -Math.sin(lookYaw) * side);
       if (mood.hp < 0.32 && mood.front < 0.1 && dist < 8) p.move(dir.clone().multiplyScalar(-1), true, dt);
-      else if (p.s.ki < 10 && dist > 2.4) p.move(dir, true, dt);
+      else if (p.s.ki < p.s.kiMax * 0.2 && dist > 2.4) p.move(dir, false, dt);
       else if (dist > hold) {
         const fd = dir.clone().lerp(strafe, locked ? 0.35 : 0.22).normalize();
-        p.move(fd, dist > 8, dt);
+        p.move(fd, dist > 8 && mood.ki > 0.28, dt);
       } else if (dist < hold * 0.55 && p.s.ki > 12 && preferKi) p.move(dir.clone().multiplyScalar(-1).lerp(strafe, 0.4).normalize(), false, dt);
-      else if (locked) p.move(strafe, false, dt);
+      else if (close && (p.flyAlt || 0) > 0.35) {
+        if ((p.aiHover || 0) > 0) p.aiHover -= dt;
+        else p.aiHover = 0.35 + seed(p) * 0.45;
+        if ((p.aiHover || 0) > 0.18) p.move(strafe, false, dt);
+      } else if (locked) p.move(strafe, false, dt);
     }
-    const blastOdds = (mood.front < 0 ? 0.28 : 0.16) * (mood.ki > 0.35 ? 1.25 : 0.7) * (locked ? 1.2 : 1);
-    if (inKiRange && p.s.ki >= 12 && Math.random() < blastOdds) {
+    const blastOdds =
+      (mood.front < 0 ? 0.22 : 0.12) *
+      (mood.ki > 0.42 ? 1.15 : mood.ki > 0.28 ? 0.45 : 0.08) *
+      (locked ? 1.15 : 1) *
+      ((p.flyAlt || 0) > 2 ? 0.28 : dist > 22 ? 0.45 : 1);
+    if (inKiRange && dist < 38 && p.s.ki >= p.s.kiMax * 0.22 && Math.random() < blastOdds) {
       combat.blast(p, p.s.ki > p.s.kiMax * 0.78 && mood.front > 0.2 && Math.random() < 0.25, people, dist > 48);
     }
     const meleeOdds = close ? (mood.front > 0.2 ? 0.22 : 0.1) : 0;
@@ -694,9 +865,11 @@ export function aiTick(p, people, balls, combat, match, dt) {
       if (far) dir.set((p.aiRaidX || 90) - p.pos().x, 0, t.mesh.position.z - p.pos().z);
       else dir.set(t.mesh.position.x - p.pos().x, 0, t.mesh.position.z - p.pos().z);
     } else if (p.aiMode === "help" && help) {
-      dir.set(help.pos().x - p.pos().x, 0, help.pos().z - p.pos().z);
+      const hs = hideSteer(p.pos().x, p.pos().z, help.pos().x, help.pos().z, enemy);
+      dir.set(hs.x, 0, hs.z);
     } else if (p.aiMode === "ball" && ball) {
-      dir.set(ball.mesh.position.x - p.pos().x, 0, ball.mesh.position.z - p.pos().z);
+      const hs = hideSteer(p.pos().x, p.pos().z, ball.mesh.position.x, ball.mesh.position.z, enemy);
+      dir.set(hs.x, 0, hs.z);
     } else if (p.aiMode === "charge") {
       dir.set(0, 0, 0);
       p.aiCharge = true;
@@ -706,12 +879,9 @@ export function aiTick(p, people, balls, combat, match, dt) {
         p.aiWander = 4 + seed(p) * 4;
       }
       dir.set(Math.sin(p.aiHeading), 0, Math.cos(p.aiHeading));
-      if (mood.front > 0.3 && !lowHp) dir.set(-p.pos().x * 0.15, 0, enemyZ - p.pos().z);
+      if (baseDist < 90 && !lowHp) dir.set(-p.pos().x * 0.2, 0, enemyZ - p.pos().z);
+      else if (mood.front > 0.3 && !lowHp) dir.set(-p.pos().x * 0.15, 0, enemyZ - p.pos().z);
       else if (mood.front < -0.28 || lowHp) dir.set(-p.pos().x, 0, homeZ - p.pos().z);
-      if (inHomeAir && mood.front > -0.1) {
-        dir.set(p.pos().x, 0, p.pos().z - homeZ);
-        if (dir.lengthSq() < 4) dir.set(Math.sin(p.aiHeading), 0, Math.cos(p.aiHeading));
-      }
     }
   }
 
@@ -723,31 +893,34 @@ export function aiTick(p, people, balls, combat, match, dt) {
   const wetZone = overWater || swimming;
   const mustSwim = ballInWater;
   const shore = wetZone && !flying && !mustSwim ? shoreDir(p.pos().x, p.pos().z) : null;
-  if (swimming && !mustSwim && shore) dir.set(shore.x, 0, shore.z);
+  if (swimming && !mustSwim && !carrying && shore) dir.set(shore.x, 0, shore.z);
 
   if (p.aiMode === "charge") p.aiCharge = true;
-  else if (kiFrac < band.lo && !carrying && !wetZone && p.flyAlt < 0.2) p.aiCharge = true;
+  else if (kiFrac < band.lo + 0.05 && !carrying && !wetZone && baseDist > 50) p.aiCharge = true;
   else if (kiFrac >= band.hi) p.aiCharge = false;
-  if (fighting || wetZone || carrying) p.aiCharge = false;
+  if (wetZone || carrying || sniping) p.aiCharge = false;
+  if (fighting && kiFrac > 0.26) p.aiCharge = false;
   if (p.aiMode === "charge") p.aiCharge = true;
-  const kiOk = kiFrac > band.lo + 0.1 && !p.aiCharge;
+  const kiOk = kiFrac > band.lo + 0.16 && !p.aiCharge;
 
-  // Intención de vuelo sticky (evita subir/bajar nervioso)
   let flyWish = false;
-  if (carrying) flyWish = baseDist > 18 && p.aiMode === "deliver";
+  const sneak = seed(p) < 0.42 && baseDist > 80;
+  if (carrying) flyWish = baseDist > 55 && kiOk && kiFrac > 0.24;
   else if (mustSwim && !overWater) flyWish = false;
-  else if (wetZone) flyWish = true;  // siempre intentar volar para salir del agua
-  else if (p.aiMode === "charge" || (fighting && mood.front < 0.2)) flyWish = false;
-  else if (kiOk && (goalDist > 90 || p.aiMode === "raid" || (p.aiMode === "ball" && goalDist > 70))) flyWish = true;
+  else if (wetZone) flyWish = true;
+  else if (p.aiMode === "charge" || kiFrac < 0.22 || fighting || sniping) flyWish = false;
+  else if (baseDist < 95 && kiOk) flyWish = true;
+  else if (kiOk && (goalDist > 100 || p.aiMode === "ball" || p.aiMode === "raid") && !sneak) flyWish = true;
   else if (kiOk && isWater(p.pos().x + dir.x * 14, p.pos().z + dir.z * 14)) flyWish = true;
 
   if (flyWish) p.aiFlyHold = Math.min(2.2, (p.aiFlyHold || 0) + dt);
   else p.aiFlyHold = Math.max(0, (p.aiFlyHold || 0) - dt * 0.55);
   const wantFly = p.aiFlyHold > 0.4;
   const wantLand =
-    (carrying && baseDist < 16) ||
-    nearOwnBase ||
+    (carrying && (baseDist < 16 || kiFrac < 0.14)) ||
+    (nearOwnBase && carrying) ||
     p.aiMode === "charge" ||
+    sniping ||
     (p.aiCharge && !wetZone) ||
     (p.aiFlyHold < 0.15 && !flyWish);
 
@@ -755,8 +928,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
     !wetZone &&
     !p.aiCharge &&
     p.aiMode !== "charge" &&
-    kiFrac > 0.12 &&
-    (carrying || p.aiMode === "ball" || p.aiMode === "help" || p.aiMode === "raid" || fighting);
+    (carrying || kiFrac > 0.12) &&
+    (carrying || p.aiMode === "ball" || p.aiMode === "help" || p.aiMode === "raid" || fighting || sniping || baseDist < 110);
   const turbo = wantFly && kiOk && !wetZone && (carrying || p.aiMode === "ball" || p.aiMode === "raid");
 
   if (wantLand && p.flyAlt > 0 && !wetZone) {
@@ -767,8 +940,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
   else if (p.flyAlt > 0 && !wantFly && !wetZone) p.descend(dt);
 
   if (!fighting && dir.lengthSq() > 0.25) {
-    // Evitar entrar al agua caminando (cualquier modo, no solo sin esfera)
-    if (!mustSwim && !flying && !wantFly) {
+    if (!carrying && !mustSwim && !flying && !wantFly) {
       const px = p.pos().x;
       const pz = p.pos().z;
       const ahead1 = isWater(px + dir.x * 6, pz + dir.z * 6);
@@ -782,9 +954,9 @@ export function aiTick(p, people, balls, combat, match, dt) {
       }
     }
     dir.normalize();
-    smoothYaw(p, Math.atan2(dir.x, dir.z), dt, carrying ? 5.5 : 3.8);
+    smoothYaw(p, Math.atan2(dir.x, dir.z), dt, carrying ? 9 : 3.8);
     const moveDir = new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw));
-    moveDir.lerp(dir, 0.35).normalize();
+    moveDir.lerp(dir, carrying ? 0.72 : 0.35).normalize();
     // No esprintar en agua — gasta ki muy rápido
     const runOk = (wantRun || turbo) && !swimming;
     p.move(moveDir, runOk, dt);

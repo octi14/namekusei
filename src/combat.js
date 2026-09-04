@@ -37,14 +37,15 @@ export class Combat {
     at.combo = step + 1;
     at.comboT = now;
     at.punchStep = step;
-    const flying = (at.flyAlt || 0) > 0.38 && (at.flyBlend || 0) > 0.28;
-    const dash = flying && ((at.rush || 0) > 0.7 || at.didMove);
-    at.airMelee = flying ? (dash ? "elbow" : "upright") : null;
-    at.posePunch = at.airMelee === "elbow" ? 0.42 : step === 2 ? 0.48 : 0.34;
-    at.cooldown = at.airMelee === "elbow" ? 0.52 : step === 2 ? 0.78 : 0.36;
+    const flying = (at.flyAlt || 0) > 0.38;
+    const dive = flying && (at.rush || 0) > 0.82 && (step === 2 || Math.random() < 0.22);
+    at.airMelee = flying ? (dive ? "elbow" : step === 1 ? "kick" : "upright") : null;
+    at.posePunch = at.airMelee === "elbow" ? 0.42 : at.airMelee === "kick" || step === 2 ? 0.48 : 0.34;
+    at.cooldown = at.airMelee === "elbow" ? 0.52 : at.airMelee === "kick" || step === 2 ? 0.78 : 0.36;
+    if (at.airMelee === "kick") at.punchStep = 2;
     {
       const [sx, sy, sz] = atPos(at);
-      playSfx(step === 2 ? "throwKick" : "throwPunch", sx, sy, sz, 0.42);
+      playSfx(step === 2 || at.airMelee === "kick" ? "throwKick" : "throwPunch", sx, sy, sz, 0.42);
     }
     if (at.airMelee !== "elbow") at._runT = Math.min(at._runT || 0, 0.15);
     if (at.airMelee === "elbow") {
@@ -150,8 +151,8 @@ export class Combat {
     }
     const dir = this.shotDir(at);
     const mesh = makePowerMesh(style, superOn, rank);
-    mesh.position.copy(at.pos()).addScaledVector(dir, 1.4);
-    mesh.position.y = at.pos().y + at.height * 0.7;
+    mesh.position.copy(at.pos()).addScaledVector(dir, superOn ? 2.4 : 1.4);
+    mesh.position.y = at.pos().y + at.height * (superOn ? 0.78 : 0.7);
     if (style.kind === "beam") alignBeam(mesh, dir);
     this.scene.add(mesh);
     const hand = at.pos().clone().addScaledVector(dir, 0.85);
@@ -162,9 +163,20 @@ export class Combat {
     const dmg = superOn
       ? Math.round((180 + at.s.kiMax * 1.2) * (0.78 + rank * 0.36))
       : Math.round((snipe ? 60 : 80) + at.s.kiMax * 0.4);
-    const hitR = (style.r || 0.22) * (superOn ? 1.6 + rank * 0.55 : 1.15) + 0.7;
-    const rng = (style.range || 55) * (snipe ? 1.45 : 1) * (superOn ? 1.08 + rank * 0.1 : 1);
-    const life = (style.life || 1.4) * (snipe ? 1.5 : 1) * (superOn ? 1.1 + rank * 0.12 : 1);
+    const hitR = superOn
+      ? 3.8 + rank * 1.35 + (style.r || 0.22) * 6
+      : (style.r || 0.22) * 1.15 + 0.7;
+    const rng = (style.range || 55) * (snipe ? 1.45 : 1) * (superOn ? 1.85 + rank * 0.22 : 1);
+    const life = (style.life || 1.4) * (snipe ? 1.5 : 1) * (superOn ? 2.15 + rank * 0.28 : 1);
+    const locked =
+      at.lockFoe && !at.lockFoe.dead && (at.lockT || 0) > 0 ? at.lockFoe : this.pickLock(at, dir, people, rng);
+    const home = superOn
+      ? at.controller === "humano"
+        ? locked && at.lockFoe === locked
+          ? 0.12 + rank * 0.04
+          : 0
+        : 0.08 + rank * 0.03
+      : 0.07 * (style.range > 100 ? 0.7 : 1);
     this.shots.push({
       mesh,
       dir,
@@ -172,15 +184,15 @@ export class Combat {
       dmg,
       life,
       atk: at,
-      speed: style.speed * (superOn ? 1.05 + rank * 0.08 : snipe ? 1.25 : 1),
+      speed: style.speed * (superOn ? 1.55 + rank * 0.18 : snipe ? 1.25 : 1),
       hitR,
       kind: style.kind,
       color: style.color,
       trail: 0,
-      lock: this.pickLock(at, dir, people, rng),
-      home: ((superOn ? 0.1 + rank * 0.03 : 0.07) * (style.range > 100 ? 0.7 : 1)),
+      lock: superOn && at.controller === "humano" && !at.lockFoe ? null : locked,
+      home,
       aoe: superOn,
-      aoeR: superOn ? 6.2 + rank * 3.4 : 0,
+      aoeR: superOn ? 12 + rank * 4.8 : 0,
       snipe: !!snipe,
     });
     if (superOn || snipe) this.jolt(at.pos(), snipe ? 0.14 : 0.16 + rank * 0.1);
@@ -222,9 +234,8 @@ export class Combat {
       const to = t.pos().clone().sub(origin);
       const dist = to.length();
       if (dist > maxD || dist < 1.5) continue;
-      to.y = 0;
       to.normalize();
-      if (to.dot(dir) < 0.35) continue;
+      if (to.dot(dir) < 0.62) continue;
       if (dist < bestD) {
         bestD = dist;
         best = t;
@@ -312,7 +323,7 @@ export class Combat {
       if (s.trail > 0.04) {
         s.trail = 0;
         const t = new THREE.Mesh(
-          new THREE.SphereGeometry(0.1, 5, 5),
+          new THREE.SphereGeometry(s.aoe ? 0.38 + s.hitR * 0.06 : 0.1, 6, 6),
           new THREE.MeshBasicMaterial({
             color: s.color,
             transparent: true,

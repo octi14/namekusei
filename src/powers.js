@@ -85,7 +85,7 @@ function mat(color, opacity = 0.9) {
 }
 
 export function makePowerMesh(style, superOn, rank = 0) {
-  const s = superOn ? 1.7 + rank * 0.7 : 1;
+  const s = superOn ? 3.4 + rank * 1.15 : 1;
   const c = style.color;
   const g = new THREE.Group();
   if (style.kind === "beam") {

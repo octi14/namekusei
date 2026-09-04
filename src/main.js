@@ -84,13 +84,26 @@ function applyLabels() {
 function startGame(id) {
   setScenario(id);
   if (id === "earth" || id === "cell") {
-    skyTex = makeSky([
-      [0, "#1565c0"],
-      [0.35, "#42a5f5"],
-      [0.7, "#90caf9"],
-      [1, "#e3f2fd"],
-    ]);
-    fogLand = new THREE.Fog(id === "earth" ? 0x7cb342 : 0x90caf9, id === "earth" ? 70 : 220, id === "earth" ? 680 : 1600);
+    skyTex = makeSky(
+      id === "cell"
+        ? [
+            [0, "#0d47a1"],
+            [0.35, "#1565c0"],
+            [0.7, "#42a5f5"],
+            [1, "#90caf9"],
+          ]
+        : [
+            [0, "#1565c0"],
+            [0.35, "#42a5f5"],
+            [0.7, "#90caf9"],
+            [1, "#e3f2fd"],
+          ]
+    );
+    fogLand = new THREE.Fog(
+      id === "earth" ? 0x7cb342 : 0x5c9bd1,
+      id === "earth" ? 70 : 220,
+      id === "earth" ? 680 : 1600
+    );
   } else {
     skyTex = makeSky([
       [0, "#8bc34a"],
@@ -238,6 +251,7 @@ addEventListener("keydown", (e) => {
   if (spectating) return;
   if (e.code === "KeyQ") lockOn();
   if (e.code === "KeyB") player.setSsj(!player.ssj);
+  if (e.code === "KeyT") combat.blast(player, false, people, true);
 });
 addEventListener("keyup", (e) => keys.delete(e.code));
 addEventListener("mousedown", (e) => {

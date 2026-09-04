@@ -169,6 +169,26 @@ export class Personaje {
     this.kiHalo.visible = false;
     this.kiHalo.position.y = this.height * 0.42;
     this.mesh.add(this.kiHalo);
+    const ssjMat = () =>
+      new THREE.SpriteMaterial({
+        map: trailTex(),
+        color: 0xffe082,
+        transparent: true,
+        opacity: 0.62,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+    this.ssjGlow = new THREE.Sprite(ssjMat());
+    this.ssjGlow.position.y = this.height * 0.48;
+    this.ssjGlow.visible = false;
+    this.mesh.add(this.ssjGlow);
+    this.ssjHalo = new THREE.Sprite(ssjMat());
+    this.ssjHalo.material = this.ssjHalo.material.clone();
+    this.ssjHalo.material.color.setHex(0xfff59d);
+    this.ssjHalo.material.opacity = 0.32;
+    this.ssjHalo.position.y = this.height * 0.52;
+    this.ssjHalo.visible = false;
+    this.mesh.add(this.ssjHalo);
     this.kiBubble = new THREE.Mesh(
       new THREE.SphereGeometry(this.height * 1.05, 22, 16),
       new THREE.MeshBasicMaterial({
@@ -213,9 +233,14 @@ export class Personaje {
     this.s.velocidad = this.orig.velocidad * (on ? 1.14 : 1);
     const col = on ? 0xffe082 : this.lookHairC;
     this.mesh.traverse((o) => {
-      if (o.material?.userData?.ssjHair) o.material.color.setHex(col);
+      if (o.material?.userData?.ssjHair) {
+        o.material.color.setHex(col);
+        o.material.emissive?.setHex(on ? 0xffc107 : 0x000000);
+        if ("emissiveIntensity" in (o.material || {})) o.material.emissiveIntensity = on ? 0.7 : 0;
+      }
     });
-    if (this.kiAura?.material) this.kiAura.material.color.setHex(on ? 0xffe082 : 0x80deea);
+    if (this.ssjGlow) this.ssjGlow.visible = on;
+    if (this.ssjHalo) this.ssjHalo.visible = on;
   }
 
   tick(dt) {
@@ -266,7 +291,7 @@ export class Personaje {
     this.rush = (this.rush || 0) * Math.exp(-5 * dt);
     this.ballMark.visible = this.esfera != null && !this._fpCam;
     this._kiPulse += dt * 6;
-    const on = this._kiCharge || (this.superHold || 0) > 0.04 || (this.poseBlast || 0) > 0.05;
+    const on = this._kiCharge || (this.superHold || 0) > 0.04 || (this.poseBlast || 0) > 0.05 || this.ssj;
     const supering = (this.superHold || 0) > 0.04 || (this.poseBlast || 0) > 0.12;
     this.kiAura.visible = on;
     this.kiHalo.visible = on;
@@ -282,12 +307,23 @@ export class Personaje {
         arr[i * 3 + 2] = Math.sin(a) * r;
       }
       this.kiAura.geometry.attributes.position.needsUpdate = true;
-      const col = supering ? 0xffc107 : 0x4dd0e1;
+      const gold = this.ssj;
+      const col = gold ? 0xffe082 : supering ? 0xffc107 : 0x4dd0e1;
       this.kiAura.material.color.setHex(col);
-      this.kiHalo.material.color.setHex(supering ? 0xfff59d : 0xe0f7fa);
-      this.kiAura.material.opacity = supering ? 0.5 : 0.4;
-      this.kiAura.material.size = this.height * (supering ? 1.9 : 1.55);
-      this.kiHalo.material.size = this.height * (supering ? 3.1 : 2.6);
+      this.kiHalo.material.color.setHex(gold ? 0xfff59d : supering ? 0xfff59d : 0xe0f7fa);
+      this.kiAura.material.opacity = gold ? 0.58 : supering ? 0.5 : 0.4;
+      this.kiAura.material.size = this.height * (gold ? 2.15 : supering ? 1.9 : 1.55);
+      this.kiHalo.material.size = this.height * (gold ? 3.4 : supering ? 3.1 : 2.6);
+    }
+    if (this.ssj && this.ssjGlow) {
+      const p = 1 + Math.sin(this._kiPulse * 1.5) * 0.14;
+      this.ssjGlow.visible = !this._fpCam;
+      this.ssjHalo.visible = !this._fpCam;
+      this.ssjGlow.scale.set(this.height * 2.4 * p, this.height * 3.6 * p, 1);
+      this.ssjHalo.scale.set(this.height * 3.6 * p, this.height * 5.1 * p, 1);
+    } else if (this.ssjGlow) {
+      this.ssjGlow.visible = false;
+      this.ssjHalo.visible = false;
     }
     if ((this._kiBubbleT || 0) > 0) {
       this._kiBubbleT -= dt;
@@ -372,20 +408,21 @@ export class Personaje {
     const swimGo = swimming && (this.didMove || (this.rush || 0) > 0.18);
     const hopping = !!(this._hop || this._wantJump);
     const airHit = (this.posePunch || 0) > 0 ? this.airMelee : null;
-    let target =
-      hopping || swimGo || (this.volando && !swimming && !hopping && (this.didMove || (this.rush || 0) > 0.28))
-        ? hopping
-          ? 0
-          : 1
-        : 0;
-    if (airHit === "upright") target = 0;
+    const cruise =
+      this.volando &&
+      !swimming &&
+      !hopping &&
+      ((this.rush || 0) > 0.58 || (this._groundSpd || 0) > 9.5);
+    let target = hopping || swimGo || cruise ? (hopping ? 0 : 1) : 0;
+    if (airHit === "upright" || airHit === "kick") target = 0;
     else if (airHit === "elbow") target = 1;
     const lam = target > this.flyBlend ? 2.15 : 3.35;
     this.flyBlend = THREE.MathUtils.damp(this.flyBlend, target, lam, dt);
     const u = this.flyBlend;
     const s = u * u * (3 - 2 * u);
     let pitch = 1.52 * s;
-    if (airHit === "upright") pitch = 0;
+    if (airHit === "upright") pitch = 0.06;
+    else if (airHit === "kick") pitch = 0.18;
     else if (airHit === "elbow") pitch = 1.58;
     else if (this._kiCharge || (this.superHold || 0) > 0.04 || hopping) pitch = 0;
     else if (!swimming && this.didMove && this.flyAlt < 0.2) {
@@ -901,6 +938,11 @@ export class Personaje {
     const elbowDash = punching && this.airMelee === "elbow";
     if (charging || (punching && !elbowDash)) run = false;
     let mul = this.flyAlt > 0.2 ? 1.42 : 0.39;
+    if (this.flyAlt > 0.2) {
+      const kf = this.s.ki / Math.max(1, this.s.kiMax);
+      if (kf < 0.02) mul *= 0.55;
+      else if (kf < 0.12) mul *= 0.72;
+    }
     if (charging) mul *= 0.22;
     if (elbowDash) mul *= 1.18;
     else if (punching) mul *= 0.16;
@@ -916,7 +958,7 @@ export class Personaje {
       if (run && this.s.ki > 0) {
         mul *= 1.85;
         this.s.ki = Math.max(0, this.s.ki - 4 * dt);
-      }
+      } else if (this.s.ki <= 0) mul *= 0.88;
     } else {
       if (run && this.s.ki > 0) {
         this._runT = Math.min(1, this._runT + dt / 0.52);

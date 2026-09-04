@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { MAP, BASE_Z } from "./config.js";
 import { log } from "./log.js";
-import { surfaceHeight, groundHeight, WATER_Y, isWater } from "./world.js";
+import { surfaceHeight, groundHeight, WATER_Y, isWater, pickDryLand } from "./world.js";
 
 function ballRestY(x, z) {
   const floor = groundHeight(x, z) + 0.55;
@@ -17,17 +17,9 @@ export class DragonBalls {
   }
 
   spawn(n) {
-    const m = MAP / 2 - 40;
-    let x, z, tries = 0;
-    do {
-      x = (Math.random() * 2 - 1) * m;
-      z = (Math.random() * 2 - 1) * m;
-      tries++;
-    } while (
-      tries < 70 &&
-      (groundHeight(x, z) < WATER_Y + 2.2 ||
-        (Math.abs(z) > BASE_Z - 48 && Math.abs(x) < 22))
-    );
+    const p = pickDryLand(260);
+    const x = p.x;
+    const z = p.z;
     const g = new THREE.Group();
     const ball = new THREE.Mesh(
       new THREE.SphereGeometry(0.48, 16, 14),

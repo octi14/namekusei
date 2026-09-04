@@ -241,14 +241,32 @@ export function makeBody(altura, look) {
 
   const hips = new THREE.Mesh(new THREE.SphereGeometry(0.16 * s, 16, 14), torsoC);
   hips.position.y = waistY;
-  hips.scale.set(1.15, 0.7, 0.85);
+  hips.scale.set(1.18, 0.62, 0.88);
   hips.castShadow = true;
   g.add(hips);
 
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.155 * s, 0.32 * s, 8, 14), torsoC);
-  torso.position.y = 0.98 * s - waistY;
-  torso.castShadow = true;
-  torsoG.add(torso);
+  const brute = kit === "brute";
+  const chest = new THREE.Mesh(new THREE.SphereGeometry(0.155 * s, 16, 14), torsoC);
+  chest.position.y = 1.1 * s - waistY;
+  chest.scale.set(brute ? 1.58 : 1.38, 0.88, 1.08);
+  chest.castShadow = true;
+  torsoG.add(chest);
+  for (const side of [-1, 1]) {
+    const pec = new THREE.Mesh(new THREE.SphereGeometry(0.072 * s, 12, 10), torsoC);
+    pec.position.set(side * 0.072 * s, 1.07 * s - waistY, 0.1 * s);
+    pec.scale.set(brute ? 1.35 : 1.18, 0.72, 0.9);
+    pec.castShadow = true;
+    torsoG.add(pec);
+  }
+  const abs = new THREE.Mesh(new THREE.CapsuleGeometry(0.105 * s, 0.14 * s, 8, 12), torsoC);
+  abs.position.y = 0.86 * s - waistY;
+  abs.scale.set(1.08, 1, 0.86);
+  abs.castShadow = true;
+  torsoG.add(abs);
+  const waist = new THREE.Mesh(new THREE.SphereGeometry(0.115 * s, 14, 12), torsoC);
+  waist.position.y = 0.74 * s - waistY;
+  waist.scale.set(1.02, 0.5, 0.88);
+  torsoG.add(waist);
 
   const belt = new THREE.Mesh(
     new THREE.TorusGeometry(0.17 * s, 0.035 * s, 10, 20),
@@ -273,7 +291,6 @@ export function makeBody(altura, look) {
       torsoG.add(pad);
     }
   }
-  if (kit === "brute") torso.scale.set(1.4, 1.15, 1.3);
   if (kit === "frost") {
     const line = new THREE.Mesh(new THREE.BoxGeometry(0.06 * s, 0.38 * s, 0.04 * s), accent);
     line.position.set(0, 0.98 * s - waistY, 0.16 * s);

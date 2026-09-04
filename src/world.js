@@ -4,6 +4,22 @@ import { MAP, BASE_Z } from "./config.js";
 const BASE_R = 12;
 export const patriarchHill = { x: 140, z: 0 };
 
+export function pickDryLand(minBase = 220) {
+  const m = MAP / 2 - 50;
+  for (let i = 0; i < 160; i++) {
+    const x = (Math.random() * 2 - 1) * m;
+    const z = (Math.random() * 2 - 1) * (m * 0.82);
+    if (Math.hypot(x, z + BASE_Z) < minBase || Math.hypot(x, z - BASE_Z) < minBase) continue;
+    if (groundHeight(x, z) > WATER_Y + 3.5) return { x, z };
+  }
+  const mid = CELL_ISLANDS.filter((isl) => Math.abs(isl.z) < BASE_Z - 280);
+  const isl = mid[Math.floor(Math.random() * mid.length)] || CELL_ISLANDS[2];
+  return {
+    x: isl.x + (Math.random() - 0.5) * isl.rx * 0.45,
+    z: isl.z + (Math.random() - 0.5) * isl.rz * 0.45,
+  };
+}
+
 export function pickPatriarchHill() {
   const m = MAP / 2 - 110;
   for (let i = 0; i < 50; i++) {
@@ -30,9 +46,44 @@ function hillBump(x, z) {
 
 export let mapId = "namek";
 
+const EARTH_PLATEAUS = [
+  { x: 390, z: -80, r: 310, w: 70, h: 18 },
+  { x: -340, z: 160, r: 270, w: 62, h: 14 },
+  { x: 210, z: 430, r: 230, w: 52, h: 12 },
+  { x: -510, z: -360, r: 290, w: 68, h: 17 },
+  { x: 580, z: 280, r: 210, w: 48, h: 16 },
+  { x: -160, z: -580, r: 250, w: 58, h: 13 },
+  { x: 320, z: 680, r: 190, w: 44, h: 11 },
+  { x: -680, z: 40, r: 200, w: 50, h: 15 },
+  { x: 720, z: -420, r: 180, w: 42, h: 14 },
+  { x: -90, z: 300, r: 160, w: 40, h: 9 },
+];
+
+function earthPlateauH(x, z) {
+  let h = 0;
+  for (const P of EARTH_PLATEAUS) {
+    const d = Math.hypot(x - P.x, z - P.z);
+    if (d >= P.r) continue;
+    const inner = P.r - P.w;
+    let u = d <= inner ? 1 : 1 - (d - inner) / P.w;
+    u = u * u * (3 - 2 * u);
+    h = Math.max(h, (P.h + Math.sin(x * 0.018 + z * 0.014) * 1.4) * u);
+  }
+  return h;
+}
+
 function earthMountAmt(x, z) {
-  const m = x * 0.00072 + z * 0.00038 + Math.sin(x * 0.0038) * 0.22 + Math.cos(z * 0.0044) * 0.16;
-  const t = Math.max(0, Math.min(1, (m - 0.18) / 0.55));
+  const m1 = x * 0.00062 + z * 0.00034 + Math.sin(x * 0.0038) * 0.22 + Math.cos(z * 0.0044) * 0.16;
+  const m2 = -x * 0.00048 + z * 0.0004 + Math.cos(x * 0.0028) * 0.2;
+  const m3 = Math.sin(x * 0.002 + z * 0.0017) * 0.52 + 0.18;
+  let t = Math.max(0, (m1 - 0.06) / 0.52);
+  t = Math.max(t, (m2 - 0.1) / 0.5);
+  t = Math.max(t, (m3 - 0.28) * 1.35);
+  t = Math.max(0, Math.min(1, t));
+  const plat = earthPlateauH(x, z);
+  if (plat > 4) t = Math.max(t, Math.min(1, plat / 16));
+  const near = Math.min(Math.hypot(x, z - BASE_Z), Math.hypot(x, z + BASE_Z));
+  if (near < 240) t *= Math.max(0, (near - 100) / 140);
   return t * t * (3 - 2 * t);
 }
 
@@ -43,12 +94,13 @@ function earthHeight(x, z) {
     Math.sin((x + z) * 0.003) * 0.7 +
     0.9;
   const mounts =
-    Math.abs(Math.sin(x * 0.016) * Math.cos(z * 0.014)) * 42 +
-    Math.sin(x * 0.038 + 1.4) * Math.sin(z * 0.031) * 18 +
-    Math.sin(x * 0.09 + z * 0.05) * 9 +
-    Math.cos(z * 0.072) * 8 +
-    10;
+    Math.abs(Math.sin(x * 0.014) * Math.cos(z * 0.012)) * 28 +
+    Math.sin(x * 0.032 + 1.4) * Math.sin(z * 0.028) * 12 +
+    Math.sin(x * 0.08 + z * 0.045) * 6 +
+    Math.cos(z * 0.065) * 5 +
+    8;
   let h = plains * (1 - amt) + mounts * amt;
+  h = Math.max(h, plains + earthPlateauH(x, z));
   const lakes = [
     { x: -260, z: 90, r: 110, d: 12 },
     { x: 80, z: -360, r: 78, d: 10 },
@@ -111,6 +163,25 @@ const CELL_ISLANDS = [
   { x: -550, z: 520, rx: 40, rz: 30, h: 10 },
   { x: 30, z: -40, rx: 36, rz: 24, h: 12 },
   { x: 750, z: -180, rx: 42, rz: 28, h: 10 },
+  { x: 0, z: 0, rx: 130, rz: 95, h: 16, hills: 1, peak: 14 },
+  { x: 180, z: -160, rx: 95, rz: 70, h: 14, hills: 1 },
+  { x: -200, z: 160, rx: 100, rz: 65, h: 14, hills: 1 },
+  { x: 320, z: 180, rx: 88, rz: 60, h: 13, peak: 12 },
+  { x: -340, z: -200, rx: 90, rz: 58, h: 13 },
+  { x: 90, z: -380, rx: 110, rz: 55, h: 14, hills: 1 },
+  { x: -110, z: 380, rx: 105, rz: 52, h: 14 },
+  { x: 220, z: 40, rx: 72, rz: 80, h: 13 },
+  { x: -90, z: 80, rx: 75, rz: 50, h: 13, peak: 11 },
+  { x: 400, z: -250, rx: 80, rz: 48, h: 13 },
+  { x: -420, z: 250, rx: 78, rz: 50, h: 13 },
+  { x: 150, z: 480, rx: 70, rz: 45, h: 12 },
+  { x: -160, z: -480, rx: 72, rz: 44, h: 12 },
+  { x: 500, z: 80, rx: 65, rz: 55, h: 12, hills: 1 },
+  { x: -500, z: 80, rx: 62, rz: 52, h: 12 },
+  { x: 40, z: 600, rx: 85, rz: 42, h: 13 },
+  { x: -50, z: -600, rx: 82, rz: 40, h: 13 },
+  { x: 260, z: -300, rx: 58, rz: 70, h: 12 },
+  { x: -260, z: 300, rx: 60, rz: 68, h: 12 },
 ];
 
 function cellIslandH(x, z, isl) {
@@ -619,31 +690,54 @@ function addLandmarks(scene) {
 }
 
 function grassTex(earth) {
-  const n = 512;
+  const n = 2048;
   const c = document.createElement("canvas");
   c.width = c.height = n;
-  const ctx = c.getContext("2d");
-  ctx.fillStyle = earth ? "#4caf50" : "#1e88c8";
-  ctx.fillRect(0, 0, n, n);
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  const img = ctx.createImageData(n, n);
+  const d = img.data;
+  const br = earth ? 52 : 28;
+  const bg = earth ? 128 : 110;
+  const bb = earth ? 42 : 168;
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const n1 = Math.sin(x * 0.035 + y * 0.021) * 0.5 + Math.sin(x * 0.09 - y * 0.07) * 0.28;
+      const n2 = Math.sin((x + y) * 0.017) * Math.cos(x * 0.011 - y * 0.013);
+      const n3 = ((x * 13 + y * 37) & 255) / 255;
+      const v = n1 * 0.45 + n2 * 0.3 + (n3 - 0.5) * 0.35;
+      const i = (y * n + x) * 4;
+      d[i] = Math.max(0, Math.min(255, br + v * 42 + (n3 - 0.5) * 18));
+      d[i + 1] = Math.max(0, Math.min(255, bg + v * 48 + n2 * 16));
+      d[i + 2] = Math.max(0, Math.min(255, bb + v * 28 + (earth ? -n1 * 10 : n1 * 22)));
+      d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
   const blade = (x, y, w, h, col) => {
     ctx.fillStyle = col;
     ctx.fillRect(((x % n) + n) % n, ((y % n) + n) % n, w, h);
   };
-  for (let i = 0; i < 28000; i++) {
+  for (let i = 0; i < 90000; i++) {
     const col = earth
-      ? `rgb(${40 + Math.random() * 50},${110 + Math.random() * 80},${30 + Math.random() * 40})`
-      : `rgb(${20 + Math.random() * 40},${90 + Math.random() * 70},${140 + Math.random() * 80})`;
+      ? `rgb(${36 + Math.random() * 70},${95 + Math.random() * 110},${22 + Math.random() * 48})`
+      : `rgb(${16 + Math.random() * 50},${85 + Math.random() * 90},${130 + Math.random() * 95})`;
     const x = Math.random() * n;
     const y = Math.random() * n;
-    const w = 1 + Math.random() * 1.6;
-    const h = 3 + Math.random() * 7;
+    const w = 1 + Math.random() * 2.2;
+    const h = 4 + Math.random() * 11;
     blade(x, y, w, h, col);
     if (x + w > n) blade(x - n, y, w, h, col);
     if (y + h > n) blade(x, y - n, w, h, col);
   }
+  for (let i = 0; i < 12000; i++) {
+    ctx.fillStyle = earth
+      ? `rgba(${90 + Math.random() * 50},${80 + Math.random() * 40},${40 + Math.random() * 30},0.35)`
+      : `rgba(${40 + Math.random() * 40},${70 + Math.random() * 40},${90 + Math.random() * 50},0.28)`;
+    ctx.fillRect(Math.random() * n, Math.random() * n, 1 + Math.random() * 2, 1 + Math.random() * 2);
+  }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(48, 48);
+  t.repeat.set(36, 36);
   t.anisotropy = 16;
   t.minFilter = THREE.LinearMipmapLinearFilter;
   t.magFilter = THREE.LinearFilter;
@@ -666,32 +760,43 @@ function shadowMesh(m) {
 }
 
 function waterTex() {
+  const n = 1024;
   const c = document.createElement("canvas");
-  c.width = c.height = 64;
+  c.width = c.height = n;
   const ctx = c.getContext("2d");
   ctx.fillStyle = "#0277bd";
-  ctx.fillRect(0, 0, 64, 64);
-  for (let i = 0; i < 80; i++) {
-    ctx.strokeStyle = `rgba(180,230,255,${0.15 + Math.random() * 0.25})`;
+  ctx.fillRect(0, 0, n, n);
+  for (let i = 0; i < 420; i++) {
+    ctx.strokeStyle = `rgba(180,230,255,${0.08 + Math.random() * 0.22})`;
+    ctx.lineWidth = 0.8 + Math.random() * 2.4;
     ctx.beginPath();
-    const y = Math.random() * 64;
+    const y = Math.random() * n;
     ctx.moveTo(0, y);
-    ctx.quadraticCurveTo(32, y + (Math.random() - 0.5) * 8, 64, y);
+    ctx.bezierCurveTo(n * 0.3, y + (Math.random() - 0.5) * 28, n * 0.7, y + (Math.random() - 0.5) * 28, n, y);
     ctx.stroke();
+  }
+  for (let i = 0; i < 800; i++) {
+    ctx.fillStyle = `rgba(220,245,255,${0.04 + Math.random() * 0.1})`;
+    ctx.fillRect(Math.random() * n, Math.random() * n, 2 + Math.random() * 6, 1);
   }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(48, 48);
+  t.repeat.set(28, 28);
+  t.anisotropy = 16;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = true;
+  t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
 
 function addRocks(scene) {
   if (mapId === "earth") {
     const rockM = new THREE.MeshLambertMaterial({ color: 0x6d4c41 });
-    for (let k = 0; k < 28; k++) {
-      const x = 180 + Math.random() * 780;
+    for (let k = 0; k < 52; k++) {
+      const x = (Math.random() * 2 - 1) * (MAP / 2 - 90);
       const z = (Math.random() * 2 - 1) * (MAP / 2 - 80);
-      if (earthMountAmt(x, z) < 0.35) continue;
+      if (earthMountAmt(x, z) < 0.28 && earthPlateauH(x, z) < 6) continue;
       const gy = groundHeight(x, z);
       if (gy < WATER_Y + 1) continue;
       const s = 2.2 + Math.random() * 5.5;
