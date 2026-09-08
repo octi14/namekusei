@@ -1,5 +1,16 @@
 import * as THREE from "three";
 
+function surf(color, opts = {}) {
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness: opts.roughness ?? 0.7,
+    metalness: opts.metalness ?? 0.05,
+    side: opts.side,
+    emissive: opts.emissive,
+    emissiveIntensity: opts.emissiveIntensity,
+  });
+}
+
 function makeLimb(radius, len, mat, x, y, extras) {
   const piv = new THREE.Group();
   piv.position.set(x, y, 0);
@@ -109,7 +120,7 @@ function makeLeg(radius, thighLen, shinLen, mat, x, y, extras) {
 }
 
 function addHeadGear(headG, s, look) {
-  const hc = new THREE.MeshLambertMaterial({ color: look.hairC ?? 0x111 });
+  const hc = surf(look.hairC ?? 0x111, { roughness: 0.55 });
   hc.userData.ssjHair = true;
   const t = look.hair;
   if (t === "spike" || t === "goku" || t === "gohan") {
@@ -143,7 +154,7 @@ function addHeadGear(headG, s, look) {
       headG.add(ant);
     }
     if (look.turban) {
-      const cloth = new THREE.MeshLambertMaterial({ color: 0xf5f5f5 });
+      const cloth = surf(0xf5f5f5, { roughness: 0.85 });
       const wrap = new THREE.Mesh(new THREE.SphereGeometry(0.17 * s, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.52), cloth);
       wrap.position.y = 0.06 * s;
       wrap.rotation.x = -0.08;
@@ -165,7 +176,7 @@ function addHeadGear(headG, s, look) {
     headG.add(helm);
     const visor = new THREE.Mesh(
       new THREE.BoxGeometry(0.16 * s, 0.04 * s, 0.06 * s),
-      new THREE.MeshLambertMaterial({ color: 0x263238 })
+      surf(0x263238, { roughness: 0.35, metalness: 0.45 })
     );
     visor.position.set(0, 0.02 * s, 0.14 * s);
     headG.add(visor);
@@ -178,7 +189,7 @@ function addHeadGear(headG, s, look) {
     }
     const gem = new THREE.Mesh(
       new THREE.SphereGeometry(0.04 * s, 14, 12),
-      new THREE.MeshLambertMaterial({ color: look.accent ?? 0xab47bc, emissive: 0x4a148c })
+      surf(look.accent ?? 0xab47bc, { roughness: 0.25, metalness: 0.35, emissive: 0x4a148c, emissiveIntensity: 0.35 })
     );
     gem.position.set(0, 0.02 * s, 0.15 * s);
     headG.add(gem);
@@ -186,8 +197,8 @@ function addHeadGear(headG, s, look) {
 }
 
 function addFace(headG, s, look) {
-  const eyeM = new THREE.MeshLambertMaterial({ color: 0x212121 });
-  const whiteM = new THREE.MeshLambertMaterial({ color: 0xfafafa });
+  const eyeM = surf(0x212121, { roughness: 0.4 });
+  const whiteM = surf(0xfafafa, { roughness: 0.45 });
   for (const side of [-1, 1]) {
     const w = new THREE.Mesh(new THREE.SphereGeometry(0.032 * s, 12, 10), whiteM);
     w.position.set(side * 0.05 * s, 0.02 * s, 0.13 * s);
@@ -220,19 +231,18 @@ export function makeBody(altura, look) {
   const g = new THREE.Group();
   const s = altura;
   const kit = look.kit || "gi";
-  const torsoC = new THREE.MeshLambertMaterial({ color: look.body });
-  const skin = new THREE.MeshLambertMaterial({ color: look.skin });
+  const torsoC = surf(look.body, { roughness: kit === "armor" || kit === "frost" ? 0.45 : 0.78 });
+  const skin = surf(look.skin, { roughness: 0.62 });
   const limbC =
     kit === "namek"
       ? skin
-      : new THREE.MeshLambertMaterial({
-          color: new THREE.Color(look.body).multiplyScalar(0.78),
-        });
-  const accent = new THREE.MeshLambertMaterial({ color: look.accent ?? 0x1565c0 });
-  const bootM = new THREE.MeshLambertMaterial({
-    color: look.boots ?? (kit === "gi" ? look.accent ?? 0x0d47a1 : 0x212121),
+      : surf(new THREE.Color(look.body).multiplyScalar(0.78), { roughness: 0.75 });
+  const accent = surf(look.accent ?? 0x1565c0, { roughness: 0.55 });
+  const bootM = surf(look.boots ?? (kit === "gi" ? look.accent ?? 0x0d47a1 : 0x212121), {
+    roughness: 0.5,
+    metalness: 0.12,
   });
-  const white = new THREE.MeshLambertMaterial({ color: 0xeeeeee });
+  const white = surf(0xeeeeee, { roughness: 0.4, metalness: 0.2 });
 
   const waistY = 0.62 * s;
   const torsoG = new THREE.Group();
@@ -299,22 +309,20 @@ export function makeBody(altura, look) {
   if (kit === "gi") {
     const undershirt = new THREE.Mesh(
       new THREE.CylinderGeometry(0.12 * s, 0.13 * s, 0.18 * s, 14),
-      new THREE.MeshLambertMaterial({ color: 0x5d4037 })
+      new THREE.MeshStandardMaterial({ color: 0x5d4037, roughness: 0.82 })
     );
     undershirt.position.y = 0.88 * s - waistY;
     torsoG.add(undershirt);
   }
   if (kit === "namek") {
-    const capeM = new THREE.MeshLambertMaterial({
-      color: look.cape ?? 0xfafafa,
-      side: THREE.DoubleSide,
-    });
+    const capeM = surf(look.cape ?? 0xfafafa, { roughness: 0.88, side: THREE.DoubleSide });
     const cape = new THREE.Mesh(
       new THREE.CylinderGeometry(0.22 * s, 0.36 * s, 0.58 * s, 18, 2, true, Math.PI * 0.28, Math.PI * 1.44),
       capeM
     );
     cape.position.set(0, 0.82 * s - waistY, -0.04 * s);
     cape.rotation.x = 0.08;
+    cape.userData.wind = true;
     torsoG.add(cape);
     const collar = new THREE.Mesh(
       new THREE.TorusGeometry(0.16 * s, 0.028 * s, 10, 18, Math.PI * 1.2),

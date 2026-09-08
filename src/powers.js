@@ -92,20 +92,24 @@ export function makePowerMesh(style, superOn, rank = 0) {
     const len = 3.6 * s;
     const core = new THREE.Mesh(
       new THREE.CylinderGeometry(style.r * s * 0.18, style.r * s * 0.28, len, 8),
-      mat(0xffffff, 0.95)
+      mat(0xffffff, 0.98)
     );
     g.add(core);
-    const aura = spr(c, 0.55);
-    aura.scale.set(style.r * s * 7, len * 0.85, 1);
+    const aura = spr(c, 0.62);
+    aura.scale.set(style.r * s * 9, len * 0.95, 1);
     g.add(aura);
-    const tip = spr(0xffffff, 0.9);
-    tip.scale.setScalar(style.r * s * 4.2);
+    const tip = spr(0xffffff, 0.95);
+    tip.scale.setScalar(style.r * s * 5.2);
     tip.position.y = len * 0.42;
     g.add(tip);
-    const bloom = spr(c, 0.35);
-    bloom.scale.setScalar(style.r * s * 6.5);
+    const bloom = spr(c, 0.42);
+    bloom.scale.setScalar(style.r * s * 9.5);
     bloom.position.y = len * 0.2;
     g.add(bloom);
+    const bloom2 = spr(0xffffff, 0.22);
+    bloom2.scale.setScalar(style.r * s * 12);
+    bloom2.position.y = len * 0.15;
+    g.add(bloom2);
   } else if (style.kind === "disk") {
     const disk = new THREE.Mesh(
       new THREE.CylinderGeometry(style.r * s, style.r * s, 0.05 * s, 24),
@@ -113,19 +117,19 @@ export function makePowerMesh(style, superOn, rank = 0) {
     );
     disk.rotation.x = Math.PI / 2;
     g.add(disk);
-    const halo = spr(c, 0.5);
-    halo.scale.setScalar(style.r * s * 5.5);
+    const halo = spr(c, 0.55);
+    halo.scale.setScalar(style.r * s * 6.5);
     g.add(halo);
-    const core = spr(0xffffff, 0.7);
-    core.scale.setScalar(style.r * s * 2.4);
+    const core = spr(0xffffff, 0.75);
+    core.scale.setScalar(style.r * s * 2.8);
     g.add(core);
   } else {
     const core = spr(0xffffff, 0.95);
     core.scale.setScalar(style.r * s * 2.8);
-    const body = spr(c, 0.7);
-    body.scale.setScalar(style.r * s * 5.2);
-    const halo = spr(c, 0.32);
-    halo.scale.setScalar(style.r * s * 8.5);
+    const body = spr(c, 0.75);
+    body.scale.setScalar(style.r * s * 5.8);
+    const halo = spr(c, 0.38);
+    halo.scale.setScalar(style.r * s * 10);
     g.add(halo, body, core);
   }
   return g;
@@ -162,31 +166,123 @@ export function spawnMuzzle(scene, pos, color, list) {
   list.push({ mesh: glow, v: new THREE.Vector3(), t: 0.2, grow: 12 });
 }
 
-export function spawnHit(scene, pos, list, dir) {
-  spawnBurst(scene, pos, 0xfff176, list);
-  const flash = spr(0xffffff, 0.95);
-  flash.scale.setScalar(1.1);
+export function spawnHit(scene, pos, list, dir, heavy = false) {
+  spawnBurst(scene, pos, heavy ? 0xffecb3 : 0xfff176, list);
+  const flash = spr(0xffffff, 1);
+  flash.scale.setScalar(heavy ? 2.4 : 1.6);
   flash.position.copy(pos);
   scene.add(flash);
-  list.push({ mesh: flash, v: new THREE.Vector3(), t: 0.16, grow: 20 });
+  list.push({ mesh: flash, v: new THREE.Vector3(), t: heavy ? 0.16 : 0.12, grow: heavy ? 36 : 28 });
+  const flash2 = spr(heavy ? 0xff8a65 : 0xffffff, 0.75);
+  flash2.scale.setScalar(heavy ? 1.35 : 0.9);
+  flash2.position.copy(pos);
+  scene.add(flash2);
+  list.push({ mesh: flash2, v: new THREE.Vector3(), t: 0.22, grow: 14 });
+  // chispas radiales
+  const n = heavy ? 10 : 6;
+  for (let i = 0; i < n; i++) {
+    const spark = spr(i % 2 ? 0xfff59d : 0xffab40, 0.9);
+    spark.scale.set(0.12, 0.55 + Math.random() * 0.7, 1);
+    spark.position.copy(pos);
+    scene.add(spark);
+    const a = (i / n) * Math.PI * 2 + Math.random() * 0.3;
+    const spd = (heavy ? 14 : 9) + Math.random() * 8;
+    list.push({
+      mesh: spark,
+      v: new THREE.Vector3(Math.cos(a) * spd, 2 + Math.random() * 6, Math.sin(a) * spd),
+      t: 0.16 + Math.random() * 0.12,
+      grow: 6,
+    });
+  }
   if (dir) {
-    const slash = spr(0xffecb3, 0.85);
-    slash.scale.set(1.8, 0.55, 1);
+    const slash = spr(0xffecb3, 0.9);
+    slash.scale.set(heavy ? 3.2 : 2.2, heavy ? 0.7 : 0.55, 1);
     slash.position.copy(pos);
     scene.add(slash);
-    list.push({ mesh: slash, v: dir.clone().multiplyScalar(5), t: 0.2, grow: 8 });
+    list.push({ mesh: slash, v: dir.clone().multiplyScalar(heavy ? 8 : 5), t: 0.22, grow: 10 });
+    // línea de impacto secundaria
+    const slash2 = spr(0xffffff, 0.55);
+    slash2.scale.set(1.4, 0.28, 1);
+    slash2.position.copy(pos);
+    scene.add(slash2);
+    list.push({ mesh: slash2, v: dir.clone().multiplyScalar(12), t: 0.12, grow: 4 });
   }
+}
+
+/** Anillo de aviso al cargar / soltar un blast. */
+export function spawnTelegraph(scene, pos, color, list, scale = 1) {
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.2 * scale, 0.55 * scale, 24),
+    mat(color, 0.65)
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(pos.x, pos.y + 0.05, pos.z);
+  scene.add(ring);
+  list.push({ mesh: ring, v: new THREE.Vector3(), t: 0.28, grow: 16 });
+  const glow = spr(color, 0.55);
+  glow.scale.setScalar(0.8 * scale);
+  glow.position.copy(pos);
+  glow.position.y += 0.4;
+  scene.add(glow);
+  list.push({ mesh: glow, v: new THREE.Vector3(0, 2, 0), t: 0.25, grow: 10 });
+}
+
+/** Anillo de polvo / cráter suave en el suelo. */
+export function spawnImpactRing(scene, pos, list, heavy = false) {
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.35, heavy ? 1.15 : 0.75, 28),
+    mat(heavy ? 0xffe082 : 0xffcc80, heavy ? 0.7 : 0.55)
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(pos.x, pos.y + 0.06, pos.z);
+  scene.add(ring);
+  list.push({ mesh: ring, v: new THREE.Vector3(), t: heavy ? 0.48 : 0.3, grow: heavy ? 12 : 8 });
+  for (let i = 0; i < (heavy ? 7 : 4); i++) {
+    const d = spr(0xbcaaa4, 0.55);
+    d.scale.setScalar(0.35 + Math.random() * 0.45);
+    d.position.set(pos.x, pos.y + 0.2, pos.z);
+    scene.add(d);
+    const a = Math.random() * Math.PI * 2;
+    list.push({
+      mesh: d,
+      v: new THREE.Vector3(Math.cos(a) * (4 + Math.random() * 5), 3 + Math.random() * 4, Math.sin(a) * (4 + Math.random() * 5)),
+      t: 0.35 + Math.random() * 0.2,
+      grow: 3,
+    });
+  }
+}
+
+/** Speed line corta detrás del personaje. */
+export function spawnSpeedStreak(scene, pos, dir, list, color = 0xffffff) {
+  const s = spr(color, 0.55);
+  s.scale.set(0.25, 1.8 + Math.random() * 1.2, 1);
+  s.position.copy(pos);
+  s.position.x += (Math.random() - 0.5) * 0.6;
+  s.position.y += (Math.random() - 0.5) * 0.5;
+  s.position.z += (Math.random() - 0.5) * 0.6;
+  scene.add(s);
+  list.push({
+    mesh: s,
+    v: dir.clone().multiplyScalar(-(18 + Math.random() * 12)),
+    t: 0.12 + Math.random() * 0.08,
+    grow: 2,
+  });
 }
 
 export function spawnMeleeArc(scene, pos, yaw, list) {
   const f = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
   const p = pos.clone().addScaledVector(f, 1.05);
   p.y += 0.15;
-  const arc = spr(0xffcc80, 0.75);
-  arc.scale.set(2.4, 1.1, 1);
+  const arc = spr(0xffcc80, 0.85);
+  arc.scale.set(2.8, 1.25, 1);
   arc.position.copy(p);
   scene.add(arc);
-  list.push({ mesh: arc, v: f.clone().multiplyScalar(3), t: 0.18, grow: 10 });
+  list.push({ mesh: arc, v: f.clone().multiplyScalar(4), t: 0.2, grow: 12 });
+  const whoosh = spr(0xfff8e1, 0.45);
+  whoosh.scale.set(1.6, 0.35, 1);
+  whoosh.position.copy(p);
+  scene.add(whoosh);
+  list.push({ mesh: whoosh, v: f.clone().multiplyScalar(9), t: 0.12, grow: 6 });
 }
 
 export function spawnClash(scene, pos, c1, c2, list) {

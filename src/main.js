@@ -1,14 +1,18 @@
 import * as THREE from "three";
 import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { TEAM_SIZE, superRank } from "./config.js";
 import { createWorld, updateWorld, WATER_Y } from "./world.js";
 import { buildRoster } from "./roster.js";
 import { setScenario, current } from "./scenario.js";
 import { Personaje, resolvePeople } from "./personaje.js";
-import { DragonBalls } from "./dragonBalls.js";
+import { DragonBalls, resolveBallCollisions } from "./dragonBalls.js";
 import { Match } from "./match.js";
 import { Combat } from "./combat.js";
-import { PlayerCamera, aiTick, updateSeenBars } from "./cameraAi.js";
+import { PlayerCamera, updateSeenBars } from "./camera.js";
+import { aiTick } from "./ai.js";
 import { renderHud } from "./ui.js";
 import { setAudioListener, playSfx, stopSfxLoop, atPos } from "./sfx.js";
 import { powerStyle } from "./powers.js";
@@ -19,7 +23,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.12;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const labelR = new CSS2DRenderer();
 labelR.domElement.style.position = "absolute";
@@ -50,14 +54,28 @@ let skyTex = makeSky([
 ]);
 scene.background = skyTex;
 let fogLand = new THREE.Fog(0x9ccc65, 220, 1600);
-const fogWater = new THREE.Fog(0x0277bd, 3, 70);
+let fogWater = new THREE.Fog(0x2e7d32, 3, 70);
 scene.fog = fogLand;
 const uwEl = document.getElementById("uw");
-const colWater = new THREE.Color(0x01579b);
+const crosshairEl = document.getElementById("crosshair");
+let colWater = new THREE.Color(0x1b5e20);
 let underWater = false;
+let landExposure = 1.18;
+let landBloom = 0.42;
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 2600);
 const _earFwd = new THREE.Vector3();
 camera.position.set(0, 48, 90);
+
+const composer = new EffectComposer(
+  renderer,
+  new THREE.WebGLRenderTarget(innerWidth, innerHeight, {
+    type: THREE.HalfFloatType,
+    samples: 0,
+  })
+);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.38, 0.5, 0.75);
+composer.addPass(bloomPass);
 
 let people = [];
 let balls;
@@ -87,34 +105,53 @@ function startGame(id) {
     skyTex = makeSky(
       id === "cell"
         ? [
-            [0, "#0d47a1"],
-            [0.35, "#1565c0"],
-            [0.7, "#42a5f5"],
-            [1, "#90caf9"],
-          ]
-        : [
-            [0, "#1565c0"],
-            [0.35, "#42a5f5"],
-            [0.7, "#90caf9"],
+            [0, "#08306b"],
+            [0.28, "#1565c0"],
+            [0.58, "#42a5f5"],
+            [0.82, "#90caf9"],
             [1, "#e3f2fd"],
           ]
+        : [
+            [0, "#0d47a1"],
+            [0.3, "#1e88e5"],
+            [0.55, "#64b5f6"],
+            [0.8, "#bbdefb"],
+            [1, "#fff8e1"],
+          ]
     );
+    // fog realista se mantiene; solo afinamos color/distancia por mapa
     fogLand = new THREE.Fog(
       id === "earth" ? 0x7cb342 : 0x5c9bd1,
       id === "earth" ? 70 : 220,
       id === "earth" ? 680 : 1600
     );
+    landExposure = id === "cell" ? 1.22 : 1.2;
+    landBloom = id === "cell" ? 0.48 : 0.4;
+    bloomPass.strength = landBloom;
+    bloomPass.threshold = 0.8;
+    fogWater = new THREE.Fog(0x0277bd, 3, 70);
+    colWater.setHex(0x01579b);
+    uwEl.classList.remove("namek");
   } else {
     skyTex = makeSky([
-      [0, "#8bc34a"],
-      [0.32, "#cddc39"],
-      [0.62, "#dce775"],
-      [1, "#fff59d"],
+      [0, "#689f38"],
+      [0.25, "#9ccc65"],
+      [0.5, "#dce775"],
+      [0.75, "#fff59d"],
+      [1, "#ffe082"],
     ]);
     fogLand = new THREE.Fog(0x9ccc65, 220, 1600);
+    landExposure = 1.16;
+    landBloom = 0.45;
+    bloomPass.strength = landBloom;
+    bloomPass.threshold = 0.78;
+    fogWater = new THREE.Fog(0x2e7d32, 3, 70);
+    colWater.setHex(0x1b5e20);
+    uwEl.classList.add("namek");
   }
   scene.background = skyTex;
   scene.fog = fogLand;
+  renderer.toneMappingExposure = landExposure;
   createWorld(scene, id);
   const roster = buildRoster(id);
   const zTeam = roster.filter((r) => r.faccion === "z");
@@ -201,6 +238,8 @@ function resize() {
   const w = innerWidth;
   const h = innerHeight;
   renderer.setSize(w, h, false);
+  composer.setSize(w, h);
+  bloomPass.resolution.set(w, h);
   labelR.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -371,6 +410,7 @@ function loop(now) {
       p.tick(dt);
     }
     resolvePeople(people);
+    resolveBallCollisions(people, balls);
     combat.tick(dt, people);
     balls.tick(dt);
   }
@@ -397,9 +437,11 @@ function loop(now) {
     underWater = nowUw;
     scene.fog = nowUw ? fogWater : fogLand;
     scene.background = nowUw ? colWater : skyTex;
-    renderer.toneMappingExposure = nowUw ? 0.62 : 1.05;
+    renderer.toneMappingExposure = nowUw ? 0.62 : landExposure;
+    bloomPass.strength = nowUw ? 0.15 : landBloom;
     uwEl.classList.toggle("on", nowUw);
   }
+  crosshairEl.classList.toggle("on", !cam.third && !view.dead);
   updateSeenBars(camera, view, people);
   renderHud(view, match, keysOn, people, keys.has("Tab"), balls);
   const camP = view.pos();
@@ -413,7 +455,7 @@ function loop(now) {
       });
     }
   }
-  renderer.render(scene, camera);
+  composer.render();
   labelR.render(scene, camera);
 }
 requestAnimationFrame(loop);

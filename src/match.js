@@ -54,6 +54,12 @@ export class Match {
       kf: killer.faccion,
       victim: victim.nombre,
     };
+    this.killToast = {
+      killer: killer.nombre,
+      victim: victim.nombre,
+      faccion: killer.faccion,
+      t: 2.6,
+    };
   }
 
   winnerTeam() {
@@ -119,6 +125,10 @@ export class Match {
     if (this.toast) {
       this.toast.t -= dt;
       if (this.toast.t <= 0) this.toast = null;
+    }
+    if (this.killToast) {
+      this.killToast.t -= dt;
+      if (this.killToast.t <= 0) this.killToast = null;
     }
     this.t -= dt;
     if (this.t <= 0) this.endByTime();

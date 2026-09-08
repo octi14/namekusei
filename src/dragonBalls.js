@@ -2,11 +2,50 @@ import * as THREE from "three";
 import { MAP, BASE_Z } from "./config.js";
 import { log } from "./log.js";
 import { surfaceHeight, groundHeight, WATER_Y, isWater, pickDryLand } from "./world.js";
+import { shipBallSlot } from "./bases.js";
+
+const BALL_R = 0.72;
 
 function ballRestY(x, z) {
-  const floor = groundHeight(x, z) + 0.55;
+  const floor = groundHeight(x, z) + BALL_R + 0.08;
   if (floor >= WATER_Y + 0.2) return floor;
   return Math.max(floor, WATER_Y - 1.7);
+}
+
+function starGeo(r = 0.11) {
+  const shape = new THREE.Shape();
+  const spikes = 5;
+  for (let i = 0; i < spikes * 2; i++) {
+    const a = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
+    const rad = i % 2 === 0 ? r : r * 0.42;
+    const x = Math.cos(a) * rad;
+    const y = Math.sin(a) * rad;
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return new THREE.ExtrudeGeometry(shape, { depth: r * 0.22, bevelEnabled: false });
+}
+
+/** Posiciones internas clásicas para 1–7 estrellas. */
+function starOffsets(n, r) {
+  const out = [];
+  if (n === 1) {
+    out.push([0, 0, 0]);
+  } else if (n === 7) {
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      out.push([Math.cos(a) * r * 0.38, Math.sin(a) * r * 0.12, Math.sin(a) * r * 0.38]);
+    }
+    out.push([0, 0, 0]);
+  } else {
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 - Math.PI / 2;
+      const tilt = ((i % 3) - 1) * 0.1;
+      out.push([Math.cos(a) * r * 0.36, tilt * r, Math.sin(a) * r * 0.36]);
+    }
+  }
+  return out;
 }
 
 export class DragonBalls {
@@ -22,44 +61,58 @@ export class DragonBalls {
     const z = p.z;
     const g = new THREE.Group();
     const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(0.48, 16, 14),
-      new THREE.MeshLambertMaterial({ color: 0xff9100, emissive: 0xcc4400, emissiveIntensity: 0.85 })
+      new THREE.SphereGeometry(BALL_R, 24, 20),
+      new THREE.MeshPhongMaterial({
+        color: 0xff9100,
+        emissive: 0xe65100,
+        emissiveIntensity: 0.45,
+        specular: 0xffe0b2,
+        shininess: 55,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: true,
+      })
     );
     g.add(ball);
     const glow = new THREE.Mesh(
-      new THREE.SphereGeometry(0.62, 12, 10),
+      new THREE.SphereGeometry(BALL_R * 1.28, 14, 12),
       new THREE.MeshBasicMaterial({
         color: 0xffab40,
         transparent: true,
-        opacity: 0.28,
+        opacity: 0.26,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
+        toneMapped: false,
       })
     );
     g.add(glow);
-    for (let s = 0; s < n; s++) {
-      const a = (s / n) * Math.PI * 2;
-      const star = new THREE.Mesh(
-        new THREE.SphereGeometry(0.06, 8, 6),
-        new THREE.MeshBasicMaterial({ color: 0xfff8e1 })
-      );
-      star.position.set(Math.cos(a) * 0.22, 0.12, Math.sin(a) * 0.22);
+    const starMat = new THREE.MeshBasicMaterial({
+      color: 0xc62828,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    const geo = starGeo(BALL_R * 0.16);
+    for (const [sx, sy, sz] of starOffsets(n, BALL_R)) {
+      const star = new THREE.Mesh(geo, starMat);
+      star.position.set(sx, sy, sz);
+      star.rotation.y = Math.atan2(sx, sz) || 0;
       g.add(star);
     }
     const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(1.15, 0.06, 8, 24),
+      new THREE.TorusGeometry(BALL_R * 1.85, 0.07, 8, 28),
       new THREE.MeshBasicMaterial({
         color: 0xffc107,
         transparent: true,
         opacity: 0.55,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
+        toneMapped: false,
       })
     );
     ring.rotation.x = Math.PI / 2;
-    ring.position.y = -0.42;
+    ring.position.y = -BALL_R * 0.85;
     g.add(ring);
-    g.position.set(x, surfaceHeight(x, z) + 0.55, z);
+    g.position.set(x, surfaceHeight(x, z) + BALL_R + 0.08, z);
     this.scene.add(g);
     this.items.push({ n, mesh: g, ball, glow, ring, held: false, inBase: null, cold: 0, pulse: Math.random() * 6, vy: 0 });
   }
@@ -142,10 +195,40 @@ export class DragonBalls {
     b.inBase = faccion;
     b.cold = 0.9;
     b.mesh.visible = true;
-    const z0 = faccion === "z" ? -BASE_Z : BASE_Z;
-    const a = ((n - 1) / 7) * Math.PI * 2;
-    const x = Math.cos(a) * 6.2;
-    const z = z0 + Math.sin(a) * 6.2;
-    b.mesh.position.set(x, surfaceHeight(x, z) + 0.55, z);
+    const slot = shipBallSlot(faccion, n);
+    b.mesh.position.set(slot.x, surfaceHeight(slot.x, slot.z) + BALL_R + 0.08, slot.z);
+  }
+}
+
+/** Empuja personajes fuera de las esferas (sólidas). Quien agarra esa esfera no es empujado. */
+export function resolveBallCollisions(people, balls) {
+  if (!balls?.items) return;
+  for (const b of balls.items) {
+    if (b.held || !b.mesh?.visible) continue;
+    const bx = b.mesh.position.x;
+    const by = b.mesh.position.y;
+    const bz = b.mesh.position.z;
+    const br = BALL_R * 0.92;
+    for (const p of people) {
+      if (p.dead) continue;
+      if ((p.flyAlt || 0) > 1.4) continue;
+      if (p._grabbing && p._grabBall === b) continue;
+      const dy = Math.abs(p.mesh.position.y - by);
+      if (dy > 2.2) continue;
+      const dx = p.mesh.position.x - bx;
+      const dz = p.mesh.position.z - bz;
+      let d = Math.hypot(dx, dz);
+      const minD = br + 0.36 + p.height * 0.07;
+      if (d >= minD) continue;
+      if (d < 1e-4) {
+        const a0 = Math.random() * Math.PI * 2;
+        p.mesh.position.x += Math.cos(a0) * 0.02;
+        p.mesh.position.z += Math.sin(a0) * 0.02;
+        d = 0.02;
+      }
+      const push = (minD - d) * 1.05;
+      p.mesh.position.x += (dx / d) * push;
+      p.mesh.position.z += (dz / d) * push;
+    }
   }
 }

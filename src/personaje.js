@@ -2,9 +2,11 @@ import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { FLY_MAX, HP_REGEN, KI_REGEN, KI_REGEN_PASSIVE, DEATH_MULT, STAT_FLOOR } from "./config.js";
 import { spawnPos, clampMap, resolveObstacles, inOwnBase, surfaceHeight, isWater, groundHeight, WATER_Y } from "./world.js";
+import { resolveShipCollisions } from "./bases.js";
 import { log, logKill } from "./log.js";
 import { makeBody } from "./body.js";
 import { footstep, playSfx, atPos, stopSfxLoop } from "./sfx.js";
+import { spawnSpeedStreak, spawnImpactRing } from "./powers.js";
 
 const _c = new THREE.Vector3();
 let _trailTex;
@@ -59,6 +61,8 @@ export class Personaje {
     this._launched = false;
     this.vx = 0;
     this.vz = 0;
+    this._mvx = 0;
+    this._mvz = 0;
     this._runT = 0;
     this.esfera = null;
     this.yaw = def.faccion === "z" ? 0 : Math.PI;
@@ -82,6 +86,7 @@ export class Personaje {
     this.mesh.position.copy(p);
     this.stickY();
     scene.add(this.mesh);
+    this._scene = scene;
     this._trailN = 40;
     const tpos = new Float32Array(this._trailN * 3);
     this._trailGeo = new THREE.BufferGeometry();
@@ -146,9 +151,10 @@ export class Personaje {
         opacity: 0.42,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
+        toneMapped: false,
       })
     );
-    this._kiN = 24;
+    this._kiN = 48;
     this.kiAura.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(this._kiN * 3), 3));
     this.kiAura.visible = false;
     this.kiAura.position.y = this.height * 0.42;
@@ -164,31 +170,60 @@ export class Personaje {
         opacity: 0.16,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
+        toneMapped: false,
       })
     );
     this.kiHalo.visible = false;
     this.kiHalo.position.y = this.height * 0.42;
     this.mesh.add(this.kiHalo);
-    const ssjMat = () =>
-      new THREE.SpriteMaterial({
-        map: trailTex(),
-        color: 0xffe082,
+    // Anillo de carga en el suelo
+    this.chargeRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.55, 1.05, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0x4dd0e1,
         transparent: true,
-        opacity: 0.62,
+        opacity: 0,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      })
+    );
+    this.chargeRing.rotation.x = -Math.PI / 2;
+    this.chargeRing.visible = false;
+    scene.add(this.chargeRing);
+    this._fxScratch = [];
+    const glowMat = (color, opacity) =>
+      new THREE.SpriteMaterial({
+        map: trailTex(),
+        color,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
       });
-    this.ssjGlow = new THREE.Sprite(ssjMat());
+    this.ssjGlow = new THREE.Sprite(glowMat(0xffe082, 0.62));
     this.ssjGlow.position.y = this.height * 0.48;
     this.ssjGlow.visible = false;
     this.mesh.add(this.ssjGlow);
-    this.ssjHalo = new THREE.Sprite(ssjMat());
-    this.ssjHalo.material = this.ssjHalo.material.clone();
-    this.ssjHalo.material.color.setHex(0xfff59d);
-    this.ssjHalo.material.opacity = 0.32;
+    this.ssjHalo = new THREE.Sprite(glowMat(0xfff59d, 0.32));
     this.ssjHalo.position.y = this.height * 0.52;
     this.ssjHalo.visible = false;
     this.mesh.add(this.ssjHalo);
+    this.chargeGlow = new THREE.Sprite(glowMat(0x4dd0e1, 0.72));
+    this.chargeGlow.position.y = this.height * 0.45;
+    this.chargeGlow.visible = false;
+    this.mesh.add(this.chargeGlow);
+    this.chargeHalo = new THREE.Sprite(glowMat(0xe0f7fa, 0.4));
+    this.chargeHalo.position.y = this.height * 0.5;
+    this.chargeHalo.visible = false;
+    this.mesh.add(this.chargeHalo);
+    this.hitGlow = new THREE.Sprite(glowMat(0xffecb3, 0.9));
+    this.hitGlow.position.y = this.height * 0.5;
+    this.hitGlow.visible = false;
+    this.mesh.add(this.hitGlow);
+    this.hitFlash = 0;
     this.kiBubble = new THREE.Mesh(
       new THREE.SphereGeometry(this.height * 1.05, 22, 16),
       new THREE.MeshBasicMaterial({
@@ -243,6 +278,19 @@ export class Personaje {
     if (this.ssjHalo) this.ssjHalo.visible = on;
   }
 
+  /** Limpia emissive residual del hitFlash viejo (no toca pelo SSJ). */
+  _resetBodyEmissive() {
+    this.mesh.traverse((o) => {
+      if (!o.isMesh || !o.material?.emissive) return;
+      if (o.material.userData?.ssjHair) return;
+      if (o.userData._emBase == null && o.userData._emInt == null) return;
+      o.material.emissive.setHex(o.userData._emBase ?? 0x000000);
+      if ("emissiveIntensity" in o.material) o.material.emissiveIntensity = o.userData._emInt ?? 0;
+      delete o.userData._emBase;
+      delete o.userData._emInt;
+    });
+  }
+
   tick(dt) {
     this.cooldown = Math.max(0, this.cooldown - dt);
     if (this.ssj) {
@@ -260,6 +308,8 @@ export class Personaje {
       this.mesh.position.z += (this.hitShakeZ || 0) * t * dt * 12;
     }
     if (this.dead) {
+      this.hitFlash = 0;
+      if (this.hitGlow) this.hitGlow.visible = false;
       this.deadT -= dt;
       this.volando = false;
       this.swim = 0;
@@ -277,12 +327,26 @@ export class Personaje {
       this.mesh.rotation.x = Math.min(1.22, this.mesh.rotation.x + dt * 5);
       clampMap(this.mesh.position);
       resolveObstacles(this.mesh.position, this.flyAlt || 0);
+      resolveShipCollisions(this);
       this.stickY();
       if (this.teamRing) this.teamRing.visible = false;
       if (this.deadT <= 0) this.respawn();
       return;
     }
     this.aliveFor = (this.aliveFor || 0) + dt;
+    if ((this.hitFlash || 0) > 0) {
+      this.hitFlash = Math.max(0, this.hitFlash - dt);
+      const u = Math.max(0, this.hitFlash / 0.28);
+      if (this.hitGlow) {
+        this.hitGlow.visible = u > 0.02 && !this._fpCam;
+        const sc = this.height * (1.8 + (1 - u) * 2.4);
+        this.hitGlow.scale.set(sc, sc * 1.35, 1);
+        this.hitGlow.material.opacity = 0.85 * u;
+        this.hitGlow.material.color.setHex(u > 0.5 ? 0xffffff : 0xffab40);
+      }
+    } else if (this.hitGlow?.visible) {
+      this.hitGlow.visible = false;
+    }
     if (this.s.ki > 0) this.s.hp = Math.min(this.s.hpMax, this.s.hp + HP_REGEN * dt);
     this.s.ki = Math.min(this.s.kiMax, this.s.ki + KI_REGEN_PASSIVE * dt);
     if (this.flyAlt > 0.2 && !this.inSwim()) {
@@ -291,7 +355,10 @@ export class Personaje {
     this.rush = (this.rush || 0) * Math.exp(-5 * dt);
     this.ballMark.visible = this.esfera != null && !this._fpCam;
     this._kiPulse += dt * 6;
-    const on = this._kiCharge || (this.superHold || 0) > 0.04 || (this.poseBlast || 0) > 0.05 || this.ssj;
+    this._kiChargeHold = Math.max(0, (this._kiChargeHold || 0) - dt);
+    if (this._kiCharge) this._kiChargeHold = 0.15;
+    const charging = this._kiCharge || this._kiChargeHold > 0;
+    const on = charging || (this.superHold || 0) > 0.04 || (this.poseBlast || 0) > 0.05 || this.ssj;
     const supering = (this.superHold || 0) > 0.04 || (this.poseBlast || 0) > 0.12;
     this.kiAura.visible = on;
     this.kiHalo.visible = on;
@@ -299,11 +366,14 @@ export class Personaje {
       const pulse = this._kiPulse;
       const arr = this.kiAura.geometry.attributes.position.array;
       const h = this.height;
+      const dens = charging ? 1.35 : 1;
       for (let i = 0; i < this._kiN; i++) {
-        const a = (i / this._kiN) * Math.PI * 2 + pulse * 0.35;
-        const r = (0.22 + (i % 5) * 0.07) * h + Math.sin(pulse * 1.7 + i) * 0.12 * h;
+        const a = (i / this._kiN) * Math.PI * 2 + pulse * (0.45 + dens * 0.2);
+        const layer = i % 6;
+        const r = (0.18 + layer * 0.09) * h * dens + Math.sin(pulse * 2.2 + i) * 0.14 * h;
+        const up = Math.sin(pulse * 3.1 + i * 0.55) * 0.22 * h + (charging ? Math.sin(pulse * 1.7) * 0.08 * h : 0);
         arr[i * 3] = Math.cos(a) * r;
-        arr[i * 3 + 1] = (i / this._kiN - 0.35) * h * 1.15 + Math.sin(pulse * 2.1 + i * 0.7) * 0.18 * h;
+        arr[i * 3 + 1] = (i / this._kiN - 0.4) * h * 1.35 + up;
         arr[i * 3 + 2] = Math.sin(a) * r;
       }
       this.kiAura.geometry.attributes.position.needsUpdate = true;
@@ -311,9 +381,77 @@ export class Personaje {
       const col = gold ? 0xffe082 : supering ? 0xffc107 : 0x4dd0e1;
       this.kiAura.material.color.setHex(col);
       this.kiHalo.material.color.setHex(gold ? 0xfff59d : supering ? 0xfff59d : 0xe0f7fa);
-      this.kiAura.material.opacity = gold ? 0.58 : supering ? 0.5 : 0.4;
-      this.kiAura.material.size = this.height * (gold ? 2.15 : supering ? 1.9 : 1.55);
-      this.kiHalo.material.size = this.height * (gold ? 3.4 : supering ? 3.1 : 2.6);
+      this.kiAura.material.opacity = gold ? 0.72 : supering ? 0.65 : charging ? 0.7 : 0.5;
+      this.kiAura.material.size = this.height * (gold ? 2.6 : supering ? 2.3 : charging ? 2.4 : 1.8);
+      this.kiHalo.material.size = this.height * (gold ? 4.0 : supering ? 3.5 : charging ? 3.8 : 2.8);
+      this.kiHalo.material.opacity = charging ? 0.4 : 0.2;
+    }
+    // Glow sprite de carga (R) — visible aunque bloom afecte los Points
+    if (this.chargeGlow) {
+      const showCharge = charging && !this._fpCam;
+      this.chargeGlow.visible = showCharge;
+      this.chargeHalo.visible = showCharge;
+      if (showCharge) {
+        const p = 1 + Math.sin(this._kiPulse * 4.2) * 0.18;
+        this.chargeGlow.material.color.setHex(this.ssj ? 0xffe082 : 0x4dd0e1);
+        this.chargeHalo.material.color.setHex(this.ssj ? 0xfff59d : 0xe0f7fa);
+        this.chargeGlow.scale.set(this.height * 2.8 * p, this.height * 4.2 * p, 1);
+        this.chargeHalo.scale.set(this.height * 4.2 * p, this.height * 6.0 * p, 1);
+      }
+    }
+    // Anillo de carga
+    if (this.chargeRing) {
+      if (charging && this.flyAlt < 0.25 && !this.inSwim()) {
+        this.chargeRing.visible = true;
+        const pulse = 0.65 + Math.sin(this._kiPulse * 4) * 0.25;
+        this.chargeRing.material.opacity = pulse;
+        this.chargeRing.material.color.setHex(this.ssj ? 0xffe082 : 0x4dd0e1);
+        const sc = 1 + Math.sin(this._kiPulse * 3.2) * 0.22;
+        this.chargeRing.scale.set(sc, sc, sc);
+        this.chargeRing.position.set(this.mesh.position.x, this.mesh.position.y + 0.08, this.mesh.position.z);
+      } else {
+        this.chargeRing.visible = false;
+        this.chargeRing.material.opacity = 0;
+      }
+    }
+    // Speed lines al esprintar / volar rápido
+    if ((this.rush || 0) > 0.78 && this._scene && Math.random() < 0.35) {
+      const back = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+      const p = this.pos().clone();
+      p.y += this.height * 0.55;
+      p.addScaledVector(back, 0.4);
+      const col = this.faccion === "z" ? 0xff8a65 : 0x80d8ff;
+      spawnSpeedStreak(this._scene, p, back.clone().negate(), this._fxScratch, col);
+    }
+    for (let i = this._fxScratch.length - 1; i >= 0; i--) {
+      const f = this._fxScratch[i];
+      f.t -= dt;
+      if (f.v.lengthSq()) f.mesh.position.addScaledVector(f.v, dt);
+      if (f.grow) f.mesh.scale.addScalar(f.grow * dt);
+      if (f.mesh.material?.opacity != null) f.mesh.material.opacity = Math.max(0, f.t * 4);
+      if (f.t <= 0) {
+        this._scene?.remove(f.mesh);
+        this._fxScratch.splice(i, 1);
+      }
+    }
+    // Viento fake en pelo / capa al cargar o SSJ
+    if (charging || this.ssj || (this.superHold || 0) > 0.04) {
+      const w = Math.sin(this._kiPulse * 5.5) * 0.07;
+      const head = this.limbs?.headG;
+      if (head) {
+        for (let i = 0; i < head.children.length; i++) {
+          const c = head.children[i];
+          if (!c.isMesh || c.geometry?.type === "SphereGeometry") continue;
+          c.rotation.z = (c.userData._baseZ ?? (c.userData._baseZ = c.rotation.z)) + w * (1 + (i % 3) * 0.4);
+          c.rotation.x = (c.userData._baseX ?? (c.userData._baseX = c.rotation.x)) + Math.sin(this._kiPulse * 4 + i) * 0.05;
+        }
+      }
+      this.mesh.traverse((o) => {
+        if (o.userData?.wind) {
+          o.rotation.x = 0.08 + Math.sin(this._kiPulse * 3.4) * 0.12;
+          o.rotation.z = Math.sin(this._kiPulse * 2.6) * 0.08;
+        }
+      });
     }
     if (this.ssj && this.ssjGlow) {
       const p = 1 + Math.sin(this._kiPulse * 1.5) * 0.14;
@@ -333,6 +471,18 @@ export class Personaje {
       this.kiBubble.scale.setScalar(1.05 + (1 - u) * 0.55);
     } else if (this.kiBubble) this.kiBubble.visible = false;
     if ((this.hitstop || 0) <= 0) {
+      if (!this.didMove) {
+        const damp = Math.exp(-(this.inSwim() ? 2.8 : this.flyAlt > 0.2 ? 3.6 : 9.5) * dt);
+        this._mvx = (this._mvx || 0) * damp;
+        this._mvz = (this._mvz || 0) * damp;
+        if (Math.hypot(this._mvx, this._mvz) > 0.12) {
+          this.mesh.position.x += this._mvx * dt;
+          this.mesh.position.z += this._mvz * dt;
+        } else {
+          this._mvx = 0;
+          this._mvz = 0;
+        }
+      }
       this.mesh.position.x += this.vx * dt;
       this.mesh.position.z += this.vz * dt;
       this.vx *= Math.exp(-5 * dt);
@@ -343,6 +493,7 @@ export class Personaje {
     clampMap(this.mesh.position);
     resolveObstacles(this.mesh.position, this.flyAlt || 0);
     this.applyFlight(dt);
+    resolveShipCollisions(this);
     this.stickY();
     this.animate(dt);
     this._kiSlow = this._kiCharge;
@@ -408,34 +559,55 @@ export class Personaje {
     const swimGo = swimming && (this.didMove || (this.rush || 0) > 0.18);
     const hopping = !!(this._hop || this._wantJump);
     const airHit = (this.posePunch || 0) > 0 ? this.airMelee : null;
+    this.airTumble = Math.max(0, (this.airTumble || 0) - dt);
+    this.airShudder = Math.max(0, (this.airShudder || 0) - dt);
+    const tumbling = (this.airTumble || 0) > 0;
+    const shudder = (this.airShudder || 0) > 0;
+    const horizSpd = Math.hypot(this._mvx || 0, this._mvz || 0);
     const cruise =
       this.volando &&
       !swimming &&
       !hopping &&
-      ((this.rush || 0) > 0.58 || (this._groundSpd || 0) > 9.5);
+      !tumbling &&
+      horizSpd > 5;
     let target = hopping || swimGo || cruise ? (hopping ? 0 : 1) : 0;
-    if (airHit === "upright" || airHit === "kick") target = 0;
+    if (tumbling) target = 0; // salir de la pose acostada
+    else if (airHit === "upright" || airHit === "kick") target = 0;
     else if (airHit === "elbow") target = 1;
-    const lam = target > this.flyBlend ? 2.15 : 3.35;
+    const lam = tumbling ? 9 : target > this.flyBlend ? 2.15 : 3.35;
     this.flyBlend = THREE.MathUtils.damp(this.flyBlend, target, lam, dt);
     const u = this.flyBlend;
     const s = u * u * (3 - 2 * u);
     let pitch = 1.52 * s;
-    if (airHit === "upright") pitch = 0.06;
+    if (tumbling) {
+      // tumbar / abrir el cuerpo al impacto
+      const tNorm = Math.min(1, this.airTumble / 0.55);
+      pitch = -0.55 * tNorm - (this.hitRecoil || 0) * 0.7;
+    } else if (shudder && s > 0.2) {
+      // golpe leve: se queda acostado pero se sacude
+      const w = Math.sin((this.airShudder || 0) * 42) * 0.18 * Math.min(1, this.airShudder * 4);
+      pitch = 1.52 * s + w - (this.hitRecoil || 0) * 0.15;
+    } else if (airHit === "upright") pitch = 0.06;
     else if (airHit === "kick") pitch = 0.18;
     else if (airHit === "elbow") pitch = 1.58;
     else if (this._kiCharge || (this.superHold || 0) > 0.04 || hopping) pitch = 0;
     else if (!swimming && this.didMove && this.flyAlt < 0.2) {
       pitch = (this.rush || 0) > 0.82 ? 0.38 : 0.12;
     }
-    this.mesh.rotation.x = THREE.MathUtils.damp(this.mesh.rotation.x, pitch, 7.5, dt);
+    this.mesh.rotation.x = THREE.MathUtils.damp(this.mesh.rotation.x, pitch, tumbling ? 11 : 7.5, dt);
     let dy = this.yaw - (this._yawPrev ?? this.yaw);
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
     this._yawPrev = this.yaw;
     this._yawRate = THREE.MathUtils.damp(this._yawRate || 0, dy / Math.max(dt, 0.008), 9, dt);
-    const bank = this.dead ? 0 : THREE.MathUtils.clamp(-(this._yawRate) * 0.22 * s, -0.55, 0.55);
-    this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, bank, 7.2, dt);
+    let bank = this.dead ? 0 : THREE.MathUtils.clamp(-(this._yawRate) * 0.22 * s, -0.55, 0.55);
+    if (tumbling) {
+      const side = Math.sin((this.airHitYaw || this.yaw) * 3 + this.airTumble * 18) * 0.55;
+      bank = side * Math.min(1, this.airTumble * 2.2);
+    } else if (shudder) {
+      bank += Math.sin(this.airShudder * 36) * 0.12;
+    }
+    this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, bank, tumbling ? 9 : 7.2, dt);
     const k = Math.min(1, dt * (5.5 + (1 - s) * 6));
     const charging = this._kiCharge || (this.superHold || 0) > 0.04;
     if (!charging && waistY != null) {
@@ -455,16 +627,17 @@ export class Personaje {
     };
     if (this.stun > 0) {
       const recoil = this.hitRecoil || 0;
-      lx(armL, 0.7);
-      lx(armR, 0.7);
-      lz(armL, 0.2);
-      lz(armR, -0.2);
-      lx(torsoG, -0.25 - recoil * 0.5);  // inclina más atrás al recibir
-      lx(headG, 0.2 + recoil * 0.3);
-      if (kneeL) lx(kneeL, 0.35);
-      if (kneeR) lx(kneeR, 0.35);
-      if (elbowL) lx(elbowL, -0.5);
-      if (elbowR) lx(elbowR, -0.5);
+      const tumble = (this.airTumble || 0) > 0;
+      lx(armL, tumble ? 1.15 : 0.7);
+      lx(armR, tumble ? 1.05 : 0.7);
+      lz(armL, tumble ? 0.55 : 0.2);
+      lz(armR, tumble ? -0.55 : -0.2);
+      lx(torsoG, -0.25 - recoil * 0.5 - (tumble ? 0.2 : 0));
+      lx(headG, 0.2 + recoil * 0.3 + (tumble ? 0.25 : 0));
+      if (kneeL) lx(kneeL, tumble ? 0.85 : 0.35);
+      if (kneeR) lx(kneeR, tumble ? 0.75 : 0.35);
+      if (elbowL) lx(elbowL, tumble ? -0.85 : -0.5);
+      if (elbowR) lx(elbowR, tumble ? -0.9 : -0.5);
       this.didMove = false;
       return;
     }
@@ -554,18 +727,23 @@ export class Personaje {
       return;
     }
     if (this._grabbing || (this.grabT || 0) > 0.04) {
-      armL.rotation.x = 0.15;
-      armR.rotation.x = 1.25;
-      armL.rotation.z = 0.1;
-      armR.rotation.z = -0.08;
-      if (elbowL) elbowL.rotation.x = -0.35;
-      if (elbowR) elbowR.rotation.x = -0.95;
-      legL.rotation.x = 0.28;
-      legR.rotation.x = 0.28;
-      if (kneeL) kneeL.rotation.x = 0.42;
-      if (kneeR) kneeR.rotation.x = 0.42;
-      lx(torsoG, 0.12);
-      lx(headG, 0.2);
+      const t = Math.min(1, (this.grabT || 0) / 1.5);
+      // 0–0.35 agachar · 0.35–0.75 manos al suelo · 0.75–1 levantar
+      const crouch = t < 0.35 ? t / 0.35 : t < 0.75 ? 1 : 1 - (t - 0.75) / 0.25 * 0.55;
+      const reach = t < 0.2 ? t / 0.2 : t < 0.75 ? 1 : Math.max(0.15, 1 - (t - 0.75) / 0.25);
+      const lift = t < 0.72 ? 0 : (t - 0.72) / 0.28;
+      armL.rotation.x = THREE.MathUtils.lerp(0.1, 1.55, reach) - lift * 1.85;
+      armR.rotation.x = THREE.MathUtils.lerp(0.1, 1.55, reach) - lift * 1.85;
+      armL.rotation.z = THREE.MathUtils.lerp(0.08, 0.42, reach) - lift * 0.25;
+      armR.rotation.z = THREE.MathUtils.lerp(-0.08, -0.42, reach) + lift * 0.25;
+      if (elbowL) elbowL.rotation.x = THREE.MathUtils.lerp(-0.2, -1.15, reach) + lift * 0.7;
+      if (elbowR) elbowR.rotation.x = THREE.MathUtils.lerp(-0.2, -1.15, reach) + lift * 0.7;
+      legL.rotation.x = 0.2 + crouch * 0.72;
+      legR.rotation.x = 0.2 + crouch * 0.72;
+      if (kneeL) kneeL.rotation.x = 0.25 + crouch * 1.05;
+      if (kneeR) kneeR.rotation.x = 0.25 + crouch * 1.05;
+      lx(torsoG, 0.08 + crouch * 0.55 - lift * 0.25);
+      lx(headG, 0.35 * crouch - lift * 0.2);
       if (hipY != null) {
         legL.position.y = hipY;
         legR.position.y = hipY;
@@ -603,18 +781,20 @@ export class Personaje {
       return;
     }
     if (this._kiCharge || (this.superHold || 0) > 0.04) {
-      armL.rotation.x = 0;
-      armR.rotation.x = 0;
-      armL.rotation.z = 0.12;
-      armR.rotation.z = -0.12;
-      if (elbowL) elbowL.rotation.x = -1.55;
-      if (elbowR) elbowR.rotation.x = -1.55;
-      lx(torsoG, 0);
-      lx(headG, 0);
-      legL.rotation.x = 0.32;
-      legR.rotation.x = 0.32;
-      if (kneeL) kneeL.rotation.x = 0.48;
-      if (kneeR) kneeR.rotation.x = 0.48;
+      this.animT += dt * 4.2;
+      const pulse = Math.sin(this.animT) * 0.06;
+      armL.rotation.x = -0.08 + pulse;
+      armR.rotation.x = -0.08 - pulse;
+      armL.rotation.z = 0.22;
+      armR.rotation.z = -0.22;
+      if (elbowL) elbowL.rotation.x = -1.62;
+      if (elbowR) elbowR.rotation.x = -1.62;
+      lx(torsoG, -0.04 + pulse * 0.4);
+      lx(headG, 0.08);
+      legL.rotation.x = 0.38;
+      legR.rotation.x = 0.38;
+      if (kneeL) kneeL.rotation.x = 0.62;
+      if (kneeR) kneeR.rotation.x = 0.62;
       if (hipY != null) {
         legL.position.y = hipY;
         legR.position.y = hipY;
@@ -638,80 +818,108 @@ export class Personaje {
     lz(armR, -0.2 * s);
     if (swimming && !swimGo) {
       this._strideBob = 0;
-      this.animT += dt * 1.55;
+      this.animT += dt * 1.35;
       const w = Math.sin(this.animT);
-      lx(armL, -0.4 + w * 0.28);
-      lx(armR, -0.4 - w * 0.28);
-      lz(armL, 0.62);
-      lz(armR, -0.62);
-      lx(legL, 0.18 + w * 0.14);
-      lx(legR, 0.18 - w * 0.14);
-      if (kneeL) lx(kneeL, 0.5 + w * 0.12);
-      if (kneeR) lx(kneeR, 0.5 - w * 0.12);
-      if (elbowL) lx(elbowL, -0.55);
-      if (elbowR) lx(elbowR, -0.55);
-      lx(torsoG, 0);
-      lx(headG, 0.06);
-      this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, w * 0.05, 4.5, dt);
+      const w2 = Math.sin(this.animT * 0.55);
+      lx(armL, -0.55 + w * 0.32);
+      lx(armR, -0.55 - w * 0.32);
+      lz(armL, 0.78 + w2 * 0.08);
+      lz(armR, -(0.78 + w2 * 0.08));
+      lx(legL, 0.35 + w * 0.22);
+      lx(legR, 0.35 - w * 0.22);
+      if (kneeL) lx(kneeL, 0.75 + w * 0.18);
+      if (kneeR) lx(kneeR, 0.75 - w * 0.18);
+      if (elbowL) lx(elbowL, -0.72);
+      if (elbowR) lx(elbowR, -0.72);
+      lx(torsoG, 0.04 + w2 * 0.03);
+      lx(headG, 0.12 + w * 0.04);
+      this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, w * 0.08, 4.2, dt);
     } else if (swimming) {
       this._strideBob = 0;
-      this.animT += dt * (4.8 + (this.rush || 0) * 2.6);
+      this.animT += dt * (4.59 + (this.rush || 0) * 1.53);
       const t = this.animT;
-      const stroke = (ph) => -1.4 + Math.sin(ph) * 1.65;
+      // brazada estilo crol: jalón abajo + recuperación alta
+      const stroke = (ph) => {
+        const u = ((ph / (Math.PI * 2)) % 1 + 1) % 1;
+        if (u < 0.45) {
+          const e = u / 0.45;
+          return THREE.MathUtils.lerp(-0.15, -2.35, e * e * (3 - 2 * e));
+        }
+        const e = (u - 0.45) / 0.55;
+        return THREE.MathUtils.lerp(-2.35, -0.15, Math.sqrt(e));
+      };
+      const out = (ph) => 0.35 + Math.max(0, Math.sin(ph)) * 1.05;
       armL.rotation.x = stroke(t);
       armR.rotation.x = stroke(t + Math.PI);
-      armL.rotation.z = 0.45 + Math.max(0, Math.cos(t)) * 0.85;
-      armR.rotation.z = -(0.45 + Math.max(0, Math.cos(t + Math.PI)) * 0.85);
-      const kick = Math.sin(t * 2.15);
-      legL.rotation.x = kick * 0.5;
-      legR.rotation.x = -kick * 0.5;
-      if (kneeL) kneeL.rotation.x = 0.28 + Math.max(0, -kick) * 0.7;
-      if (kneeR) kneeR.rotation.x = 0.28 + Math.max(0, kick) * 0.7;
-      if (elbowL) elbowL.rotation.x = -0.85;
-      if (elbowR) elbowR.rotation.x = -0.85;
-      lx(torsoG, 0.06);
-      lx(headG, -0.45);
-      this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, Math.sin(t) * 0.22, 5.5, dt);
-    } else if (s > 0.04) {
-      this._strideBob = 0;
-      lx(torsoG, 0.06 * s);
-      lx(headG, -1.48 * s);
-      lx(armR, -2.9 * s);
-      lx(armL, 0.45 * s);
-      lx(legL, 0.12 * s);
-      lx(legR, 0.2 * s);
-      if (kneeL) lx(kneeL, 0.25);
-      if (kneeR) lx(kneeR, 0.35);
-    } else if (this.volando) {
-      this._strideBob = 0;
-      this.animT += dt * 1.15;
-      const w = Math.sin(this.animT);
-      lx(armL, 0.58 + w * 0.1);
-      lx(armR, 0.7 - w * 0.1);
-      lz(armL, -0.78);
-      lz(armR, 0.78);
-      lx(legL, 0.48 + w * 0.07);
-      lx(legR, 0.62 - w * 0.07);
-      if (kneeL) lx(kneeL, 0.72);
-      if (kneeR) lx(kneeR, 0.82);
-      if (elbowL) lx(elbowL, -0.95);
-      if (elbowR) lx(elbowR, -0.88);
+      armL.rotation.z = out(t);
+      armR.rotation.z = -out(t + Math.PI);
+      const kick = Math.sin(t * 2.4);
+      legL.rotation.x = kick * 0.62;
+      legR.rotation.x = -kick * 0.62;
+      if (kneeL) kneeL.rotation.x = 0.35 + Math.max(0, -kick) * 0.85;
+      if (kneeR) kneeR.rotation.x = 0.35 + Math.max(0, kick) * 0.85;
+      if (elbowL) elbowL.rotation.x = -0.55 - Math.max(0, Math.sin(t)) * 0.55;
+      if (elbowR) elbowR.rotation.x = -0.55 - Math.max(0, Math.sin(t + Math.PI)) * 0.55;
       lx(torsoG, 0.1);
-      lx(headG, 0.04 + w * 0.03);
-      this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, w * 0.04, 4, dt);
+      torsoG.rotation.y = Math.sin(t) * 0.12;
+      lx(headG, -0.35);
+      this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, Math.sin(t) * 0.28, 6, dt);
+    } else if (s > 0.04) {
+      // vuelo rápido: Superman + leve aleteo de turbo
+      this._strideBob = 0;
+      this.animT += dt * (2.2 + (this.rush || 0) * 3.5);
+      const w = Math.sin(this.animT);
+      const boost = Math.min(1, (this.rush || 0));
+      lx(torsoG, 0.1 * s);
+      lx(headG, -1.42 * s + w * 0.04 * boost);
+      lx(armR, -2.85 * s + w * 0.08 * boost);
+      lx(armL, 0.55 * s - w * 0.06 * boost);
+      lz(armL, 0.55 * s + boost * 0.15);
+      lz(armR, -0.15 * s - boost * 0.1);
+      lx(legL, 0.18 * s + w * 0.05);
+      lx(legR, 0.28 * s - w * 0.05);
+      if (kneeL) lx(kneeL, 0.22 + boost * 0.12);
+      if (kneeR) lx(kneeR, 0.32 + boost * 0.1);
+      if (elbowL) lx(elbowL, -0.35 * s);
+      if (elbowR) lx(elbowR, -0.25 * s);
+      torsoG.rotation.y = w * 0.04 * boost;
+    } else if (this.volando) {
+      // hover: rodillas flexionadas + balanceo
+      this._strideBob = 0;
+      this.animT += dt * 1.45;
+      const w = Math.sin(this.animT);
+      const w2 = Math.sin(this.animT * 0.7);
+      lx(armL, 0.72 + w * 0.14);
+      lx(armR, 0.85 - w * 0.14);
+      lz(armL, -0.92 + w2 * 0.06);
+      lz(armR, 0.92 - w2 * 0.06);
+      lx(legL, 0.55 + w * 0.1);
+      lx(legR, 0.68 - w * 0.1);
+      if (kneeL) lx(kneeL, 0.95 + w * 0.08);
+      if (kneeR) lx(kneeR, 1.05 - w * 0.08);
+      if (elbowL) lx(elbowL, -1.05);
+      if (elbowR) lx(elbowR, -0.98);
+      lx(torsoG, 0.08 + w2 * 0.04);
+      lx(headG, 0.06 + w * 0.05);
+      this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, w * 0.06, 4.5, dt);
     } else if (this.didMove) {
       const rush = this.rush || 0;
-      const sprint = rush > 0.82;
+      const sprint = rush > 0.55;
+      const hard = rush > 0.82;
       const v = this._groundSpd || 0;
-      const stride = sprint ? 1.68 : 1.12;
-      const hz = THREE.MathUtils.clamp(v / (2 * stride), sprint ? 2.2 : 1.2, sprint ? 3.75 : 2.1);
-      this.animT += dt * hz * Math.PI * 2;
-      const stance = sprint ? 0.42 : 0.54;
+      const stride = hard ? 1.72 : sprint ? 1.35 : 1.05;
+      const hz = THREE.MathUtils.clamp(
+        v / (2 * stride),
+        hard ? 2.35 : sprint ? 1.7 : 1.15,
+        hard ? 3.9 : sprint ? 3.05 : 2.15
+      );
+      this.animT += dt * hz * Math.PI * 2 * (hard || sprint ? 0.85 : 0.765);
+      const stance = hard ? 0.4 : sprint ? 0.46 : 0.55;
       const hip = (ph) => {
         let u = ph / (Math.PI * 2);
         u -= Math.floor(u);
-        const fwd = sprint ? -1.62 : -1.18;
-        const back = sprint ? 1.22 : 0.78;
+        const fwd = hard ? -1.72 : sprint ? -1.38 : -1.05;
+        const back = hard ? 1.28 : sprint ? 0.95 : 0.68;
         if (u < stance) {
           const t = u / stance;
           const e = t * t * (3 - 2 * t);
@@ -724,49 +932,66 @@ export class Personaje {
       const kn = (ph) => {
         let u = ph / (Math.PI * 2);
         u -= Math.floor(u);
-        if (u < stance) return 0.08 + Math.sin((u / stance) * Math.PI) * 0.16;
+        if (u < stance) return 0.1 + Math.sin((u / stance) * Math.PI) * 0.2;
         const t = (u - stance) / (1 - stance);
-        return 0.22 + Math.sin(t * Math.PI) * (sprint ? 1.92 : 1.32);
+        return 0.28 + Math.sin(t * Math.PI) * (hard ? 2.05 : sprint ? 1.55 : 1.15);
       };
       const p = this.animT;
       const q = p + Math.PI;
-      const g = Math.min(1, dt * 10.5);
+      const g = Math.min(1, dt * 11.5);
       const sx = (o, val) => {
         o.rotation.x += (val - o.rotation.x) * g;
       };
-      sx(legL, hip(p));
-      sx(legR, hip(q));
+      const hipL = hip(p);
+      const hipR = hip(q);
+      sx(legL, hipL);
+      sx(legR, hipR);
       if (kneeL) sx(kneeL, kn(p));
       if (kneeR) sx(kneeR, kn(q));
-      sx(armL, -hip(p) * (sprint ? 1.2 : 0.7));
-      sx(armR, -hip(q) * (sprint ? 1.2 : 0.7));
-      if (elbowL) sx(elbowL, -((sprint ? 1.35 : 0.52) + Math.sin(p) * (sprint ? 0.28 : 0.12)));
-      if (elbowR) sx(elbowR, -((sprint ? 1.35 : 0.52) + Math.sin(q) * (sprint ? 0.28 : 0.12)));
-      lz(armL, sprint ? 0.34 : 0.12);
-      lz(armR, sprint ? -0.34 : -0.12);
-      lx(torsoG, (sprint ? 0.2 : 0.06) + Math.sin(p * 2) * 0.05);
-      torsoG.rotation.y = Math.sin(p) * (sprint ? 0.1 : 0.07);
-      lx(headG, (sprint ? -0.14 : 0) - Math.sin(p * 2) * 0.04);
-      this._strideBob = (1 - Math.cos(p * 2)) * 0.032 * (sprint ? 1.15 : 0.6);
+      const armAmp = hard ? 1.28 : sprint ? 0.95 : 0.72;
+      sx(armL, -hipL * armAmp);
+      sx(armR, -hipR * armAmp);
+      if (elbowL) sx(elbowL, -((hard ? 1.45 : sprint ? 0.95 : 0.48) + Math.sin(p) * (hard ? 0.32 : 0.14)));
+      if (elbowR) sx(elbowR, -((hard ? 1.45 : sprint ? 0.95 : 0.48) + Math.sin(q) * (hard ? 0.32 : 0.14)));
+      lz(armL, hard ? 0.38 : sprint ? 0.22 : 0.1);
+      lz(armR, hard ? -0.38 : sprint ? -0.22 : -0.1);
+      const lean = hard ? 0.28 : sprint ? 0.14 : 0.05;
+      lx(torsoG, lean + Math.sin(p * 2) * (hard ? 0.07 : 0.045));
+      torsoG.rotation.y = Math.sin(p) * (hard ? 0.14 : sprint ? 0.1 : 0.07);
+      if (hips) hips.rotation.y = -torsoG.rotation.y * 0.55;
+      lx(headG, (hard ? -0.18 : sprint ? -0.08 : 0.02) - Math.sin(p * 2) * 0.045);
+      this._strideBob = (1 - Math.cos(p * 2)) * (hard ? 0.048 : sprint ? 0.036 : 0.024);
+      // bob vertical del torso (sensación de peso)
+      if (waistY != null) {
+        const bob = this._strideBob * (hard ? 1.35 : 1);
+        torsoG.position.y = waistY + bob;
+        if (hips) hips.position.y = waistY + bob * 0.65;
+      }
       const plant = Math.floor(p / Math.PI);
       if (plant !== this._plant) {
         this._plant = plant;
         const pp = this.pos();
-        footstep(sprint, pp.x, pp.y, pp.z);
+        footstep(hard || sprint, pp.x, pp.y, pp.z);
       }
     } else {
+      // idle: respiración leve
       this._strideBob = THREE.MathUtils.damp(this._strideBob || 0, 0, 12, dt);
-      lx(armL, 0);
-      lx(armR, 0);
-      lx(legL, 0);
-      lx(legR, 0);
-      if (kneeL) lx(kneeL, 0.08);
-      if (kneeR) lx(kneeR, 0.08);
-      if (elbowL) lx(elbowL, -0.12);
-      if (elbowR) lx(elbowR, -0.12);
-      lx(torsoG, 0);
+      this.animT += dt * 1.1;
+      const breath = Math.sin(this.animT) * 0.035;
+      lx(armL, 0.04 + breath);
+      lx(armR, 0.04 - breath * 0.8);
+      lz(armL, 0.06);
+      lz(armR, -0.06);
+      lx(legL, 0.02);
+      lx(legR, 0.04);
+      if (kneeL) lx(kneeL, 0.1);
+      if (kneeR) lx(kneeR, 0.1);
+      if (elbowL) lx(elbowL, -0.18);
+      if (elbowR) lx(elbowR, -0.18);
+      lx(torsoG, breath * 0.45);
       torsoG.rotation.y += (0 - torsoG.rotation.y) * k;
-      lx(headG, 0);
+      if (hips) hips.rotation.y += (0 - hips.rotation.y) * k;
+      lx(headG, -breath * 0.35);
     }
     // Hit recoil residual (fuera de stun) — inclinación hacia atrás que decae
     if ((this.hitRecoil || 0) > 0.05 && this.stun <= 0) {
@@ -800,6 +1025,7 @@ export class Personaje {
       this._sfxKi = true;
     }
     this._kiCharge = true;
+    this._kiChargeHold = 0.15;
     this.s.ki = Math.min(this.s.kiMax, this.s.ki + (KI_REGEN - KI_REGEN_PASSIVE) * dt);
   }
 
@@ -875,8 +1101,16 @@ export class Personaje {
         this._launched = false;
       }
     }
+    const prevAlt = this.flyAlt;
+    const prevVy = this.vy;
     this.flyAlt = Math.max(0, Math.min(FLY_MAX, this.flyAlt + this.vy * dt));
+    resolveShipCollisions(this);
     if (this.flyAlt <= 0.001) {
+      if (prevAlt > 0.45 && prevVy < -5 && this._scene && !this.inSwim()) {
+        const foot = this.pos().clone();
+        foot.y = surfaceHeight(foot.x, foot.z) + 0.05;
+        spawnImpactRing(this._scene, foot, this._fxScratch, prevVy < -10);
+      }
       this.flyAlt = 0;
       this.vy = 0;
       this._launched = false;
@@ -937,26 +1171,24 @@ export class Personaje {
     const punching = (this.posePunch || 0) > 0;
     const elbowDash = punching && this.airMelee === "elbow";
     if (charging || (punching && !elbowDash)) run = false;
-    let mul = this.flyAlt > 0.2 ? 1.42 : 0.39;
+    let mul = this.flyAlt > 0.2 ? 1.28 : 0.39;
     if (this.flyAlt > 0.2) {
       const kf = this.s.ki / Math.max(1, this.s.kiMax);
       if (kf < 0.02) mul *= 0.55;
       else if (kf < 0.12) mul *= 0.72;
     }
     if (charging) mul *= 0.22;
+    if (this._grabbing) mul *= 0.06;
     if (elbowDash) mul *= 1.18;
     else if (punching) mul *= 0.16;
     if (this.inSwim()) {
-      mul = 0.34;
+      run = false;
+      mul = 0.828;
       this._runT = 0;
-      if (run && this.s.ki > 0) {
-        mul = 0.92;
-        this.s.ki = Math.max(0, this.s.ki - 26 * dt);
-      }
     } else if (this.flyAlt > 0.2) {
       this._runT = Math.max(0, this._runT - dt / 0.18);
       if (run && this.s.ki > 0) {
-        mul *= 1.85;
+        mul *= 1.68;
         this.s.ki = Math.max(0, this.s.ki - 4 * dt);
       } else if (this.s.ki <= 0) mul *= 0.88;
     } else {
@@ -968,21 +1200,40 @@ export class Personaje {
       }
       if (this._runT > 0) {
         const t = this._runT * this._runT;
-        mul *= 1 + 3.72 * t;
+        mul *= 1 + 3.35 * t;
+      } else {
+        mul *= 0.9;
       }
     }
     const spd = this.s.velocidad * mul * (this.esfera != null ? 0.55 : 1);
     this._groundSpd = this.flyAlt > 0.2 || this.inSwim() ? 0 : spd;
-    this.mesh.position.addScaledVector(dir, spd * dt);
+    const wantX = dir.x * spd;
+    const wantZ = dir.z * spd;
+    const accel = this.inSwim() ? 7.5 : this.flyAlt > 0.2 ? 8.5 : 14;
+    const a = 1 - Math.exp(-accel * dt);
+    this._mvx = (this._mvx || 0) + (wantX - (this._mvx || 0)) * a;
+    this._mvz = (this._mvz || 0) + (wantZ - (this._mvz || 0)) * a;
+    this.mesh.position.x += this._mvx * dt;
+    this.mesh.position.z += this._mvz * dt;
     clampMap(this.mesh.position);
     resolveObstacles(this.mesh.position, this.flyAlt || 0);
+    resolveShipCollisions(this);
     this.stickY();
     this.mesh.rotation.y = this.yaw;
     this.didMove = true;
-    const runFeel = this.inSwim() ? run : this.flyAlt > 0.2 ? run : this._runT > 0.55;
+    const runFeel = this.inSwim() ? false : this.flyAlt > 0.2 ? run : this._runT > 0.55;
+    const horiz = Math.hypot(this._mvx || 0, this._mvz || 0);
     this.rush = Math.max(
       this.rush || 0,
-      this.inSwim() ? (run ? 0.92 : 0.35) : runFeel ? 1 : this.flyAlt > 0.2 ? 0.75 : 0.5
+      this.inSwim()
+        ? 0.35
+        : runFeel
+          ? 1
+          : this.flyAlt > 0.2
+            ? horiz > 5
+              ? 0.75
+              : 0.2
+            : 0.5
     );
   }
 
@@ -1002,6 +1253,9 @@ export class Personaje {
     this.deadMax = 2.8 + this.spawnWave * 7.5;
     this.dead = true;
     this.deadT = this.deadMax;
+    this.hitFlash = 0;
+    if (this.hitGlow) this.hitGlow.visible = false;
+    this._resetBodyEmissive();
     this.killedBy = killer?.nombre || "";
     this.killedKi = !!ki;
     this.killedTeam = killer?.faccion || "";
@@ -1033,6 +1287,9 @@ export class Personaje {
     this.deadT = 0;
     this.aliveFor = 0;
     this.killedBy = "";
+    this.hitFlash = 0;
+    if (this.hitGlow) this.hitGlow.visible = false;
+    this._resetBodyEmissive();
     this.mesh.rotation.x = 0;
     this.s.hp = this.s.hpMax;
     this.s.ki = this.s.kiMax;
@@ -1041,6 +1298,7 @@ export class Personaje {
     this.vx = 0;
     this.vz = 0;
     this.setFly(false);
+    this.aiLeaveBase = 5;
   }
 
   tryGrab(balls, dt, match) {
@@ -1048,28 +1306,44 @@ export class Personaje {
     if (this.dead || this.esfera != null || (!wet && (this.volando || this.flyAlt > 0.2))) {
       this.grabT = 0;
       this._grabbing = false;
+      this._grabBall = null;
       return;
     }
     const b = balls.near(this);
     if (!b) {
       this.grabT = 0;
       this._grabbing = false;
+      this._grabBall = null;
       return;
     }
     this._grabbing = true;
-    // Si recibe daño mientras agarra, cancela
+    this._grabBall = b;
     if ((this.stun || 0) > 0 || (this.hitRecoil || 0) > 0.05) {
       this.grabT = 0;
       this._grabbing = false;
+      this._grabBall = null;
       return;
     }
     this.yaw = Math.atan2(b.mesh.position.x - this.pos().x, b.mesh.position.z - this.pos().z);
     this.grabT = (this.grabT || 0) + dt;
+    const t = Math.min(1, this.grabT / 1.5);
+    // Último tramo: la esfera sube hacia las manos
+    if (t > 0.72 && b.mesh.visible) {
+      const handY = this.pos().y + this.height * (0.35 + (t - 0.72) / 0.28 * 0.55);
+      const hx = this.pos().x + Math.sin(this.yaw) * 0.55;
+      const hz = this.pos().z + Math.cos(this.yaw) * 0.55;
+      const k = Math.min(1, (t - 0.72) / 0.28);
+      b.mesh.position.x += (hx - b.mesh.position.x) * (0.18 + k * 0.45);
+      b.mesh.position.z += (hz - b.mesh.position.z) * (0.18 + k * 0.45);
+      b.mesh.position.y += (handY - b.mesh.position.y) * (0.22 + k * 0.5);
+      b.mesh.scale.setScalar(1 + k * 0.12);
+    }
     if (this.grabT >= 1.5) {
       const got = balls.pickup(this);
       if (got?.stole) match.syncBalls(balls);
       this.grabT = 0;
       this._grabbing = false;
+      this._grabBall = null;
     }
   }
 
@@ -1105,24 +1379,31 @@ export function resolvePeople(people) {
         a.mesh.position.z += Math.sin(a0) * 0.01;
         d = 0.01;
       }
-      const push = (minD - d) * 0.5;
+      const push = (minD - d) * 0.42;
       const nx = dx / d;
       const nz = dz / d;
       a.mesh.position.x += nx * push;
       a.mesh.position.z += nz * push;
       b.mesh.position.x -= nx * push;
       b.mesh.position.z -= nz * push;
-      const rvx = a.vx - b.vx;
-      const rvz = a.vz - b.vz;
-      if (rvx * nx + rvz * nz < 0) {
-        a.vx -= rvx * 0.5;
-        a.vz -= rvz * 0.5;
-        b.vx += rvx * 0.5;
-        b.vz += rvz * 0.5;
+      const rvx = (a.vx + (a._mvx || 0)) - (b.vx + (b._mvx || 0));
+      const rvz = (a.vz + (a._mvz || 0)) - (b.vz + (b._mvz || 0));
+      const closing = rvx * nx + rvz * nz;
+      if (closing < 0) {
+        const impulse = closing * 0.55;
+        a.vx -= nx * impulse;
+        a.vz -= nz * impulse;
+        b.vx += nx * impulse;
+        b.vz += nz * impulse;
+        a._mvx = (a._mvx || 0) * 0.85;
+        a._mvz = (a._mvz || 0) * 0.85;
+        b._mvx = (b._mvx || 0) * 0.85;
+        b._mvz = (b._mvz || 0) * 0.85;
       }
       for (const p of [a, b]) {
         clampMap(p.mesh.position);
         resolveObstacles(p.mesh.position, p.flyAlt || 0);
+        resolveShipCollisions(p);
         p.stickY();
       }
     }

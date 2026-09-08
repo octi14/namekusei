@@ -4,7 +4,7 @@ export const BASE_Z = 960;
 export const FLY_MAX = 32;
 export const FLY_UP = 11;
 export const FLY_DOWN = 14;
-export const SUPER_KI = 0.8;
+export const SUPER_KI = 0.62;
 export const SUPER_ATK2 = 40;
 export const SUPER_ATK3 = 55;
 

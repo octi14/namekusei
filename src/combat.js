@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { SUPER_KI, superRank } from "./config.js";
-import { powerStyle, makePowerMesh, alignBeam, spawnBurst, spawnClash, spawnHit, spawnMuzzle, spawnMeleeArc } from "./powers.js";
+import { powerStyle, makePowerMesh, alignBeam, spawnBurst, spawnClash, spawnHit, spawnMuzzle, spawnMeleeArc, spawnImpactRing, spawnTelegraph } from "./powers.js";
 import { playSfx, atPos, stopSfxLoop } from "./sfx.js";
 
 function meleeYOk(at, t) {
@@ -26,7 +26,15 @@ export class Combat {
   }
 
   jolt(pos, amt) {
-    if (this.cam.camera.position.distanceTo(pos) < 32) this.cam.shake(amt);
+    if (this.cam.camera.position.distanceTo(pos) < 42) this.cam.shake(amt);
+  }
+
+  screenHit(ki, heavy) {
+    const el = document.getElementById("hit-fx");
+    if (!el) return;
+    el.className = "";
+    void el.offsetWidth;
+    el.className = `on${ki ? " ki" : ""}${heavy ? " heavy" : ""}`;
   }
 
   melee(at, all) {
@@ -108,15 +116,15 @@ export class Combat {
       let dmg = Math.max(1, Math.round((at.s.ataque * (finisher ? 160 : 100)) / (8 + t.s.defensa)));
       const hitP = t.pos().clone();
       hitP.y += t.height * 0.7;
-      spawnHit(this.scene, hitP, this.fx, f);
+      spawnHit(this.scene, hitP, this.fx, f, finisher);
       {
         const [hx, hy, hz] = atPos(t);
         playSfx(finisher ? "kickHit" : "bodyHit", hx, hy, hz, 0.55);
         playSfx("bodyGetsHit", hx, hy, hz, 0.38);
       }
-      this.jolt(hitP, finisher ? 0.28 : 0.16);
-      at.hitstop = Math.max(at.hitstop || 0, finisher ? 0.12 : 0.07);
-      t.hitstop = Math.max(t.hitstop || 0, finisher ? 0.12 : 0.07);
+      this.jolt(hitP, finisher ? 0.42 : 0.22);
+      at.hitstop = Math.max(at.hitstop || 0, finisher ? 0.14 : 0.08);
+      t.hitstop = Math.max(t.hitstop || 0, finisher ? 0.14 : 0.08);
       // Inclinación: atacante lunge adelante, víctima recoil atrás
       at.punchLunge = Math.max(at.punchLunge || 0, finisher ? 0.35 : 0.22);
       t.hitRecoil = Math.max(t.hitRecoil || 0, finisher ? 0.38 : 0.25);
@@ -160,6 +168,10 @@ export class Combat {
     const off = new THREE.Vector3(dir.z, 0, -dir.x).multiplyScalar(0.22);
     spawnMuzzle(this.scene, hand.clone().add(off), style.color, this.fx);
     spawnMuzzle(this.scene, hand.clone().sub(off), style.color, this.fx);
+    if (superOn || snipe) {
+      spawnTelegraph(this.scene, hand, style.color, this.fx, superOn ? 1.6 : 1.1);
+      this.jolt(hand, superOn ? 0.35 : 0.18);
+    }
     const dmg = superOn
       ? Math.round((180 + at.s.kiMax * 1.2) * (0.78 + rank * 0.36))
       : Math.round((snipe ? 60 : 80) + at.s.kiMax * 0.4);
@@ -213,6 +225,9 @@ export class Combat {
     spawnBurst(this.scene, pos, s.color, this.fx);
     spawnBurst(this.scene, pos, s.color, this.fx);
     this.jolt(pos, 0.42);
+    const foot = pos.clone();
+    foot.y = Math.min(foot.y, 2);
+    spawnImpactRing(this.scene, foot, this.fx, true);
     playSfx("superHitsLand", pos.x, pos.y, pos.z, 0.72);
     for (const t of people) {
       if (t.faccion === s.faccion || t.dead) continue;
@@ -248,7 +263,9 @@ export class Combat {
     if (t.dead) return;
     if ((t.iframes || 0) > 0 && (t.stun || 0) <= 0) return; // invulnerable post-recovery
     t.s.hp -= dmg;
-    this.float(t, dmg, ki, atk?.faccion);
+    const finisher = knock && knock > 16;
+    const heavy = !!(ki || finisher || dmg >= 40);
+    this.float(t, dmg, ki, atk?.faccion, heavy);
     const now = performance.now() * 0.001;
     if (atk) {
       atk.st.dmg += dmg;
@@ -276,28 +293,67 @@ export class Combat {
         atk.s.velocidad += 1;
         atk.s.kiMax += 8;
       }
+      if (t.controller === "humano") this.screenHit(ki, true);
       return;
     }
     const src = from || atk?.pos();
-    const finisher = knock && knock > 16;
-    const kbForce = ki ? 18 : finisher ? 26 : 9;
-    if (src) t.knock(src, kbForce);
-    const stunTime = ki ? 0.36 : finisher ? 0.52 : 0.2;
+    const kbForce = ki ? 20 : finisher ? 28 : 11;
+    if (src) {
+      t.knock(src, kbForce);
+      if (heavy && (t.flyAlt || 0) < 0.25 && !t.inSwim()) {
+        t.vy = Math.max(t.vy || 0, 5.2 + Math.min(4, dmg * 0.03));
+        t._hop = true;
+      }
+    }
+    const stunTime = ki ? 0.4 : finisher ? 0.55 : 0.22;
     t.stun = Math.max(t.stun || 0, stunTime);
-    // i-frames post-stun: breve invulnerabilidad tras recuperarse
-    if (finisher || ki) t.iframes = Math.max(t.iframes || 0, stunTime + 0.25);
+    t.hitRecoil = Math.max(t.hitRecoil || 0, ki ? 0.38 : finisher ? 0.42 : 0.22);
+    t.hitFlash = Math.max(t.hitFlash || 0, heavy ? 0.28 : 0.16);
+    // FX de impacto también en ki / hits que llegan por hurt
+    {
+      const hitP = t.pos().clone();
+      hitP.y += t.height * 0.65;
+      if (ki) spawnHit(this.scene, hitP, this.fx, src ? hitP.clone().sub(src).setY(0).normalize() : null, true);
+    }
+    if ((t.flyAlt || 0) > 0.35 || t.volando) {
+      t.airHitYaw = src
+        ? Math.atan2(t.pos().x - src.x, t.pos().z - src.z)
+        : t.yaw;
+      if (kbForce >= 16) {
+        t.airTumble = Math.max(t.airTumble || 0, 0.48 + Math.min(0.45, (kbForce - 16) * 0.03));
+        t.flyBlend = Math.min(t.flyBlend || 0, 0.12);
+        t.vy = Math.min(t.vy || 0, -4 - kbForce * 0.12);
+        t.rush = 0;
+      } else {
+        t.airShudder = Math.max(t.airShudder || 0, 0.22 + kbForce * 0.012);
+      }
+    } else if (kbForce >= 11 || ki) {
+      const foot = t.pos().clone();
+      foot.y += 0.05;
+      spawnImpactRing(this.scene, foot, this.fx, kbForce >= 22 || ki);
+    }
+    const camNear = this.cam.camera.position.distanceTo(t.pos()) < 38;
+    if (t.controller === "humano") {
+      this.screenHit(ki, heavy);
+      this.jolt(t.pos(), heavy ? 0.48 : 0.28);
+    } else if (camNear) {
+      this.jolt(t.pos(), heavy ? 0.32 : 0.14);
+    }
+    if (finisher || ki) t.iframes = Math.max(t.iframes || 0, stunTime + 0.12);
   }
 
-  float(t, dmg, ki, team) {
+  float(t, dmg, ki, team, heavy = false) {
     const el = document.createElement("div");
     const side = team === "z" || team === "f" ? team : "";
-    el.className = `dmg${side ? ` ${side}` : ""}${ki ? " ki" : ""}`;
+    const crit = dmg >= 80;
+    el.className = `dmg${side ? ` ${side}` : ""}${ki ? " ki" : ""}${heavy ? " heavy" : ""}${crit ? " crit" : ""}`;
     el.textContent = String(dmg);
     const obj = new CSS2DObject(el);
     obj.position.copy(t.pos());
     obj.position.y += t.height * 0.9;
+    obj.position.x += (Math.random() - 0.5) * 0.35;
     this.scene.add(obj);
-    this.floats.push({ obj, el, t: 0.9 });
+    this.floats.push({ obj, el, t: heavy ? 1.15 : 0.9, life: heavy ? 1.15 : 0.9 });
   }
 
   tick(dt, people) {
@@ -404,8 +460,8 @@ export class Combat {
     for (let i = this.floats.length - 1; i >= 0; i--) {
       const f = this.floats[i];
       f.t -= dt;
-      f.obj.position.y += dt * 1.6;
-      f.el.style.opacity = String(Math.max(0, f.t / 0.9));
+      f.obj.position.y += dt * (f.life > 1 ? 2.1 : 1.6);
+      f.el.style.opacity = String(Math.max(0, f.t / (f.life || 0.9)));
       if (f.t <= 0) {
         this.scene.remove(f.obj);
         f.el.remove();

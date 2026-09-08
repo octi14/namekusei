@@ -1,5 +1,5 @@
 const g = (hp, ki, atk, def, vel, h) => ({
-  hpMax: hp, kiMax: ki, ataque: atk, defensa: def, velocidad: vel, altura: h,
+  hpMax: Math.round(hp * 0.9), kiMax: ki, ataque: atk, defensa: def, velocidad: vel, altura: h,
 });
 
 export const NAMED_Z = {

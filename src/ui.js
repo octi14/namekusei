@@ -178,6 +178,17 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
     toast.className = `on ${d.faccion}`;
     toast.innerHTML = `<b>${d.nombre}</b> depositó la esfera ${d.n} · ${team} ${match.score.z}–${match.score.f}`;
   } else toast.className = "";
+  const kt = document.getElementById("kill-toast");
+  const kill =
+    match.killToast &&
+    match.phase === "play" &&
+    match.killToast.killer === p.nombre
+      ? match.killToast
+      : null;
+  if (kill) {
+    kt.className = `on ${kill.faccion}`;
+    kt.innerHTML = `¡HAS ELIMINADO A <b>${kill.victim}</b>!`;
+  } else kt.className = "";
   document.getElementById("hud").classList.toggle("koed", p.dead);
   const ko = document.getElementById("ko-fx");
   if (p.dead) {

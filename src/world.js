@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { MAP, BASE_Z } from "./config.js";
+import { addShipBases, bindBaseWorld, inShipBase, shipSpawnPos, shipWalkHeight, BASE_INNER_R, BASE_PAD_R } from "./bases.js";
 
-const BASE_R = 12;
+const BASE_R = BASE_INNER_R;
 export const patriarchHill = { x: 140, z: 0 };
 
 export function pickDryLand(minBase = 220) {
@@ -42,6 +43,19 @@ function hillBump(x, z) {
   if (d >= R) return 0;
   const t = 1 - d / R;
   return 52 * t * t * (3 - 2 * t);
+}
+
+/** Plataformas secas bajo las naves en Namek (la Z cae en valle bajo el agua). */
+function namekBaseLand(x, z) {
+  let best = 0;
+  for (const cz of [-BASE_Z, BASE_Z]) {
+    const D = Math.hypot(x / 125, (z - cz) / 105);
+    if (D >= 1) continue;
+    const edge = D < 0.62 ? 1 : (1 - D) / 0.38;
+    const t = edge * edge * (3 - 2 * edge);
+    best = Math.max(best, 7.2 * t + Math.sin(x * 0.04) * Math.cos((z - cz) * 0.035) * 0.8 * t);
+  }
+  return best;
 }
 
 export let mapId = "namek";
@@ -185,26 +199,30 @@ const CELL_ISLANDS = [
 ];
 
 function cellIslandH(x, z, isl) {
-  const dx = (x - isl.x) / isl.rx;
-  const dz = (z - isl.z) / isl.rz;
-  const wobble = 1 + Math.sin(x * 0.018 + z * 0.014) * 0.14 + Math.cos((x - z) * 0.011) * 0.08;
+  // islas más grandes → menos agua entre ellas
+  const sx = isl.rx * 1.45;
+  const sz = isl.rz * 1.45;
+  const dx = (x - isl.x) / sx;
+  const dz = (z - isl.z) / sz;
+  const wobble = 1 + Math.sin(x * 0.016 + z * 0.012) * 0.1 + Math.cos((x - z) * 0.01) * 0.06;
   const D = Math.hypot(dx, dz) / wobble;
   if (D >= 1) return 0;
-  const edge = D < 0.62 ? 1 : (1 - D) / 0.38;
+  // meseta más ancha; costa más suave
+  const edge = D < 0.72 ? 1 : (1 - D) / 0.28;
   const t = edge * edge * (3 - 2 * edge);
-  let h = isl.h * t;
-  const inland = Math.max(0, 0.82 - D);
+  let h = isl.h * 1.08 * t;
+  const inland = Math.max(0, 0.86 - D);
   if (isl.peak) {
-    const px = (x - isl.x) / (isl.rx * 0.45) - 0.25;
-    const pz = (z - isl.z) / (isl.rz * 0.45) + 0.2;
+    const px = (x - isl.x) / (sx * 0.45) - 0.25;
+    const pz = (z - isl.z) / (sz * 0.45) + 0.2;
     const pd = Math.hypot(px, pz);
     if (pd < 1) h += isl.peak * (1 - pd) * (1 - pd) * t;
   }
   if (isl.hills) {
-    h += Math.max(0, Math.sin((x - isl.x) * 0.028) * Math.cos((z - isl.z) * 0.022)) * 11 * inland;
-    h += Math.max(0, Math.sin((x - isl.x) * 0.045 + 1.7)) * 7 * inland;
+    h += Math.max(0, Math.sin((x - isl.x) * 0.024) * Math.cos((z - isl.z) * 0.02)) * 11 * inland;
+    h += Math.max(0, Math.sin((x - isl.x) * 0.04 + 1.7)) * 7 * inland;
   }
-  h += Math.abs(Math.sin(x * 0.02 + z * 0.017)) * 4.5 * inland;
+  h += Math.abs(Math.sin(x * 0.018 + z * 0.015)) * 4.2 * inland;
   return h;
 }
 
@@ -215,6 +233,10 @@ function cellHeight(x, z) {
 }
 
 export function groundHeight(x, z) {
+  return applyBasePads(rawGroundHeight(x, z), x, z);
+}
+
+function rawGroundHeight(x, z) {
   if (mapId === "cell") return cellHeight(x, z);
   let h =
     Math.sin(x * 0.012) * Math.cos(z * 0.01) * 9 +
@@ -222,14 +244,40 @@ export function groundHeight(x, z) {
     Math.cos((x + z) * 0.008) * 3.5 +
     hillBump(x, z);
   if (mapId === "earth") h = earthHeight(x, z);
-  const flatten = (cx, cz) => {
-    const d = Math.hypot(x - cx, z - cz);
-    if (d >= 30) return 1;
-    if (d <= BASE_R + 1) return 0;
-    return (d - BASE_R - 1) / (30 - BASE_R - 1);
-  };
-  const w = Math.min(flatten(0, -BASE_Z), flatten(0, BASE_Z));
-  return h * w;
+  else if (mapId === "namek") h = Math.max(h, namekBaseLand(x, z));
+  return h;
+}
+
+/** Alturas de plataforma bajo cada base (relleno plano). */
+const _padH = { z: 0, f: 0 };
+
+export function refreshBasePads() {
+  const minDry = mapId === "namek" ? WATER_Y + 2.8 : -1e9;
+  _padH.z = Math.max(rawGroundHeight(0, -BASE_Z), minDry);
+  _padH.f = Math.max(rawGroundHeight(0, BASE_Z), minDry);
+}
+
+function applyBasePads(raw, x, z) {
+  let bestW = 1;
+  let padH = raw;
+  for (const [fac, cz] of [
+    ["z", -BASE_Z],
+    ["f", BASE_Z],
+  ]) {
+    const d = Math.hypot(x, z - cz);
+    if (d >= BASE_PAD_R) continue;
+    const ph = _padH[fac];
+    const flatR = BASE_INNER_R + 12;
+    let w = 1;
+    if (d <= flatR) w = 0;
+    else w = (d - flatR) / (BASE_PAD_R - flatR);
+    if (w < bestW) {
+      bestW = w;
+      padH = ph;
+    }
+  }
+  if (bestW >= 1) return raw;
+  return padH * (1 - bestW) + raw * bestW;
 }
 
 export let WATER_Y = -1.35;
@@ -258,7 +306,9 @@ export function isWater(x, z) {
 }
 
 export function surfaceHeight(x, z) {
-  return Math.max(groundHeight(x, z), WATER_Y);
+  const land = Math.max(groundHeight(x, z), WATER_Y);
+  const ship = shipWalkHeight(x, z);
+  return ship > -1e8 ? Math.max(land, ship) : land;
 }
 
 function addEarthTrees(scene, thick) {
@@ -685,8 +735,6 @@ function addLandmarks(scene) {
   namekVillage(scene, -380, 220, 6, 20);
   namekVillage(scene, 420, -280, 6, 18);
   namekVillage(scene, -90, 40, 5, 16);
-  addBulmaShip(scene);
-  addFreezerShip(scene);
 }
 
 function grassTex(earth) {
@@ -735,9 +783,29 @@ function grassTex(earth) {
       : `rgba(${40 + Math.random() * 40},${70 + Math.random() * 40},${90 + Math.random() * 50},0.28)`;
     ctx.fillRect(Math.random() * n, Math.random() * n, 1 + Math.random() * 2, 1 + Math.random() * 2);
   }
+  for (let i = 0; i < 90; i++) {
+    const rx = Math.random() * n;
+    const ry = Math.random() * n;
+    const rr = 18 + Math.random() * 55;
+    const g = ctx.createRadialGradient(rx, ry, 0, rx, ry, rr);
+    g.addColorStop(0, earth ? "rgba(120,90,40,0.22)" : "rgba(30,90,120,0.18)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(rx - rr, ry - rr, rr * 2, rr * 2);
+  }
+  for (let i = 0; i < 40; i++) {
+    ctx.strokeStyle = earth ? "rgba(60,45,25,0.18)" : "rgba(20,60,90,0.16)";
+    ctx.lineWidth = 2 + Math.random() * 4;
+    ctx.beginPath();
+    const x0 = Math.random() * n;
+    const y0 = Math.random() * n;
+    ctx.moveTo(x0, y0);
+    ctx.quadraticCurveTo(x0 + (Math.random() - 0.5) * 80, y0 + 40 + Math.random() * 60, x0 + (Math.random() - 0.5) * 40, y0 + 90);
+    ctx.stroke();
+  }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(36, 36);
+  t.repeat.set(42, 42);
   t.anisotropy = 16;
   t.minFilter = THREE.LinearMipmapLinearFilter;
   t.magFilter = THREE.LinearFilter;
@@ -759,15 +827,17 @@ function shadowMesh(m) {
   return m;
 }
 
-function waterTex() {
+function waterTex(green = false) {
   const n = 1024;
   const c = document.createElement("canvas");
   c.width = c.height = n;
   const ctx = c.getContext("2d");
-  ctx.fillStyle = "#0277bd";
+  ctx.fillStyle = green ? "#2e7d32" : "#0277bd";
   ctx.fillRect(0, 0, n, n);
   for (let i = 0; i < 420; i++) {
-    ctx.strokeStyle = `rgba(180,230,255,${0.08 + Math.random() * 0.22})`;
+    ctx.strokeStyle = green
+      ? `rgba(180,255,160,${0.08 + Math.random() * 0.22})`
+      : `rgba(180,230,255,${0.08 + Math.random() * 0.22})`;
     ctx.lineWidth = 0.8 + Math.random() * 2.4;
     ctx.beginPath();
     const y = Math.random() * n;
@@ -776,7 +846,9 @@ function waterTex() {
     ctx.stroke();
   }
   for (let i = 0; i < 800; i++) {
-    ctx.fillStyle = `rgba(220,245,255,${0.04 + Math.random() * 0.1})`;
+    ctx.fillStyle = green
+      ? `rgba(200,255,180,${0.04 + Math.random() * 0.1})`
+      : `rgba(220,245,255,${0.04 + Math.random() * 0.1})`;
     ctx.fillRect(Math.random() * n, Math.random() * n, 2 + Math.random() * 6, 1);
   }
   const t = new THREE.CanvasTexture(c);
@@ -792,7 +864,7 @@ function waterTex() {
 
 function addRocks(scene) {
   if (mapId === "earth") {
-    const rockM = new THREE.MeshLambertMaterial({ color: 0x6d4c41 });
+    const rockM = new THREE.MeshStandardMaterial({ color: 0x6d4c41, roughness: 0.88, metalness: 0.04 });
     for (let k = 0; k < 52; k++) {
       const x = (Math.random() * 2 - 1) * (MAP / 2 - 90);
       const z = (Math.random() * 2 - 1) * (MAP / 2 - 80);
@@ -808,7 +880,7 @@ function addRocks(scene) {
     }
     return;
   }
-  const mat = new THREE.MeshLambertMaterial({ color: 0x5d8aa8 });
+  const mat = new THREE.MeshStandardMaterial({ color: 0x5d8aa8, roughness: 0.82, metalness: 0.08 });
   const spots = [
     [200, 180],
     [-250, -90],
@@ -862,12 +934,13 @@ export function updateWorld(camPos, dt = 0) {
 
 export function createWorld(scene, id = "namek") {
   mapId = id;
-  WATER_Y = id === "cell" ? 4.6 : id === "earth" ? -4.2 : -1.35;
+  WATER_Y = id === "cell" ? 3.15 : id === "earth" ? -4.2 : -1.35;
   obstacles.length = 0;
   shadowProps.length = 0;
   windTrees.length = 0;
   cloudGroups.length = 0;
   pickPatriarchHill();
+  refreshBasePads();
   const earth = id === "earth";
   const cell = id === "cell";
   const EXT = MAP * 2.15;
@@ -902,8 +975,8 @@ export function createWorld(scene, id = "namek") {
         const rock = new THREE.Color(y > 32 ? 0x5d4037 : 0x8d6e63);
         cc.copy(g).lerp(rock, Math.min(1, amt * 0.92 + Math.max(0, y - 18) * 0.025));
       }
-    } else if (y < WATER_Y + 0.85) cc.setHex(0x4fc3f7);
-    else if (y > 24) cc.setHex(0x0277bd);
+    } else if (y < WATER_Y + 0.85) cc.setHex(0x66bb6a);
+    else if (y > 24) cc.setHex(0x1565c0);
     else cc.setHex(0x81d4fa);
     cols[i * 3] = cc.r;
     cols[i * 3 + 1] = cc.g;
@@ -913,9 +986,11 @@ export function createWorld(scene, id = "namek") {
   grassMap = grassTex(earth || cell);
   const ground = new THREE.Mesh(
     geo,
-    new THREE.MeshLambertMaterial({
+    new THREE.MeshStandardMaterial({
       map: grassMap,
       vertexColors: true,
+      roughness: 0.92,
+      metalness: 0.02,
     })
   );
   ground.receiveShadow = true;
@@ -924,12 +999,12 @@ export function createWorld(scene, id = "namek") {
   waterMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(EXT + 8, EXT + 8),
     new THREE.MeshStandardMaterial({
-      map: waterTex(),
-      color: cell ? 0x0277bd : 0x4fc3f7,
-      roughness: 0.14,
-      metalness: 0.28,
+      map: waterTex(!earth && !cell),
+      color: cell ? 0x0277bd : earth ? 0x4fc3f7 : 0x58b667,
+      roughness: 0.08,
+      metalness: 0.35,
       transparent: true,
-      opacity: cell ? 0.88 : 0.72,
+      opacity: cell ? 0.9 : 0.78,
       depthWrite: false,
       side: THREE.DoubleSide,
     })
@@ -939,8 +1014,8 @@ export function createWorld(scene, id = "namek") {
   waterMesh.receiveShadow = true;
   scene.add(waterMesh);
 
-  mkBase(scene, -BASE_Z, 0xff9800);
-  mkBase(scene, BASE_Z, earth || cell ? 0x5d4037 : 0x7e57c2);
+  bindBaseWorld({ groundHeight, addObst, shadowMesh });
+  addShipBases(scene);
   if (earth) {
     addKameHouse(scene);
     addEarthTrees(scene, true);
@@ -955,8 +1030,8 @@ export function createWorld(scene, id = "namek") {
   addRocks(scene);
   addClouds(scene);
 
-  scene.add(new THREE.HemisphereLight(earth || cell ? 0x90caf9 : 0xdce775, earth || cell ? 0x33691e : 0x0d47a1, 0.55));
-  sunLight = new THREE.DirectionalLight(earth || cell ? 0xfff8e1 : 0xfff1d0, earth || cell ? 2.2 : 2.5);
+  scene.add(new THREE.HemisphereLight(earth || cell ? 0x90caf9 : 0xdce775, earth || cell ? 0x33691e : 0x0d47a1, 0.72));
+  sunLight = new THREE.DirectionalLight(earth || cell ? 0xfff8e1 : 0xfff1d0, earth || cell ? 2.55 : 2.85);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(1024, 1024);
   sunLight.shadow.camera.near = 8;
@@ -968,20 +1043,15 @@ export function createWorld(scene, id = "namek") {
   sunLight.shadow.bias = -0.0009;
   scene.add(sunLight);
   scene.add(sunLight.target);
-  scene.add(new THREE.AmbientLight(earth || cell ? 0x81c784 : 0x4a7aaa, earth || cell ? 0.4 : 0.32));
+  scene.add(new THREE.AmbientLight(earth || cell ? 0x81c784 : 0x4a7aaa, earth || cell ? 0.48 : 0.4));
 }
 
 export function inOwnBase(pos, faccion) {
-  const z = faccion === "z" ? -BASE_Z : BASE_Z;
-  return Math.hypot(pos.x, pos.z - z) < BASE_R;
+  return inShipBase(pos, faccion);
 }
 
 export function spawnPos(faccion, i, n) {
-  const z = faccion === "z" ? -BASE_Z : BASE_Z;
-  const ang = (i / n) * Math.PI * 2;
-  const x = Math.cos(ang) * 4;
-  const zz = z + Math.sin(ang) * 4;
-  return new THREE.Vector3(x, surfaceHeight(x, zz), zz);
+  return shipSpawnPos(faccion, i, n);
 }
 
 export function clampMap(p) {
