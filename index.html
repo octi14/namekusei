@@ -347,8 +347,8 @@
         color: #ffeb3b; font-weight: 700; font-size: 22px;
         text-shadow: 0 0 6px #000; pointer-events: none; white-space: nowrap;
         font-family: Impact, "Russo One", sans-serif;
-        animation: dmgPop 0.35s ease-out;
       }
+      .dmg > span { display: inline-block; animation: dmgPop 0.35s ease-out; }
       .dmg.heavy { font-size: 34px; color: #ff6d00; text-shadow: 0 0 10px #000, 0 0 16px #ff3d00; }
       .dmg.crit { font-size: 40px; letter-spacing: 0.04em; }
       @keyframes dmgPop {
@@ -382,8 +382,9 @@
       #tab-board tr.me { background: #fff2; }
       .dmg.z { color: #ff6d00; text-shadow: 0 0 6px #000, 0 0 8px #ff3d00; }
       .dmg.f { color: #40c4ff; text-shadow: 0 0 6px #000, 0 0 8px #2979ff; }
-      .dmg.ki.z { color: #ffab40; }
-      .dmg.ki.f { color: #80d8ff; }
+      .dmg.mine { color: #76ff03; text-shadow: 0 0 6px #000, 0 0 10px #33691e; }
+      .dmg.mine.heavy, .dmg.mine.crit { color: #b2ff59; }
+      .dmg.mine.ki { color: #ccff90; }
       .lock-xh {
         width: 52px; height: 52px; position: relative; pointer-events: none;
         transform: translate(-50%, -50%);
@@ -487,7 +488,7 @@
       <canvas id="minimap" width="300" height="300"></canvas>
       <div id="panel-keys">
         <kbd>WASD</kbd> mover · <kbd>Shift</kbd> correr / turbo<br />
-        <kbd>Espacio</kbd> salto · 2× volar · <kbd>C</kbd> bajar · <kbd>V</kbd> cámara · <kbd>H</kbd> ayudas<br />
+        <kbd>Espacio</kbd> salto · 2× volar · <kbd>C</kbd> bajar / agachar · <kbd>V</kbd> cámara · <kbd>H</kbd> ayudas<br />
         <kbd>Click</kbd> golpe · <kbd>Der.</kbd> poder · <kbd>T</kbd> disparo largo · <kbd>F</kbd> super · <kbd>R</kbd> ki<br />
         <kbd>Q</kbd> / rueda clic lock-on · <kbd>E</kbd> mantener recoger · <kbd>G</kbd> soltar · <kbd>B</kbd> SSJ<br />
         <kbd>Tab</kbd> puntuación · <kbd>M</kbd> menú

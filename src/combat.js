@@ -109,7 +109,7 @@ export class Combat {
         t.hitstop = Math.max(t.hitstop || 0, 0.1);
         at.knock(t.pos(), 18);
         at.s.hp -= parryDmg;
-        this.float(at, parryDmg, false, t.faccion);
+        this.float(at, parryDmg, false, t);
         if (at.s.hp <= 0) { this.match.noteKill(t, at); t.st.k++; at.st.d++; at.die(this.balls, t, false); }
         continue;
       }
@@ -265,7 +265,7 @@ export class Combat {
     t.s.hp -= dmg;
     const finisher = knock && knock > 16;
     const heavy = !!(ki || finisher || dmg >= 40);
-    this.float(t, dmg, ki, atk?.faccion, heavy);
+    this.float(t, dmg, ki, atk, heavy);
     const now = performance.now() * 0.001;
     if (atk) {
       atk.st.dmg += dmg;
@@ -342,12 +342,16 @@ export class Combat {
     if (finisher || ki) t.iframes = Math.max(t.iframes || 0, stunTime + 0.12);
   }
 
-  float(t, dmg, ki, team, heavy = false) {
+  float(t, dmg, ki, atk, heavy = false) {
     const el = document.createElement("div");
-    const side = team === "z" || team === "f" ? team : "";
+    const mine = !!(atk && this.pov && atk === this.pov);
+    const team = atk?.faccion;
+    const side = !mine && (team === "z" || team === "f") ? team : "";
     const crit = dmg >= 80;
-    el.className = `dmg${side ? ` ${side}` : ""}${ki ? " ki" : ""}${heavy ? " heavy" : ""}${crit ? " crit" : ""}`;
-    el.textContent = String(dmg);
+    el.className = `dmg${mine ? " mine" : ""}${side ? ` ${side}` : ""}${ki ? " ki" : ""}${heavy ? " heavy" : ""}${crit ? " crit" : ""}`;
+    const inner = document.createElement("span");
+    inner.textContent = String(dmg);
+    el.appendChild(inner);
     const obj = new CSS2DObject(el);
     obj.position.copy(t.pos());
     obj.position.y += t.height * 0.9;

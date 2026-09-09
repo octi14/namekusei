@@ -244,7 +244,10 @@ function rawGroundHeight(x, z) {
     Math.cos((x + z) * 0.008) * 3.5 +
     hillBump(x, z);
   if (mapId === "earth") h = earthHeight(x, z);
-  else if (mapId === "namek") h = Math.max(h, namekBaseLand(x, z));
+  else if (mapId === "namek") {
+    const land = namekBaseLand(x, z);
+    if (land > 0) h = Math.max(h, land);
+  }
   return h;
 }
 

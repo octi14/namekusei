@@ -382,7 +382,10 @@ function loop(now) {
         player._grabbing = false;
       }
       if (keys.has("Space") && (player._launched || player.inSwim())) player.climb();
-      if (keys.has("KeyC")) player.descend(dt);
+      if (keys.has("KeyC")) {
+        if (player.flyAlt > 0.2 || player.inSwim()) player.descend();
+        else player.duckHold();
+      }
       if (keys.has("KeyF")) {
         if (player.superHold !== -99) {
           if (!player._sfxSuper) {
@@ -411,6 +414,7 @@ function loop(now) {
     }
     resolvePeople(people);
     resolveBallCollisions(people, balls);
+    combat.pov = viewChar();
     combat.tick(dt, people);
     balls.tick(dt);
   }

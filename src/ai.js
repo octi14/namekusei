@@ -186,7 +186,7 @@ function hideSteer(px, pz, gx, gz, foe) {
       const mz = (sz + fz) * 0.5;
       const ridge = groundHeight(mx, mz);
       if (ridge > foe.pos().y - 1.5 && ridge > groundHeight(sx, sz) - 0.6) s += 1.55;
-      if (Math.hypot(sx - fx, sz - fz) < 22) s -= 1.1;
+      if (Math.hypot(sx - fx, sz - fz) < 22) s -= foe.esfera != null ? 0.2 : 1.1;
     }
     if (s > best) {
       best = s;
@@ -385,16 +385,16 @@ function utilBest(p, ctx) {
   const sticky = (m) => (p.aiMode === m ? 14 : 0);
   const rows = [];
   let fight = -60;
-  if (enemy && !critHp) {
-    fight = (enemyCarrier ? 82 : 30) + Math.max(0, 48 - enemyDist) * 0.55 + sticky("fight");
-    if (enemyCarrier && enemyDist < 80) fight += 24;
+  if (enemy && (!critHp || enemyCarrier)) {
+    fight = (enemyCarrier ? 96 : 30) + Math.max(0, 48 - enemyDist) * 0.55 + sticky("fight");
+    if (enemyCarrier && enemyDist < 80) fight += 36;
     if (enemyDist < 38 && mood.ki > 0.18) fight += 16 + agg * 8;
     if (enemyDist < 22 && mood.ki > 0.12) fight += 14;
     if (defend) {
       fight += 38 + (enemyCarrier ? 22 : 10) + Math.max(0, 0.55 - agg) * 18;
       if (inHomeAir) fight += 16;
     }
-    if (lowHp) fight -= 22;
+    if (lowHp && !enemyCarrier) fight -= 22;
   }
   rows.push(["fight", fight]);
   let ballS = -30;
@@ -456,6 +456,10 @@ function pickHideSpot(p, people, homeZ) {
     for (const o of people) {
       if (o.dead || o.faccion === p.faccion) continue;
       const ed = Math.hypot(o.pos().x - x, o.pos().z - z);
+      if (o.esfera != null) {
+        if (ed < 18) s += 12;
+        continue;
+      }
       if (ed < 18) s -= 40;
       else if (ed < 38) s -= 12;
       else if (ed > 55) s += 4;
@@ -746,6 +750,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
   const enemyDist = enemy ? enemy.pos().distanceTo(p.pos()) : snipeFoe ? snipeFoe.pos().distanceTo(p.pos()) : 1e9;
   const enemyCarrier = !!(enemy && enemy.esfera != null);
   const snipeOk = !!(snipeFoe || (p.aiMode === "snipe" && p.aiFoe));
+  const huntCarrier = !carrying && enemyCarrier;
 
   const helpCand = !carrying ? allyToHelp(p, people) : null;
   const ballCand = !carrying ? claimBall(p, people, balls) : null;
@@ -784,7 +789,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
   const interrupt =
     (pick === "fight" &&
       enemy &&
-      (enemyDist < 36 || defend) &&
+      (enemyDist < 36 || defend || enemyCarrier) &&
       p.aiMode !== "fight" &&
       p.aiMode !== "deliver" &&
       p.aiMode !== "hide") ||
@@ -833,7 +838,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
   let help = helpCand;
   const foe = p.aiFoe || enemy || snipeFoe;
   const sniping = !carrying && p.aiMode === "snipe" && foe && !critHp;
-  const fighting = !carrying && p.aiMode === "fight" && foe && !critHp;
+  const huntingCarrier = !carrying && !!(foe && foe.esfera != null);
+  const fighting = !carrying && p.aiMode === "fight" && foe && (!critHp || huntingCarrier);
   if (p.canSsj) {
     const ratio = p.s.ki / p.s.kiMax;
     if (fighting && ratio > 0.42) p.setSsj(true);
@@ -912,7 +918,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
     dir.set(foe.pos().x - p.pos().x, 0, foe.pos().z - p.pos().z);
     const dist = foe.pos().distanceTo(p.pos());
     const rng = powerStyle(p.nombre, p.faccion).range || 55;
-    const preferKi = mood.ki > 0.22 && (mood.front < 0.15 || p.s.ki > 14);
+    const preferKi = !huntingCarrier && mood.ki > 0.22 && (mood.front < 0.15 || p.s.ki > 14);
     const hold = preferKi ? Math.min(22, rng * (mood.front < 0 ? 0.42 : 0.32)) : 4.2;
     const inKiRange = dist < rng * 0.92 && dist > 2.2;
     const close = dist < 3.4;
@@ -929,12 +935,12 @@ export function aiTick(p, people, balls, combat, match, dt) {
       dir.normalize();
       const side = seed(p) > 0.5 ? 1 : -1;
       const strafe = new THREE.Vector3(Math.cos(lookYaw) * side, 0, -Math.sin(lookYaw) * side);
-      if (mood.hp < 0.32 && mood.front < 0.1 && dist < 8) aiMove(p, dir.clone().multiplyScalar(-1), true, dt);
-      else if (p.s.ki < p.s.kiMax * 0.2 && dist > 2.4) aiMove(p, dir, false, dt);
+      if (mood.hp < 0.32 && mood.front < 0.1 && dist < 8 && !huntingCarrier) aiMove(p, dir.clone().multiplyScalar(-1), true, dt);
+      else if (p.s.ki < p.s.kiMax * 0.2 && dist > 2.4) aiMove(p, dir, huntingCarrier, dt);
       else if (dist > hold) {
         const fd = dir.clone().lerp(strafe, locked ? 0.35 : 0.22).normalize();
-        aiMove(p, fd, dist > 8 && mood.ki > 0.28, dt);
-      } else if (dist < hold * 0.55 && p.s.ki > 12 && preferKi) aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, 0.4).normalize(), false, dt);
+        aiMove(p, fd, dist > 8 && (mood.ki > 0.28 || huntingCarrier), dt);
+      } else if (dist < hold * 0.55 && p.s.ki > 12 && preferKi && !huntingCarrier) aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, 0.4).normalize(), false, dt);
       else if (close && (p.flyAlt || 0) > 0.35) {
         if ((p.aiHover || 0) > 0) p.aiHover -= dt;
         else p.aiHover = 0.35 + seed(p) * 0.45;
@@ -990,7 +996,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
       }
       dir.set(p.aiWanderX - p.pos().x, 0, p.aiWanderZ - p.pos().z);
       if (dir.lengthSq() < 140) p.aiWander = 0;
-      else if (mood.front < -0.28 || lowHp) dir.set(-p.pos().x, 0, homeZ - p.pos().z);
+      else if ((mood.front < -0.28 || lowHp) && !huntCarrier) dir.set(-p.pos().x, 0, homeZ - p.pos().z);
     }
   }
 

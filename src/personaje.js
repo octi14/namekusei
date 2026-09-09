@@ -58,6 +58,8 @@ export class Personaje {
     this.vy = 0;
     this.lift = 0;
     this._crouch = 0;
+    this._duckAmt = 0;
+    this._duck = false;
     this._launched = false;
     this.vx = 0;
     this.vz = 0;
@@ -78,7 +80,7 @@ export class Personaje {
       kiMax: this.s.kiMax,
     };
 
-    const h = this.s.altura;
+    const h = this.s.altura * 1.1;
     this.mesh = makeBody(h, def.look);
     this.mesh.rotation.order = "YXZ";
     this.height = 1.55 * h;
@@ -211,11 +213,11 @@ export class Personaje {
     this.ssjHalo.position.y = this.height * 0.52;
     this.ssjHalo.visible = false;
     this.mesh.add(this.ssjHalo);
-    this.chargeGlow = new THREE.Sprite(glowMat(0x4dd0e1, 0.72));
+    this.chargeGlow = new THREE.Sprite(glowMat(0x4dd0e1, 0.22));
     this.chargeGlow.position.y = this.height * 0.45;
     this.chargeGlow.visible = false;
     this.mesh.add(this.chargeGlow);
-    this.chargeHalo = new THREE.Sprite(glowMat(0xe0f7fa, 0.4));
+    this.chargeHalo = new THREE.Sprite(glowMat(0xe0f7fa, 0.1));
     this.chargeHalo.position.y = this.height * 0.5;
     this.chargeHalo.visible = false;
     this.mesh.add(this.chargeHalo);
@@ -381,10 +383,10 @@ export class Personaje {
       const col = gold ? 0xffe082 : supering ? 0xffc107 : 0x4dd0e1;
       this.kiAura.material.color.setHex(col);
       this.kiHalo.material.color.setHex(gold ? 0xfff59d : supering ? 0xfff59d : 0xe0f7fa);
-      this.kiAura.material.opacity = gold ? 0.72 : supering ? 0.65 : charging ? 0.7 : 0.5;
-      this.kiAura.material.size = this.height * (gold ? 2.6 : supering ? 2.3 : charging ? 2.4 : 1.8);
-      this.kiHalo.material.size = this.height * (gold ? 4.0 : supering ? 3.5 : charging ? 3.8 : 2.8);
-      this.kiHalo.material.opacity = charging ? 0.4 : 0.2;
+      this.kiAura.material.opacity = gold ? 0.72 : supering ? 0.65 : charging ? 0.28 : 0.5;
+      this.kiAura.material.size = this.height * (gold ? 2.6 : supering ? 2.3 : charging ? 1.35 : 1.8);
+      this.kiHalo.material.size = this.height * (gold ? 4.0 : supering ? 3.5 : charging ? 1.9 : 2.8);
+      this.kiHalo.material.opacity = charging ? 0.12 : 0.2;
     }
     // Glow sprite de carga (R) — visible aunque bloom afecte los Points
     if (this.chargeGlow) {
@@ -395,15 +397,17 @@ export class Personaje {
         const p = 1 + Math.sin(this._kiPulse * 4.2) * 0.18;
         this.chargeGlow.material.color.setHex(this.ssj ? 0xffe082 : 0x4dd0e1);
         this.chargeHalo.material.color.setHex(this.ssj ? 0xfff59d : 0xe0f7fa);
-        this.chargeGlow.scale.set(this.height * 2.8 * p, this.height * 4.2 * p, 1);
-        this.chargeHalo.scale.set(this.height * 4.2 * p, this.height * 6.0 * p, 1);
+        this.chargeGlow.material.opacity = 0.22;
+        this.chargeHalo.material.opacity = 0.1;
+        this.chargeGlow.scale.set(this.height * 1.35 * p, this.height * 1.85 * p, 1);
+        this.chargeHalo.scale.set(this.height * 1.9 * p, this.height * 2.5 * p, 1);
       }
     }
     // Anillo de carga
     if (this.chargeRing) {
       if (charging && this.flyAlt < 0.25 && !this.inSwim()) {
         this.chargeRing.visible = true;
-        const pulse = 0.65 + Math.sin(this._kiPulse * 4) * 0.25;
+        const pulse = 0.28 + Math.sin(this._kiPulse * 4) * 0.1;
         this.chargeRing.material.opacity = pulse;
         this.chargeRing.material.color.setHex(this.ssj ? 0xffe082 : 0x4dd0e1);
         const sc = 1 + Math.sin(this._kiPulse * 3.2) * 0.22;
@@ -999,18 +1003,48 @@ export class Personaje {
       torsoG.rotation.x -= r * 0.35;
       headG.rotation.x += r * 0.2;
     }
-    const c = this._crouch || 0;
+    const wantDuck =
+      this._duck &&
+      !this.dead &&
+      this.flyAlt < 0.12 &&
+      !this.inSwim() &&
+      !this._hop &&
+      !this._launched;
+    this._duckAmt = THREE.MathUtils.damp(this._duckAmt || 0, wantDuck ? 1 : 0, 12, dt);
+    this._duck = false;
+    const c = Math.max(this._crouch || 0, this._duckAmt || 0);
     if (c > 0.04 && this.flyAlt < 0.4) {
-      lx(torsoG, 0.32 * c);
-      lx(legL, 0.9 * c);
-      lx(legR, 0.9 * c);
-      if (kneeL) lx(kneeL, 1.05 * c);
-      if (kneeR) lx(kneeR, 1.05 * c);
-      if (elbowL) lx(elbowL, -0.45 * c);
-      if (elbowR) lx(elbowR, -0.45 * c);
-      lx(armL, 0.4 * c);
-      lx(armR, 0.4 * c);
-      lx(headG, 0.12 * c);
+      const g = Math.min(1, dt * 16);
+      const squat = (o, v) => {
+        o.rotation.x += (v - o.rotation.x) * g;
+      };
+      squat(legL, -0.95 * c);
+      squat(legR, -0.95 * c);
+      if (kneeL) squat(kneeL, 1.55 * c);
+      if (kneeR) squat(kneeR, 1.55 * c);
+      squat(torsoG, 0.48 * c);
+      squat(headG, -0.48 * c);
+      if (elbowL) squat(elbowL, -0.5 * c);
+      if (elbowR) squat(elbowR, -0.5 * c);
+      squat(armL, 0.22 * c);
+      squat(armR, 0.22 * c);
+      const drop = (() => {
+        const hy = hipY || this.height * 0.38;
+        const hipA = 0.95 * c;
+        const knA = 1.55 * c;
+        const thighLen = hy * 0.5;
+        const shinLen = hy * 0.5;
+        const span = thighLen * Math.cos(hipA) + shinLen * Math.cos(hipA - knA);
+        return Math.max(0, hy - span - hy * 0.1);
+      })();
+      if (waistY != null) {
+        torsoG.position.y = waistY - drop;
+        if (hips) hips.position.y = waistY - drop;
+      }
+      if (hipY != null) {
+        legL.position.y = hipY - drop;
+        legR.position.y = hipY - drop;
+      }
     }
     this.didMove = false;
   }
@@ -1153,6 +1187,10 @@ export class Personaje {
     this.lift = -1;
   }
 
+  duckHold() {
+    this._duck = true;
+  }
+
   setFly(on) {
     if (!on) {
       this.flyAlt = 0;
@@ -1178,6 +1216,10 @@ export class Personaje {
       else if (kf < 0.12) mul *= 0.72;
     }
     if (charging) mul *= 0.22;
+    if ((this._duckAmt || 0) > 0.25) {
+      run = false;
+      mul *= 0.42;
+    }
     if (this._grabbing) mul *= 0.06;
     if (elbowDash) mul *= 1.18;
     else if (punching) mul *= 0.16;
