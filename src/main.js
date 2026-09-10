@@ -16,6 +16,7 @@ import { aiTick } from "./ai.js";
 import { renderHud } from "./ui.js";
 import { setAudioListener, playSfx, stopSfxLoop, atPos } from "./sfx.js";
 import { powerStyle } from "./powers.js";
+import { preloadGoku } from "./gokuRig.js";
 
 const canvas = document.getElementById("c");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -99,7 +100,8 @@ function applyLabels() {
   document.getElementById("menu-f-h").textContent = current.fLabel;
 }
 
-function startGame(id) {
+async function startGame(id) {
+  await preloadGoku();
   setScenario(id);
   if (id === "earth" || id === "cell") {
     skyTex = makeSky(

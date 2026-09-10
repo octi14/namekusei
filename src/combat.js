@@ -48,8 +48,9 @@ export class Combat {
     const flying = (at.flyAlt || 0) > 0.38;
     const dive = flying && (at.rush || 0) > 0.82 && (step === 2 || Math.random() < 0.22);
     at.airMelee = flying ? (dive ? "elbow" : step === 1 ? "kick" : "upright") : null;
-    at.posePunch = at.airMelee === "elbow" ? 0.42 : at.airMelee === "kick" || step === 2 ? 0.48 : 0.34;
-    at.cooldown = at.airMelee === "elbow" ? 0.52 : at.airMelee === "kick" || step === 2 ? 0.78 : 0.36;
+    at.posePunch = at.airMelee === "elbow" ? 0.42 : at.airMelee === "kick" || step === 2 ? 0.48 : 0.52;
+    at._punchDur = at.posePunch;
+    at.cooldown = at.airMelee === "elbow" ? 0.52 : at.airMelee === "kick" || step === 2 ? 0.78 : 0.44;
     if (at.airMelee === "kick") at.punchStep = 2;
     {
       const [sx, sy, sz] = atPos(at);
@@ -146,6 +147,8 @@ export class Combat {
     at.s.ki -= superOn ? need * (0.38 + rank * 0.16) : need;
     at.cooldown = superOn ? 1.05 + rank * 0.18 : snipe ? 0.62 : 0.38;
     at.poseBlast = superOn ? 0.48 + rank * 0.12 : snipe ? 0.42 : 0.32;
+    at.poseBlastTwo = !!superOn;
+    if (!superOn) at.poseBlastArm = at.poseBlastArm === "L" ? "R" : "L";
     {
       const [sx, sy, sz] = atPos(at);
       if (superOn) {

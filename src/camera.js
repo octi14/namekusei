@@ -15,9 +15,17 @@ export class PlayerCamera {
 
   _setFp(p, on) {
     if (this._fpBody && this._fpBody !== p) this._setFp(this._fpBody, false);
+    const goku = !!p.mesh?.userData?.gokuVis;
     const head = p.limbs?.headG;
-    if (head) head.visible = !on;
-    if (p.limbs?.neck) p.limbs.neck.visible = !on;
+    if (goku) {
+      if (p.limbs?.neck) p.limbs.neck.visible = false;
+      p.mesh.traverse((o) => {
+        if (o.userData?.capsuleMesh) o.visible = false;
+      });
+    } else {
+      if (head) head.visible = !on;
+      if (p.limbs?.neck) p.limbs.neck.visible = !on;
+    }
     if (p.limbs?.torsoG && !on) p.limbs.torsoG.visible = true;
     if (p.nameLabel) p.nameLabel.visible = !on;
     p._fpCam = on;

@@ -3,7 +3,9 @@ import { MAP, BASE_Z } from "./config.js";
 import { addShipBases, bindBaseWorld, inShipBase, shipSpawnPos, shipWalkHeight, BASE_INNER_R, BASE_PAD_R } from "./bases.js";
 
 const BASE_R = BASE_INNER_R;
-export const patriarchHill = { x: 140, z: 0 };
+export const patriarchHill = { x: 140, z: 0, baseY: 2 };
+const PAT_H = 50;
+const PAT_R = 36;
 
 export function pickDryLand(minBase = 220) {
   const m = MAP / 2 - 50;
@@ -31,18 +33,30 @@ export function pickPatriarchHill() {
     if (Math.hypot(x, z - BASE_Z) < 130) continue;
     patriarchHill.x = x;
     patriarchHill.z = z;
+    patriarchHill.baseY = namekSine(x, z);
     return;
   }
   patriarchHill.x = m * 0.62;
   patriarchHill.z = 40;
+  patriarchHill.baseY = namekSine(patriarchHill.x, patriarchHill.z);
 }
 
-function hillBump(x, z) {
+function namekSine(x, z) {
+  return (
+    Math.sin(x * 0.012) * Math.cos(z * 0.01) * 9 +
+    Math.sin(x * 0.028 + 1.7) * Math.sin(z * 0.022) * 5.5 +
+    Math.cos((x + z) * 0.008) * 3.5
+  );
+}
+
+function patriarchDeck(x, z) {
   const d = Math.hypot(x - patriarchHill.x, z - patriarchHill.z);
-  const R = 78;
-  if (d >= R) return 0;
-  const t = 1 - d / R;
-  return 52 * t * t * (3 - 2 * t);
+  if (d >= PAT_R + 6) return null;
+  const top = (patriarchHill.baseY || 0) + PAT_H;
+  if (d <= PAT_R) return top;
+  const u = 1 - (d - PAT_R) / 6;
+  const t = u * u * (3 - 2 * u);
+  return (patriarchHill.baseY || 0) + PAT_H * t;
 }
 
 /** Plataformas secas bajo las naves en Namek (la Z cae en valle bajo el agua). */
@@ -238,15 +252,13 @@ export function groundHeight(x, z) {
 
 function rawGroundHeight(x, z) {
   if (mapId === "cell") return cellHeight(x, z);
-  let h =
-    Math.sin(x * 0.012) * Math.cos(z * 0.01) * 9 +
-    Math.sin(x * 0.028 + 1.7) * Math.sin(z * 0.022) * 5.5 +
-    Math.cos((x + z) * 0.008) * 3.5 +
-    hillBump(x, z);
+  let h = namekSine(x, z);
   if (mapId === "earth") h = earthHeight(x, z);
   else if (mapId === "namek") {
     const land = namekBaseLand(x, z);
     if (land > 0) h = Math.max(h, land);
+    const deck = patriarchDeck(x, z);
+    if (deck != null) h = Math.max(h, deck);
   }
   return h;
 }
@@ -286,13 +298,13 @@ function applyBasePads(raw, x, z) {
 export let WATER_Y = -1.35;
 export const obstacles = [];
 
-function addObst(x, z, r, h = 4) {
-  obstacles.push({ x, z, r, h });
+function addObst(x, z, r, h = 4, y = 0) {
+  obstacles.push({ x, z, r, h, y });
 }
 
 export function resolveObstacles(p, flyAlt = 0) {
   for (const o of obstacles) {
-    if (flyAlt > o.h) continue;
+    if (p.y > (o.y || 0) + o.h - 0.35) continue;
     const dx = p.x - o.x;
     const dz = p.z - o.z;
     const d = Math.hypot(dx, dz);
@@ -502,7 +514,7 @@ function addAjisa(scene) {
     const x = (Math.random() * 2 - 1) * m;
     const z = (Math.random() * 2 - 1) * m;
     if (Math.hypot(x, z + BASE_Z) < 22 || Math.hypot(x, z - BASE_Z) < 22) continue;
-    if (Math.hypot(x - patriarchHill.x, z - patriarchHill.z) < 36) continue;
+    if (Math.hypot(x - patriarchHill.x, z - patriarchHill.z) < 42) continue;
     if (Math.hypot(x + 70, z + BASE_Z - 110) < 18) continue;
     if (Math.hypot(x - 160, z - BASE_Z + 160) < 42) continue;
     const gy = groundHeight(x, z);
@@ -617,53 +629,122 @@ function mkBase(scene, z, color) {
 function addPatriarch(scene) {
   const x = patriarchHill.x;
   const z = patriarchHill.z;
-  const gy = groundHeight(x, z);
-  const rock = new THREE.Mesh(
-    new THREE.CylinderGeometry(7, 10, 4, 8),
-    new THREE.MeshLambertMaterial({ color: 0xc4b59a })
-  );
-  rock.position.set(x, gy + 2, z);
-  rock.castShadow = true;
-  rock.receiveShadow = true;
-  scene.add(rock);
-  const house = new THREE.Mesh(
-    new THREE.CylinderGeometry(3.2, 3.6, 5, 10),
-    new THREE.MeshLambertMaterial({ color: 0xd7ccc8 })
-  );
-  house.position.set(x, gy + 6.5, z);
-  scene.add(shadowMesh(house));
-  const roof = new THREE.Mesh(
-    new THREE.ConeGeometry(4.2, 3.2, 10),
-    new THREE.MeshLambertMaterial({ color: 0x5d4037 })
-  );
-  roof.position.set(x, gy + 10.5, z);
-  scene.add(shadowMesh(roof));
-  const elder = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.35, 0.9, 4, 8),
-    new THREE.MeshLambertMaterial({ color: 0x81c784 })
-  );
-  elder.position.set(x + 2.2, gy + 4.6, z + 1.5);
-  scene.add(elder);
+  const gy = patriarchHill.baseY || groundHeight(x, z);
+  const H = PAT_H;
+  const pts = [];
+  for (let i = 0; i <= 20; i++) {
+    const t = i / 20;
+    const y = t * H;
+    const r = 16 + t * 20 + Math.sin(t * 9) * 1.4 + Math.sin(t * 17) * 0.55;
+    pts.push(new THREE.Vector2(Math.max(14, r), y));
+  }
+  const geo = new THREE.LatheGeometry(pts, 20);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const px = pos.getX(i);
+    const py = pos.getY(i);
+    const pz = pos.getZ(i);
+    const a = Math.atan2(pz, px);
+    const n = Math.sin(a * 5 + py * 0.18) * 0.7 + Math.sin(a * 8 - py * 0.1) * 0.35;
+    const L = Math.hypot(px, pz) || 1;
+    pos.setX(i, px + (px / L) * n);
+    pos.setZ(i, pz + (pz / L) * n);
+  }
+  geo.computeVertexNormals();
+  const rockM = new THREE.MeshLambertMaterial({ color: 0xbcaaa4 });
+  const rock = new THREE.Mesh(geo, rockM);
+  rock.position.set(x, gy, z);
+  scene.add(shadowMesh(rock));
+  const deck = new THREE.Mesh(new THREE.CylinderGeometry(PAT_R - 0.6, PAT_R - 0.2, 0.55, 24), new THREE.MeshLambertMaterial({ color: 0x1565c0 }));
+  deck.position.set(x, gy + H + 0.12, z);
+  scene.add(deck);
+  const topY = gy + H + 0.35;
+  const cream = new THREE.MeshLambertMaterial({ color: 0xf3efe6 });
+  const winM = new THREE.MeshLambertMaterial({ color: 0x1565c0 });
+  const palace = new THREE.Group();
+  const s = 0.62;
+  const base = new THREE.Mesh(new THREE.SphereGeometry(14.5 * s, 18, 16), cream);
+  base.position.y = 14.5 * s * 0.55;
+  base.scale.set(1.18, 0.7, 1.1);
+  palace.add(base);
+  const mid = new THREE.Mesh(new THREE.SphereGeometry(9.2 * s, 16, 14), cream);
+  mid.position.y = 16.5 * s;
+  mid.scale.set(1, 0.78, 1);
+  palace.add(mid);
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(5.4 * s, 14, 12), cream);
+  cap.position.y = 23.2 * s;
+  palace.add(cap);
+  for (const [sx, sy, sz, sr] of [
+    [8.5, 6.5, 4, 3.4],
+    [-7.5, 7, -3.5, 3.1],
+    [2, 9, 10, 2.8],
+    [-3, 5.5, -9, 2.6],
+  ]) {
+    const bump = new THREE.Mesh(new THREE.SphereGeometry(sr * s, 12, 10), cream);
+    bump.position.set(sx * s, sy * s, sz * s);
+    palace.add(bump);
+  }
+  for (const [hx, hy, hz, rot] of [
+    [4.2, 26.5, 0, 0.55],
+    [-4.2, 26.5, 0, -0.55],
+  ]) {
+    const horn = new THREE.Mesh(new THREE.ConeGeometry(1.15 * s, 9.5 * s, 8), cream);
+    horn.position.set(hx * s, hy * s, hz * s);
+    horn.rotation.z = rot;
+    palace.add(horn);
+  }
+  for (const [wx, wy, wz, wr] of [
+    [0, 18.2, 8.2, 2.6],
+    [7.2, 8.5, 6.5, 1.7],
+    [-6.8, 8.2, 7, 1.55],
+    [5.5, 7.5, -8, 1.4],
+    [-4.5, 10, -7.5, 1.35],
+    [0, 6.2, 12.5, 1.9],
+  ]) {
+    const w = new THREE.Mesh(new THREE.SphereGeometry(wr * s, 10, 8), winM);
+    w.position.set(wx * s, wy * s, wz * s);
+    palace.add(w);
+  }
+  palace.position.set(x, topY, z);
+  palace.traverse((o) => {
+    if (o.isMesh) {
+      o.castShadow = false;
+      shadowProps.push(o);
+    }
+  });
+  scene.add(palace);
+  addObst(x, z, 20, PAT_H - 1.5, gy);
+  addObst(x, z, 11.5, 16, topY);
 }
 
 function namekHouse(scene, x, z, s = 1) {
   const y = groundHeight(x, z);
   if (y < WATER_Y + 0.4) return;
-  const cream = new THREE.MeshLambertMaterial({ color: 0xf3e5ab });
-  const roofM = new THREE.MeshLambertMaterial({ color: 0x4e342e });
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(1.9 * s, 2.15 * s, 2.6 * s, 10), cream);
-  body.position.set(x, y + 1.3 * s, z);
-  scene.add(shadowMesh(body));
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(2.7 * s, 2.2 * s, 10), roofM);
-  roof.position.set(x, y + 3.15 * s, z);
-  scene.add(shadowMesh(roof));
-  const door = new THREE.Mesh(
-    new THREE.BoxGeometry(0.7 * s, 1.15 * s, 0.2 * s),
-    new THREE.MeshLambertMaterial({ color: 0x3e2723 })
-  );
-  door.position.set(x, y + 0.7 * s, z + 2.05 * s);
+  const cream = new THREE.MeshLambertMaterial({ color: 0xeceff1 });
+  const winM = new THREE.MeshLambertMaterial({ color: 0x1565c0 });
+  const doorM = new THREE.MeshLambertMaterial({ color: 0x1a237e });
+  const r = 2.55 * s;
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(r, 18, 14), cream);
+  dome.scale.set(1.18, 0.72, 1.08);
+  dome.position.set(x, y + r * 0.48, z);
+  scene.add(shadowMesh(dome));
+  const horn = new THREE.Mesh(new THREE.ConeGeometry(0.28 * s, 1.7 * s, 8), cream);
+  horn.position.set(x, y + r * 1.15, z);
+  scene.add(shadowMesh(horn));
+  for (const [ox, oz, wr] of [
+    [-1.15 * s, 1.35 * s, 0.42 * s],
+    [1.15 * s, 1.35 * s, 0.42 * s],
+    [-1.55 * s, 0.15 * s, 0.32 * s],
+    [1.55 * s, 0.15 * s, 0.32 * s],
+  ]) {
+    const w = new THREE.Mesh(new THREE.SphereGeometry(wr, 10, 8), winM);
+    w.position.set(x + ox, y + r * 0.55, z + oz);
+    scene.add(w);
+  }
+  const door = new THREE.Mesh(new THREE.CylinderGeometry(0.38 * s, 0.42 * s, 1.35 * s, 10), doorM);
+  door.position.set(x, y + 0.72 * s, z + r * 0.82);
   scene.add(door);
-  addObst(x, z, 2.5 * s, 4.5 * s);
+  addObst(x, z, 2.9 * s, 3.4 * s, y);
 }
 
 function namekVillage(scene, cx, cz, n = 7, r = 22) {
@@ -734,10 +815,32 @@ function addFreezerShip(scene) {
 }
 
 function addLandmarks(scene) {
-  namekVillage(scene, patriarchHill.x, patriarchHill.z, 8, 24);
-  namekVillage(scene, -380, 220, 6, 20);
-  namekVillage(scene, 420, -280, 6, 18);
-  namekVillage(scene, -90, 40, 5, 16);
+  const villages = [
+    [-380, 220, 10, 28],
+    [420, -280, 9, 26],
+    [-90, 40, 8, 22],
+    [260, 340, 8, 24],
+    [-520, -160, 9, 26],
+    [140, -420, 8, 22],
+    [-240, -480, 7, 20],
+    [560, 80, 8, 24],
+    [-60, 520, 7, 20],
+    [310, 80, 6, 18],
+  ];
+  for (const [cx, cz, n, r] of villages) namekVillage(scene, cx, cz, n, r);
+  const m = MAP / 2 - 80;
+  let n = 0;
+  let g = 0;
+  while (n < 70 && g < 4000) {
+    g++;
+    const x = (Math.random() * 2 - 1) * m;
+    const z = (Math.random() * 2 - 1) * m;
+    if (Math.hypot(x, z + BASE_Z) < 80 || Math.hypot(x, z - BASE_Z) < 80) continue;
+    if (Math.hypot(x - patriarchHill.x, z - patriarchHill.z) < PAT_R + 18) continue;
+    if (groundHeight(x, z) < WATER_Y + 1.2) continue;
+    namekHouse(scene, x, z, 0.75 + Math.random() * 0.45);
+    n++;
+  }
 }
 
 function grassTex(earth) {

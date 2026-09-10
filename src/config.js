@@ -1,12 +1,12 @@
 export const TEAM_SIZE = 15;
 export const MAP = 2200;
 export const BASE_Z = 960;
-export const FLY_MAX = 32;
+export const FLY_MAX = 58;
 export const FLY_UP = 11;
 export const FLY_DOWN = 14;
 export const SUPER_KI = 0.62;
-export const SUPER_ATK2 = 40;
-export const SUPER_ATK3 = 55;
+export const SUPER_ATK2 = 32;
+export const SUPER_ATK3 = 40;
 
 export function superRank(ki, kiMax, atk) {
   if (ki / kiMax < SUPER_KI) return 0;

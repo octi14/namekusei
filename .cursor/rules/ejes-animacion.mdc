@@ -1,0 +1,44 @@
+---
+description: Convención de ejes del cuerpo (cápsulas vs Mixamo). No invertir adelante/atrás ni arriba/abajo.
+alwaysApply: true
+---
+
+# Ejes de animación (Namekusei)
+
+Este proyecto ya confundió **adelante/atrás** y **arriba/abajo** al mapear poses. Antes de tocar rotaciones, leé esto.
+
+## Cápsulas (`body.js` / `personaje.js`)
+
+- El hueso-pivote cuelga hacia **-Y** (brazo/pierna en reposo = **abajo**, no T-pose).
+- `rotation.x < 0` en brazos = hacia **adelante** (puño, vuelo Superman).
+- `rotation.x > 0` en brazos = hacia **atrás** (hover, recobro).
+- `rotation.z` = abrir/cerrar respecto al torso (izq +, der − en el código actual de cápsulas).
+- Piernas: `rotation.x` negativo del muslo = paso **adelante**; rodilla `rotation.x` **positivo** = flexión.
+
+## Mixamo (`gokuRig.js`)
+
+- El GLB viene en **T-pose** (brazos a los costados, elevados). Eso no es el reposo del juego.
+- Capturas reales (idle/hover/walk, visto de espalda): **hang en Z = brazos adelante**; **hang en X = brazos abajo**. **Rodilla en Z = adentro**; **rodilla en X = atrás**.
+- El eje del hueso Mixamo es **+Y local**. No copies Euler XYZ de la cápsula 1:1.
+- Flotar (hover, ambos `arm.x` > 0.45 y codos doblados, no ki): **solo hang**, extras 0 — como idle en tierra. No aplicar `ax`/`az` o un brazo va adelante y el otro atrás.
+## Piernas Mixamo — lo que YA está bien (no tocar el eje)
+
+Referencia: **caminar**. Muslo y rodilla en **X**. `MixamoX_muslo = -cápsula.x` (cápsula adelante es x<0). Rodilla Mixamo X = `-cápsula.knee.x`.
+
+- Caminar: eje y flexión correctos.
+- Flotar y recargar ki: mismo eje, ya OK.
+- Correr: mismo eje; el atrás de la cápsula es más grande — hay que **recortar MixamoX negativo** (tope ~0.28) y dejar el adelante como el caminar.
+- Agacharse de pie: torso Mixamo **+X** (la negación de caminar lo tiraba atrás). Brazo derecho adelante = **Z −** (espejo Mixamo; Z+ le iba atrás).
+
+## Brazos Mixamo de pie vs acostado
+
+De pie: **X** = hang/abajo (y abrir un poco con `az`). **Z** = adelante/atrás (`arm.x`). **Y** no (tuerce / no es el braceo de pie). L/R espejo.
+
+Acostado (nado/vuelo, sin hang): extra **X** del húmero.
+- Izquierdo **X = +1.28** → **atrás** (hacia la cámara).
+- Derecho **X = −1.28** → **adelante** (hacia el horizonte).
+No usar el mismo signo en ambos en esta pose.
+
+Hover (flotando sin pose Superman de brazos): solo hang. Braceo de correr: `arm.x * 0.42` (menos que caminar a palos).
+
+Cerrar puño: flexión de dedos en **Z con el signo invertido** respecto al primer intento (izq −, der +). Esa es la forma correcta de cerrar el puño en este Mixamo.
