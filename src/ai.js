@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BASE_Z, superRank } from "./config.js";
+import { BASE_Z, superRank, SUPER_KI } from "./config.js";
 import { inOwnBase, isWater, groundHeight } from "./world.js";
 import { BASE_INNER_R, steerShipNav, nearAnyShip, shipDist, inShipBase } from "./bases.js";
 import { powerStyle } from "./powers.js";
@@ -15,10 +15,11 @@ function kiBand(p) {
   let h = 0;
   for (const c of p.nombre || p.id) h = (h * 17 + c.charCodeAt(0)) | 0;
   const jitter = (Math.abs(h % 1000) / 1000 - 0.5) * 0.05;
-  // Cargar más a fondo: no despegar con el tanque a medias
+  // Cargar hasta poder tirar super (≥ SUPER_KI)
   const lo = THREE.MathUtils.clamp(THREE.MathUtils.lerp(0.38, 0.26, a) + jitter, 0.22, 0.42);
   const span = THREE.MathUtils.lerp(0.42, 0.32, a);
-  return { lo, hi: Math.min(0.88, lo + span), fly: Math.min(0.72, lo + 0.22) };
+  const hi = Math.max(Math.min(0.9, lo + span), SUPER_KI + 0.06);
+  return { lo, hi, fly: Math.min(0.72, lo + 0.22) };
 }
 
 function temper(p) {
@@ -952,8 +953,10 @@ export function aiTick(p, people, balls, combat, match, dt) {
       (mood.ki > 0.42 ? 1.25 : mood.ki > 0.28 ? 0.55 : 0.12) *
       (locked ? 1.15 : 1) *
       ((p.flyAlt || 0) > 2 ? 0.35 : dist > 22 ? 0.55 : 1);
-    const canSuper = superRank(p.s.ki, p.s.kiMax, p.s.ataque) >= 1;
-    if (canSuper && inKiRange && dist < 48 && Math.random() < (0.028 + agg * 0.02) * dt * 60) {
+    const rank = superRank(p.s.ki, p.s.kiMax, p.s.ataque);
+    const canSuper = rank >= 1;
+    const superOdds = (0.042 + agg * 0.028 + (rank >= 2 ? 0.03 : 0) + (rank >= 3 ? 0.02 : 0)) * dt * 60;
+    if (canSuper && inKiRange && dist < 52 && Math.random() < superOdds) {
       combat.blast(p, true, people, dist > 40);
     } else if (inKiRange && dist < 38 && p.s.ki >= p.s.kiMax * 0.18 && Math.random() < blastOdds) {
       combat.blast(p, false, people, dist > 48);

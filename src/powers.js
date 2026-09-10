@@ -1,47 +1,47 @@
 import * as THREE from "three";
 
 const STYLES = {
-  Gokú: { kind: "beam", color: 0x4fc3f7, speed: 40, r: 0.2, life: 1.9, range: 95 },
-  Gohan: { kind: "beam", color: 0x81d4fa, speed: 36, r: 0.18, life: 1.55, range: 72 },
-  Krilin: { kind: "disk", color: 0xffee58, speed: 34, r: 0.55, life: 2.35, range: 125 },
-  Pikoro: { kind: "beam", color: 0x69f0ae, speed: 52, r: 0.1, life: 2.7, range: 170 },
-  Vegeta: { kind: "beam", color: 0xce93d8, speed: 42, r: 0.18, life: 2.05, range: 115 },
-  Nail: { kind: "ball", color: 0xa5d6a7, speed: 30, r: 0.28, life: 1.15, range: 52 },
-  Dendé: { kind: "ball", color: 0xc5e1a5, speed: 24, r: 0.2, life: 1.05, range: 48 },
-  Freezer: { kind: "beam", color: 0xf48fb1, speed: 55, r: 0.08, life: 2.6, range: 165 },
-  Zaabon: { kind: "ball", color: 0xf06292, speed: 32, r: 0.25, life: 1.35, range: 62 },
-  Dodoria: { kind: "ball", color: 0xff8a80, speed: 22, r: 0.42, life: 0.85, range: 38 },
-  Gurdo: { kind: "ball", color: 0xb39ddb, speed: 18, r: 0.35, life: 1.0, range: 44 },
-  Rikum: { kind: "ball", color: 0xff5252, speed: 28, r: 0.3, life: 1.2, range: 55 },
-  Yiz: { kind: "beam", color: 0x80d8ff, speed: 38, r: 0.14, life: 1.85, range: 100 },
-  Butter: { kind: "ball", color: 0xdce775, speed: 30, r: 0.26, life: 1.25, range: 58 },
-  Ginyu: { kind: "ball", color: 0xea80fc, speed: 28, r: 0.32, life: 1.3, range: 60 },
-  Kiwy: { kind: "ball", color: 0x80cbc4, speed: 30, r: 0.24, life: 1.2, range: 54 },
-  Appule: { kind: "ball", color: 0xce93d8, speed: 29, r: 0.22, life: 1.15, range: 50 },
+  Gokú: { kind: "beam", color: 0x4fc3f7, speed: 50, r: 0.2, life: 2.2, range: 120 },
+  Gohan: { kind: "beam", color: 0x81d4fa, speed: 47, r: 0.18, life: 1.8, range: 100 },
+  Krilin: { kind: "disk", color: 0xffee58, speed: 40, r: 0.55, life: 1.85, range: 100 },
+  Pikoro: { kind: "beam", color: 0x69f0ae, speed: 48, r: 0.1, life: 1.8, range: 120 },
+  Vegeta: { kind: "beam", color: 0xce93d8, speed: 46, r: 0.18, life: 2.0, range: 125 },
+  Nail: { kind: "ball", color: 0xa5d6a7, speed: 40, r: 0.28, life: 1.2, range: 80 },
+  Dendé: { kind: "ball", color: 0xc5e1a5, speed: 37, r: 0.2, life: 1.2, range: 70 },
+  Freezer: { kind: "beam", color: 0xf48fb1, speed: 52, r: 0.08, life: 2.2, range: 130 },
+  Zaabon: { kind: "ball", color: 0xf06292, speed: 42, r: 0.25, life: 1.5, range: 90 },
+  Dodoria: { kind: "ball", color: 0xff8a80, speed: 42, r: 0.42, life: 1.6, range: 90 },
+  Gurdo: { kind: "ball", color: 0xb39ddb, speed: 35, r: 0.35, life: 1.2, range: 70 },
+  Rikum: { kind: "ball", color: 0xff5252, speed: 38, r: 0.3, life: 1.6, range: 100 },
+  Yiz: { kind: "beam", color: 0x80d8ff, speed: 48, r: 0.14, life: 1.7, range: 100 },
+  Butter: { kind: "ball", color: 0xdce775, speed: 50, r: 0.26, life: 1.5, range: 100 },
+  Ginyu: { kind: "ball", color: 0xea80fc, speed: 45, r: 0.32, life: 1.8, range: 90 },
+  Kiwy: { kind: "ball", color: 0x80cbc4, speed: 35, r: 0.24, life: 1.3, range: 80 },
+  Appule: { kind: "ball", color: 0xce93d8, speed: 35, r: 0.22, life: 1.2, range: 70 },
   "Ten Shin Han": { kind: "beam", color: 0xffee58, speed: 40, r: 0.16, life: 1.7, range: 90 },
-  Yamcha: { kind: "ball", color: 0xffcc80, speed: 32, r: 0.24, life: 1.2, range: 58 },
-  Chaoz: { kind: "ball", color: 0xeeeeee, speed: 22, r: 0.18, life: 1.0, range: 42 },
-  Yajirobee: { kind: "ball", color: 0xff8a65, speed: 20, r: 0.32, life: 0.9, range: 36 },
-  Kami: { kind: "beam", color: 0xa5d6a7, speed: 36, r: 0.12, life: 1.8, range: 80 },
-  Nappa: { kind: "ball", color: 0xffab40, speed: 24, r: 0.4, life: 1.0, range: 48 },
-  Raditz: { kind: "beam", color: 0x81c784, speed: 38, r: 0.16, life: 1.9, range: 100 },
-  Saibaman: { kind: "ball", color: 0x9ccc65, speed: 22, r: 0.2, life: 0.9, range: 36 },
-  Trunks: { kind: "beam", color: 0xce93d8, speed: 44, r: 0.16, life: 2.0, range: 110 },
-  "Mr. Satan": { kind: "ball", color: 0xef5350, speed: 16, r: 0.28, life: 0.7, range: 28 },
-  Cell: { kind: "beam", color: 0x69f0ae, speed: 50, r: 0.14, life: 2.4, range: 140 },
-  "Nº16": { kind: "ball", color: 0x90a4ae, speed: 26, r: 0.38, life: 1.1, range: 50 },
+  Yamcha: { kind: "ball", color: 0xffcc80, speed: 38, r: 0.24, life: 1.3, range: 80 },
+  Chaoz: { kind: "ball", color: 0xeeeeee, speed: 35, r: 0.18, life: 1.0, range: 70 },
+  Yajirobee: { kind: "ball", color: 0xff8a65, speed: 35, r: 0.32, life: 1.0, range: 65 },
+  Kami: { kind: "beam", color: 0xa5d6a7, speed: 38, r: 0.12, life: 1.8, range: 80 },
+  Nappa: { kind: "ball", color: 0xffab40, speed: 40, r: 0.4, life: 1.5, range: 100 },
+  Raditz: { kind: "beam", color: 0x81c784, speed: 42, r: 0.16, life: 1.9, range: 100 },
+  Saibaman: { kind: "ball", color: 0x9ccc65, speed: 40, r: 0.2, life: 1.2, range: 80 },
+  Trunks: { kind: "beam", color: 0xce93d8, speed: 46, r: 0.16, life: 2.0, range: 110 },
+  "Mr. Satan": { kind: "ball", color: 0xef5350, speed: 35, r: 0.28, life: 1.2, range: 60 },
+  Cell: { kind: "beam", color: 0x69f0ae, speed: 50, r: 0.14, life: 2.4, range: 130 },
+  "Nº16": { kind: "ball", color: 0x90a4ae, speed: 45, r: 0.38, life: 1.5, range: 120 },
   "Nº17": { kind: "beam", color: 0x81d4fa, speed: 42, r: 0.12, life: 1.9, range: 100 },
   "Nº18": { kind: "beam", color: 0xf8bbd0, speed: 42, r: 0.12, life: 1.9, range: 100 },
-  "Nº19": { kind: "ball", color: 0xef9a9a, speed: 22, r: 0.3, life: 1.0, range: 44 },
-  "Dr. Gero": { kind: "ball", color: 0xb0bec5, speed: 24, r: 0.22, life: 1.1, range: 48 },
+  "Nº19": { kind: "ball", color: 0xef9a9a, speed: 40, r: 0.3, life: 1.5, range: 80 },
+  "Dr. Gero": { kind: "ball", color: 0xb0bec5, speed: 40, r: 0.22, life: 1.5, range: 90 },
 };
 
 export function powerStyle(nombre, faccion) {
   if (STYLES[nombre]) return { ...STYLES[nombre] };
   if (nombre.startsWith("Saibaman")) return { ...STYLES.Saibaman };
   if (nombre.startsWith("Cell Jr.")) return { kind: "beam", color: 0xa5d6a7, speed: 36, r: 0.1, life: 1.6, range: 80 };
-  if (faccion === "z") return { kind: "ball", color: 0x81c784, speed: 28, r: 0.22, life: 1.15, range: 50 };
-  return { kind: "ball", color: 0x90caf9, speed: 26, r: 0.2, life: 1.1, range: 48 };
+  if (faccion === "z") return { kind: "ball", color: 0x81c784, speed: 36, r: 0.22, life: 1.15, range: 50 };
+  return { kind: "ball", color: 0x90caf9, speed: 36, r: 0.2, life: 1.1, range: 48 };
 }
 
 let _glow;
@@ -61,7 +61,8 @@ function glowTex() {
   return _glow;
 }
 
-function spr(color, opacity = 0.85) {
+/** sprite con glow. */
+function spr(color, opacity = 0.55) {
   return new THREE.Sprite(
     new THREE.SpriteMaterial({
       map: glowTex(),
@@ -74,7 +75,17 @@ function spr(color, opacity = 0.85) {
   );
 }
 
-function mat(color, opacity = 0.9) {
+/** material sólido legible (+ leve glow). */
+function mat(color, opacity = 0.92) {
+  return new THREE.MeshBasicMaterial({
+    color,
+    transparent: opacity < 0.98,
+    opacity,
+    depthWrite: opacity > 0.85,
+  });
+}
+
+function matAdd(color, opacity = 0.45) {
   return new THREE.MeshBasicMaterial({
     color,
     transparent: true,
@@ -84,61 +95,64 @@ function mat(color, opacity = 0.9) {
   });
 }
 
+/** crea un efecto de poder (forma clara; glow corto). */
 export function makePowerMesh(style, superOn, rank = 0) {
   const s = superOn ? 3.4 + rank * 1.15 : 1;
   const c = style.color;
   const g = new THREE.Group();
   if (style.kind === "beam") {
     const len = 3.6 * s;
+    const r0 = Math.max(0.06, style.r * s * 0.55);
     const core = new THREE.Mesh(
-      new THREE.CylinderGeometry(style.r * s * 0.18, style.r * s * 0.28, len, 8),
+      new THREE.CylinderGeometry(r0 * 0.45, r0 * 0.65, len, 10),
       mat(0xffffff, 0.98)
     );
     g.add(core);
-    const aura = spr(c, 0.62);
-    aura.scale.set(style.r * s * 9, len * 0.95, 1);
-    g.add(aura);
-    const tip = spr(0xffffff, 0.95);
-    tip.scale.setScalar(style.r * s * 5.2);
-    tip.position.y = len * 0.42;
-    g.add(tip);
-    const bloom = spr(c, 0.42);
-    bloom.scale.setScalar(style.r * s * 9.5);
-    bloom.position.y = len * 0.2;
-    g.add(bloom);
-    const bloom2 = spr(0xffffff, 0.22);
-    bloom2.scale.setScalar(style.r * s * 12);
-    bloom2.position.y = len * 0.15;
-    g.add(bloom2);
-  } else if (style.kind === "disk") {
-    const disk = new THREE.Mesh(
-      new THREE.CylinderGeometry(style.r * s, style.r * s, 0.05 * s, 24),
-      mat(c, 0.75)
+    const shell = new THREE.Mesh(
+      new THREE.CylinderGeometry(r0 * 0.95, r0 * 1.15, len * 0.98, 10),
+      matAdd(c, 0.55)
     );
-    disk.rotation.x = Math.PI / 2;
-    g.add(disk);
-    const halo = spr(c, 0.55);
-    halo.scale.setScalar(style.r * s * 6.5);
+    g.add(shell);
+    const tip = spr(0xffffff, 0.55);
+    tip.scale.setScalar(r0 * 3.2);
+    tip.position.y = len * 0.48;
+    g.add(tip);
+    const aura = spr(c, 0.28);
+    aura.scale.set(r0 * 4.2, len * 0.72, 1);
+    g.add(aura);
+  } else if (style.kind === "disk") {
+    const R = Math.max(0.35, style.r * s);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(R * 0.72, R * 0.16, 10, 28), mat(c, 0.95));
+    rim.rotation.x = Math.PI / 2;
+    g.add(rim);
+    const plate = new THREE.Mesh(
+      new THREE.CylinderGeometry(R * 0.55, R * 0.55, 0.04 * s, 24),
+      mat(0xffffff, 0.88)
+    );
+    plate.rotation.x = Math.PI / 2;
+    g.add(plate);
+    const halo = spr(c, 0.28);
+    halo.scale.setScalar(R * 3.4);
     g.add(halo);
-    const core = spr(0xffffff, 0.75);
-    core.scale.setScalar(style.r * s * 2.8);
-    g.add(core);
   } else {
-    const core = spr(0xffffff, 0.95);
-    core.scale.setScalar(style.r * s * 2.8);
-    const body = spr(c, 0.75);
-    body.scale.setScalar(style.r * s * 5.8);
-    const halo = spr(c, 0.38);
-    halo.scale.setScalar(style.r * s * 10);
-    g.add(halo, body, core);
+    const R = Math.max(0.14, style.r * s * 1.35);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(R, 14, 12), mat(c, 0.92));
+    g.add(ball);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(R * 0.42, 10, 8), mat(0xffffff, 0.95));
+    g.add(core);
+    const halo = spr(c, 0.32);
+    halo.scale.setScalar(R * 3.6);
+    g.add(halo);
   }
   return g;
 }
 
+/** alinea un efecto de poder de tipo beam. */
 export function alignBeam(mesh, dir) {
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
 }
 
+/** crea un efecto de burst. */
 export function spawnBurst(scene, pos, color, list) {
   for (let i = 0; i < 9; i++) {
     const m = spr(color, 0.85);
@@ -153,6 +167,7 @@ export function spawnBurst(scene, pos, color, list) {
   }
 }
 
+/** crea un efecto de disparo. */
 export function spawnMuzzle(scene, pos, color, list) {
   const flash = spr(0xffffff, 0.95);
   flash.scale.setScalar(0.7);
@@ -166,6 +181,7 @@ export function spawnMuzzle(scene, pos, color, list) {
   list.push({ mesh: glow, v: new THREE.Vector3(), t: 0.2, grow: 12 });
 }
 
+/** crea un efecto de impacto. */
 export function spawnHit(scene, pos, list, dir, heavy = false) {
   spawnBurst(scene, pos, heavy ? 0xffecb3 : 0xfff176, list);
   const flash = spr(0xffffff, 1);
