@@ -691,15 +691,16 @@ export class Personaje {
         if (o) o.rotation.z += (t - o.rotation.z) * pk;
       };
       if (this.airMelee === "elbow") {
-        const left = this.mesh.userData.syncRig ? st === 1 : st === 0;
+        const left = st === 1;
+        const flip = this.mesh.userData.syncRig ? 1 : -1;
         const lead = left ? armL : armR;
         const back = left ? armR : armL;
         const leadEl = left ? elbowL : elbowR;
         const backEl = left ? elbowR : elbowL;
         px(lead, -0.35);
-        pz(lead, left ? 1.05 : -1.05);
+        pz(lead, (left ? 1.05 : -1.05) * flip);
         px(back, 0.35);
-        pz(back, left ? -0.12 : 0.12);
+        pz(back, (left ? -0.12 : 0.12) * flip);
         px(leadEl, -1.35);
         px(backEl, -0.35);
         lx(legL, 0.12);
@@ -738,19 +739,20 @@ export class Personaje {
           ty = sm(0.12, 0.32, t);
           eCross = t * t * (3 - 2 * t);
         }
-        const left = this.mesh.userData.syncRig ? st === 1 : st === 0;
+        const left = st === 1;
+        const flip = this.mesh.userData.syncRig ? 1 : -1;
         this.mesh.userData.punchLead = left ? "L" : "R";
         const lead = left ? armL : armR;
         const rear = left ? armR : armL;
         const leadEl = left ? elbowL : elbowR;
         const rearEl = left ? elbowR : elbowL;
         px(lead, ax);
-        pz(lead, left ? -az : az);
+        pz(lead, (left ? -az : az) * flip);
         px(leadEl, el);
         px(rear, 0.18 + eCross * 0.12);
-        pz(rear, left ? 0.16 : -0.16);
+        pz(rear, (left ? 0.16 : -0.16) * flip);
         px(rearEl, -0.72);
-        torsoG.rotation.y += ((left ? -ty : ty) - torsoG.rotation.y) * pk;
+        torsoG.rotation.y += (((left ? -ty : ty) * flip) - torsoG.rotation.y) * pk;
         lx(legL, left ? -0.22 : 0.2);
         lx(legR, left ? 0.26 : -0.16);
         if (kneeL) lx(kneeL, left ? 0.18 : 0.32);

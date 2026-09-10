@@ -184,17 +184,25 @@ function syncAndroid(g, wrap, b, L) {
   const amp = Math.max(Math.abs(lxL), Math.abs(lxR));
   const walking = !squat && amp < 1.12;
   const runW = THREE.MathUtils.smoothstep(amp, 0.72, 1.28);
-  const punchAmt = 0.68;
+  const punchAmt = 1.08;
   const swing = THREE.MathUtils.lerp(0.52, 0.42, runW);
-  const mxL = hover || punchR ? 0 : punchL ? -azL * 0.25 : azL * 0.25;
-  const mxR = hover || punchL ? 0 : punchR ? azR * 0.25 : -azR * 0.25;
-  const mzL = hover || punchR ? 0 : punchL ? axL * punchAmt : axL * swing;
-  const mzR = hover || punchL ? 0 : charging ? -axR : punchR ? -axR * punchAmt : squat ? -0.82 : axR * swing;
+  const blast = !punchL && !punchR && axL < -0.55 && axR < -0.55;
+  const mxL = hover || punchR ? 0 : punchL ? azL * 1.15 : azL * 0.25;
+  const mxR = hover || punchL ? 0 : punchR ? -azR * 1.15 : -azR * 0.25;
+  const armX = (ax, punch, otherPunch) => {
+    if (hover || otherPunch) return 0;
+    if (charging) return ax * 1.05;
+    if (punch || blast) return ax * (blast ? 1.2 : punchAmt);
+    if (squat) return -0.82;
+    return ax * swing;
+  };
+  const mzL = armX(axL, punchL, punchR);
+  const mzR = armX(axR, punchR, punchL);
   const elZL = hover || punchR ? 0 : elL;
   const elZR = hover || punchL ? 0 : elR;
   const hangW = 1 - lay;
-  setLocal(b.LeftArm, null, THREE.MathUtils.lerp(mzL, 1.28, lay), 0, -1.22 * hangW + THREE.MathUtils.lerp(-mxL, 0, lay));
-  setLocal(b.RightArm, null, THREE.MathUtils.lerp(-mzR, 1.28, lay), 0, -1.22 * hangW + THREE.MathUtils.lerp(mxR, 0, lay));
+  setLocal(b.LeftArm, null, THREE.MathUtils.lerp(mzL, 1.28, lay), 0, -1.22 * hangW + THREE.MathUtils.lerp(mxL, 0, lay));
+  setLocal(b.RightArm, null, THREE.MathUtils.lerp(mzR, 1.28, lay), 0, -1.22 * hangW + THREE.MathUtils.lerp(mxR, 0, lay));
   setLocal(b.LeftShoulder, null, 0, 0, 0);
   setLocal(b.RightShoulder, null, 0, 0, 0);
   setLocal(b.LeftForeArm, null, 0, THREE.MathUtils.lerp(elZL, 0, lay), 0);
@@ -210,20 +218,21 @@ function syncAndroid(g, wrap, b, L) {
   const knL = (kneeL?.rotation.x || 0) * (squat ? 1.15 : THREE.MathUtils.lerp(1.15, 1.45, runW));
   const knR = (kneeR?.rotation.x || 0) * (squat ? 1.15 : THREE.MathUtils.lerp(1.15, 1.45, runW));
   const close = lay * 0.22;
+  const kicking = !squat && Math.abs(lxL - lxR) > 0.7 && amp > 0.95;
   const tY = (x, other) => {
     if (squat) return -thigh(x);
+    if (kicking) {
+      if (Math.abs(x) <= Math.abs(other)) return 0;
+      return -thigh(x);
+    }
     const m = -x;
-    const walkMap =
-      m > 0
-        ? Math.min(m * 0.12, THREE.MathUtils.lerp(0.08, 0.12, runW))
-        : m * THREE.MathUtils.lerp(1.45, 3.6, runW);
-    const isKick = Math.abs(x) > 1.02 && Math.abs(x) - Math.abs(other) > 0.4;
-    return isKick ? -thigh(x) : walkMap;
+    if (m > 0) return Math.min(m * 0.12, THREE.MathUtils.lerp(0.08, 0.12, runW));
+    return m * THREE.MathUtils.lerp(1.45, 3.6, runW);
   };
   setLocal(b.LeftUpLeg, null, 0, tY(lxL, lxR), -close);
   setLocal(b.RightUpLeg, null, 0, tY(lxR, lxL), close);
-  setLocal(b.LeftLeg, null, 0, knL, 0);
-  setLocal(b.RightLeg, null, 0, knR, 0);
+  setLocal(b.LeftLeg, null, 0, kicking && Math.abs(lxL) <= Math.abs(lxR) ? 0.12 : knL, 0);
+  setLocal(b.RightLeg, null, 0, kicking && Math.abs(lxR) <= Math.abs(lxL) ? 0.12 : knR, 0);
   const tx = torsoG.rotation.x || 0;
   const ty = torsoG.rotation.y || 0;
   const hx = headG.rotation.x || 0;
