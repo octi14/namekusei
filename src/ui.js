@@ -100,7 +100,8 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
   const ss = String(Math.floor(match.t % 60)).padStart(2, "0");
   document.getElementById("sc-z").textContent = match.score.z;
   document.getElementById("sc-f").textContent = match.score.f;
-  document.getElementById("clock").textContent = match.phase === "play" || match.phase === "over" ? `${mm}:${ss}` : "—";
+  const clock = !Number.isFinite(match.t) ? "∞" : `${mm}:${ss}`;
+  document.getElementById("clock").textContent = match.phase === "play" || match.phase === "over" ? clock : "—";
   const orbs = document.getElementById("sc-orbs");
   if (orbs.childElementCount !== 7) {
     orbs.innerHTML = "";

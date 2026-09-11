@@ -3,7 +3,7 @@ import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { TEAM_SIZE, superRank } from "./config.js";
+import { TEAM_SIZE, superRank, loadSettings, applySettings, snapshot, PIXEL, BLOOM, SHADOWS, MOUSE, FOV, MAP, MATCH_MINS } from "./config.js";
 import { createWorld, updateWorld, WATER_Y } from "./world.js";
 import { buildRoster } from "./roster.js";
 import { setScenario, current } from "./scenario.js";
@@ -18,9 +18,11 @@ import { setAudioListener, playSfx, stopSfxLoop, atPos } from "./sfx.js";
 import { powerStyle } from "./powers.js";
 import { preloadGoku } from "./gokuRig.js";
 
+loadSettings();
+
 const canvas = document.getElementById("c");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
+renderer.setPixelRatio(Math.min(devicePixelRatio, PIXEL));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -63,7 +65,7 @@ let colWater = new THREE.Color(0x1b5e20);
 let underWater = false;
 let landExposure = 1.18;
 let landBloom = 0.42;
-const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 2600);
+const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 2600);
 const _earFwd = new THREE.Vector3();
 camera.position.set(0, 48, 90);
 
@@ -93,6 +95,123 @@ let menuOpen = false;
 const menuEl = document.getElementById("menu");
 let spectating = false;
 let spectateIdx = 0;
+let bootMap = "namek";
+let landBloomBase = 0.42;
+
+const HEROES = {
+  namek: ["Gokú", "Gohan", "Krilin", "Pikoro", "Vegeta", "Freezer"],
+  earth: ["Gokú", "Gohan", "Krilin", "Vegeta", "Nappa", "Raditz"],
+  cell: ["Gokú", "Gohan", "Vegeta", "Trunks", "Cell", "Nº17"],
+};
+
+const OPTS = [
+  { tab: "partida", key: "TEAM_SIZE", label: "Jugadores por equipo", min: 5, max: 20, step: 1, boot: true },
+  { tab: "partida", key: "MAP", label: "Tamaño del mapa", min: 1000, max: 5000, step: 100, boot: true },
+  {
+    tab: "partida", key: "MATCH_MIN", label: "Duración", boot: true, sel: MATCH_MINS.map((m) => [m, m ? `${m} min` : "Ilimitado"]),
+  },
+  { tab: "opciones", key: "SFX_VOL", label: "Volumen", min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%` },
+  { tab: "opciones", key: "QUALITY", label: "Gráficos", sel: [[0, "Baja"], [1, "Media"], [2, "Alta"]] },
+  { tab: "opciones", key: "MOUSE", label: "Sensibilidad", min: 0.3, max: 2.5, step: 0.05 },
+];
+const TABS = [
+  ["partida", "Partida"],
+  ["opciones", "Opciones"],
+];
+
+function applyGfx() {
+  renderer.setPixelRatio(Math.min(devicePixelRatio, PIXEL));
+  renderer.shadowMap.enabled = SHADOWS;
+  camera.fov = FOV;
+  camera.far = Math.max(2800, MAP * 1.7);
+  camera.updateProjectionMatrix();
+  if (worldReady) bloomPass.strength = landBloomBase * BLOOM;
+  resize();
+}
+
+function fillHeroes() {
+  const sel = document.getElementById("opt-hero");
+  const cur = sel.value;
+  sel.innerHTML = "";
+  for (const n of HEROES[bootMap] || HEROES.namek) {
+    const o = document.createElement("option");
+    o.value = n;
+    o.textContent = n;
+    sel.appendChild(o);
+  }
+  if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+}
+
+function buildOpts(host, tabsEl, live) {
+  tabsEl.innerHTML = "";
+  host.innerHTML = "";
+  let tab = live ? "opciones" : "partida";
+  const show = () => {
+    for (const b of tabsEl.querySelectorAll("button")) b.classList.toggle("on", b.dataset.tab === tab);
+    for (const lab of host.querySelectorAll("label")) lab.style.display = lab.dataset.tab === tab ? "" : "none";
+  };
+  for (const [id, name] of TABS) {
+    if (live && id === "partida") continue;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.tab = id;
+    b.textContent = name;
+    b.onclick = () => { tab = id; show(); };
+    tabsEl.appendChild(b);
+  }
+  const snap = snapshot();
+  for (const d of OPTS) {
+    if (live && d.boot) continue;
+    const lab = document.createElement("label");
+    lab.dataset.tab = d.tab;
+    if (d.sel) {
+      const row = document.createElement("span");
+      row.textContent = d.label;
+      const sel = document.createElement("select");
+      for (const [v, t] of d.sel) {
+        const o = document.createElement("option");
+        o.value = v;
+        o.textContent = t;
+        sel.appendChild(o);
+      }
+      sel.value = String(snap[d.key]);
+      sel.oninput = () => { applySettings({ [d.key]: +sel.value }); applyGfx(); };
+      lab.append(row, sel);
+    } else {
+      const row = document.createElement("span");
+      const val = document.createElement("b");
+      val.className = "val";
+      const fmt = d.fmt || ((v) => v);
+      val.textContent = fmt(snap[d.key]);
+      row.append(d.label + " ", val);
+      const r = document.createElement("input");
+      r.type = "range";
+      r.min = d.min; r.max = d.max; r.step = d.step; r.value = snap[d.key];
+      r.oninput = () => {
+        applySettings({ [d.key]: +r.value });
+        val.textContent = fmt(snapshot()[d.key]);
+        applyGfx();
+      };
+      lab.append(row, r);
+    }
+    host.appendChild(lab);
+  }
+  show();
+}
+
+buildOpts(document.getElementById("boot-opts"), document.getElementById("boot-tabs"), false);
+buildOpts(document.getElementById("menu-opts"), document.getElementById("menu-tabs"), true);
+fillHeroes();
+document.querySelectorAll("#boot [data-map]").forEach((b) => {
+  b.classList.toggle("on", b.dataset.map === bootMap);
+  b.onclick = () => {
+    bootMap = b.dataset.map;
+    document.querySelectorAll("#boot [data-map]").forEach((x) => x.classList.toggle("on", x === b));
+    fillHeroes();
+  };
+});
+document.getElementById("btn-play").onclick = () => startGame(bootMap);
+applyGfx();
 
 function applyLabels() {
   document.getElementById("sc-f-lab").textContent = current.fShort;
@@ -129,7 +248,8 @@ async function startGame(id) {
     );
     landExposure = id === "cell" ? 1.22 : 1.2;
     landBloom = id === "cell" ? 0.48 : 0.4;
-    bloomPass.strength = landBloom;
+    landBloomBase = landBloom;
+    bloomPass.strength = landBloom * BLOOM;
     bloomPass.threshold = 0.8;
     fogWater = new THREE.Fog(0x0277bd, 3, 70);
     colWater.setHex(0x01579b);
@@ -145,7 +265,8 @@ async function startGame(id) {
     fogLand = new THREE.Fog(0x9ccc65, 220, 1600);
     landExposure = 1.16;
     landBloom = 0.45;
-    bloomPass.strength = landBloom;
+    landBloomBase = landBloom;
+    bloomPass.strength = landBloom * BLOOM;
     bloomPass.threshold = 0.78;
     fogWater = new THREE.Fog(0x2e7d32, 3, 70);
     colWater.setHex(0x1b5e20);
@@ -167,7 +288,8 @@ async function startGame(id) {
   match = new Match();
   cam = new PlayerCamera(camera);
   combat = new Combat(scene, balls, cam, match);
-  player = people.find((p) => p.nombre === "Gokú") || people[0];
+  const want = document.getElementById("opt-hero").value;
+  player = people.find((p) => p.nombre === want) || people.find((p) => p.nombre === "Gokú") || people[0];
   player.controller = "humano";
   player.nameLabel.element.classList.add("yo");
   fillMenu();
@@ -190,7 +312,10 @@ function viewChar() {
 function setMenu(open) {
   menuOpen = open;
   menuEl.classList.toggle("open", open);
-  if (open) document.exitPointerLock();
+  if (open) {
+    document.exitPointerLock();
+    buildOpts(document.getElementById("menu-opts"), document.getElementById("menu-tabs"), true);
+  }
   document.getElementById("click-msg").style.display =
     !worldReady || locked || open ? "none" : "flex";
 }
@@ -260,9 +385,9 @@ document.addEventListener("pointerlockchange", () => {
 });
 addEventListener("mousemove", (e) => {
   if (!locked) return;
-  if (spectating) cam.orbit -= e.movementX * 0.00115;
-  else player.yaw -= e.movementX * 0.00115;
-  cam.pitch = Math.max(-1.45, Math.min(1.28, cam.pitch - e.movementY * 0.00135));
+  if (spectating) cam.orbit -= e.movementX * 0.00115 * MOUSE;
+  else player.yaw -= e.movementX * 0.00115 * MOUSE;
+  cam.pitch = Math.max(-1.45, Math.min(1.28, cam.pitch - e.movementY * 0.00135 * MOUSE));
 });
 addEventListener("keydown", (e) => {
   if (!worldReady) return;
@@ -465,6 +590,3 @@ function loop(now) {
   labelR.render(scene, camera);
 }
 requestAnimationFrame(loop);
-document.querySelectorAll("#boot [data-map]").forEach((b) => {
-  b.onclick = () => startGame(b.dataset.map);
-});

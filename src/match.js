@@ -5,7 +5,7 @@ import { current } from "./scenario.js";
 export class Match {
   constructor() {
     this.score = { z: 0, f: 0 };
-    this.t = MATCH_SEC;
+    this.t = MATCH_SEC > 0 ? MATCH_SEC : Infinity;
     this.over = null;
     this.phase = "wait";
     this.introT = 0;
@@ -130,7 +130,9 @@ export class Match {
       this.killToast.t -= dt;
       if (this.killToast.t <= 0) this.killToast = null;
     }
-    this.t -= dt;
-    if (this.t <= 0) this.endByTime();
+    if (MATCH_SEC > 0) {
+      this.t -= dt;
+      if (this.t <= 0) this.endByTime();
+    }
   }
 }

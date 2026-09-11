@@ -24,6 +24,7 @@ import smallBlastLand from "./assets/sound/effects/small blast hits land.ogg";
 import kameCharge from "./assets/sound/effects/kame_charge.mp3";
 import kameShoot from "./assets/sound/effects/kame_shoot.mp3";
 import auraBurst from "./assets/sound/effects/aura-burst-sound-effect-dbz.mp3";
+import { SFX_VOL } from "./config.js";
 
 let ctx;
 
@@ -145,7 +146,7 @@ export function playSfx(name, x, y, z, vol = 0.45, loop = false, key = name) {
       src.buffer = b;
       src.loop = !!loop;
       const g = c.createGain();
-      g.gain.value = vol;
+      g.gain.value = vol * SFX_VOL;
       const pan = c.createPanner();
       pan.panningModel = "HRTF";
       pan.distanceModel = "inverse";

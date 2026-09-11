@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BASE_Z, superRank, SUPER_KI } from "./config.js";
+import { BASE_Z, superRank, SUPER_KI, MELEE } from "./config.js";
 import { inOwnBase, isWater, groundHeight } from "./world.js";
 import { BASE_INNER_R, steerShipNav, nearAnyShip, shipDist, inShipBase } from "./bases.js";
 import { powerStyle } from "./powers.js";
@@ -920,10 +920,10 @@ export function aiTick(p, people, balls, combat, match, dt) {
     dir.set(foe.pos().x - p.pos().x, 0, foe.pos().z - p.pos().z);
     const dist = foe.pos().distanceTo(p.pos());
     const rng = powerStyle(p.nombre, p.faccion).range || 55;
-    const preferKi = !huntingCarrier && mood.ki > 0.22 && (mood.front < 0.15 || p.s.ki > 14);
-    const hold = preferKi ? Math.min(22, rng * (mood.front < 0 ? 0.42 : 0.32)) : 4.2;
+    const preferKi = !huntingCarrier && mood.ki > 0.38 && mood.front < -0.05 && p.s.ki > 18;
+    const hold = preferKi ? Math.min(16, rng * (mood.front < 0 ? 0.32 : 0.22)) : 3.6;
     const inKiRange = dist < rng * 0.92 && dist > 2.2;
-    const close = dist < 3.4;
+    const close = dist < 4.2;
     const lockChance = (0.012 + agg * 0.02 + Math.max(0, mood.front) * 0.025) * dt * 60;
     const locked = (p.lockFoe === foe && (p.lockT || 0) > 0) || (dist < rng * 0.88 && Math.random() < lockChance);
     if (locked) faceLock(p, foe, dt, 1.25 + agg * 0.8);
@@ -950,10 +950,10 @@ export function aiTick(p, people, balls, combat, match, dt) {
       } else if (locked) aiMove(p, strafe, false, dt);
     }
     const blastOdds =
-      (mood.front < 0 ? 0.24 : 0.16) *
-      (mood.ki > 0.42 ? 1.25 : mood.ki > 0.28 ? 0.55 : 0.12) *
-      (locked ? 1.15 : 1) *
-      ((p.flyAlt || 0) > 2 ? 0.35 : dist > 22 ? 0.55 : 1);
+      (mood.front < 0 ? 0.14 : 0.08) *
+      (mood.ki > 0.42 ? 1.05 : mood.ki > 0.28 ? 0.4 : 0.08) *
+      (locked ? 1.05 : 1) *
+      ((p.flyAlt || 0) > 2 ? 0.35 : dist > 22 ? 0.45 : 0.7);
     const rank = superRank(p.s.ki, p.s.kiMax, p.s.ataque);
     const canSuper = rank >= 1;
     const superOdds = (0.042 + agg * 0.028 + (rank >= 2 ? 0.03 : 0) + (rank >= 3 ? 0.02 : 0)) * dt * 60;
@@ -962,8 +962,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
     } else if (inKiRange && dist < 38 && p.s.ki >= p.s.kiMax * 0.18 && Math.random() < blastOdds) {
       combat.blast(p, false, people, dist > 48);
     }
-    const meleeOdds = close ? (mood.front > 0.2 ? 0.22 : 0.1) : 0;
-    if (close && Math.random() < meleeOdds) combat.melee(p, people);
+    const meleeOdds = close ? (mood.front > 0.2 ? 0.42 : 0.28) : dist < 5.5 ? 0.12 : 0;
+    if (dist < 5.5 && Math.random() < meleeOdds * MELEE) combat.melee(p, people);
   } else {
     if ((p.lockT || 0) > 0) p.lockT = Math.max(0, p.lockT - dt * 2.2);
     if (p.lockT <= 0) p.lockFoe = null;
