@@ -246,8 +246,18 @@ function cellHeight(x, z) {
   return h;
 }
 
+/** Fondo marino mucho más profundo (sin tocar orillas/plataformas secas). */
+function deepenSeabed(h) {
+  const shore = WATER_Y + 0.45;
+  if (h >= shore - 0.02) return h;
+  const sub = shore - h;
+  // Antes ~1–8 m; ahora ~14–40 m según lo hundido que ya estaba
+  const depth = Math.min(40, 14 + sub * 4.2 + sub * sub * 0.35);
+  return Math.min(h, shore - depth);
+}
+
 export function groundHeight(x, z) {
-  return applyBasePads(rawGroundHeight(x, z), x, z);
+  return deepenSeabed(applyBasePads(rawGroundHeight(x, z), x, z));
 }
 
 function rawGroundHeight(x, z) {

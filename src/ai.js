@@ -10,6 +10,14 @@ function seed(p) {
   return Math.abs(h % 1000) / 1000;
 }
 
+/** Rol fijo por unidad: más decididos sin narrativa. */
+function aiRole(p) {
+  const a = seed(p);
+  if (a < 0.34) return "guard";
+  if (a < 0.67) return "baller";
+  return "aggro";
+}
+
 function kiBand(p) {
   const a = seed(p);
   let h = 0;
@@ -181,6 +189,8 @@ function hideSteer(px, pz, gx, gz, foe) {
     const sz = pz + dz * 16;
     const prog = dx * nx + dz * nz;
     let s = prog * 2.1 - Math.abs(off) * 0.18 + groundHeight(sx, sz) * 0.06;
+    // Preferir costados: castigar el corredor central
+    s -= Math.max(0, 110 - Math.abs(sx)) * 0.012;
     if (foe && !foe.dead) {
       const fx = foe.pos().x;
       const fz = foe.pos().z;
@@ -298,12 +308,72 @@ function applyLoco(p, dir, ctx, dt) {
   };
 }
 
-/** Rumbo a base. */
+/** Rumbo a base (recto; solo tramo final). */
 function steerHome(px, pz, homeZ) {
   const gx = -px;
   const gz = homeZ - pz;
   const glen = Math.hypot(gx, gz) || 1;
   return { x: gx / glen, z: gz / glen };
+}
+
+function ensureLane(p) {
+  if (p.aiLaneX == null) {
+    const s = seed(p);
+    p.aiLaneX = (s > 0.5 ? 1 : -1) * (240 + s * 320);
+  }
+  return p.aiLaneX;
+}
+
+function _normDir(dx, dz) {
+  const L = Math.hypot(dx, dz) || 1;
+  return { x: dx / L, z: dz / L };
+}
+
+/**
+ * Ruta sneaky por laterales: evita el corredor central (x≈0)
+ * hasta acercarse al objetivo en Z.
+ */
+function sideSteer(p, gx, gz) {
+  const lane = ensureLane(p);
+  const px = p.pos().x;
+  const pz = p.pos().z;
+  const zDist = Math.abs(gz - pz);
+  const inCenter = Math.abs(px) < 130;
+  let wx;
+  let wz;
+  if (inCenter && zDist > 90) {
+    wx = lane;
+    wz = pz + Math.sign(gz - pz || 1) * Math.min(90, zDist * 0.35);
+  } else if (zDist > 160) {
+    wx = lane;
+    wz = pz + (gz - pz) * 0.42;
+  } else if (zDist > 70) {
+    wx = lane * 0.55 + gx * 0.2;
+    wz = gz;
+  } else {
+    // tramo final: entrar al objetivo (p.ej. puerta en x≈0)
+    wx = gx;
+    wz = gz;
+  }
+  // Penalizar seguir pegado al eje
+  if (Math.abs(wx) < 70 && zDist > 55) wx = Math.sign(lane || 1) * 160;
+  return _normDir(wx - px, wz - pz);
+}
+
+/** Waypoint lateral hacia un punto (bola / aliado / raid). */
+function sideWaypoint(p, gx, gz) {
+  const lane = ensureLane(p);
+  const px = p.pos().x;
+  const pz = p.pos().z;
+  const zDist = Math.abs(gz - pz);
+  const far = Math.hypot(gx - px, gz - pz) > 70;
+  if (far && (Math.abs(px) < 140 || Math.abs(px - lane) > 120)) {
+    return { x: lane, z: pz + (gz - pz) * 0.5 };
+  }
+  if (zDist > 50 && Math.abs(gx) < 100) {
+    return { x: lane * 0.65 + gx * 0.2, z: gz };
+  }
+  return { x: gx, z: gz };
 }
 
 function rivalDist(p, people, x, z) {
@@ -382,9 +452,15 @@ function utilBest(p, ctx) {
     agg,
     baseThreat,
     defend,
+    role,
   } = ctx;
   if (carrying) return "deliver";
-  const sticky = (m) => (p.aiMode === m ? 14 : 0);
+  const sticky = (m) => {
+    if (p.aiMode !== m) return 0;
+    if (m === "charge" || m === "wander") return 3;
+    if (m === "fight") return 9;
+    return 11;
+  };
   const rows = [];
   let fight = -60;
   if (enemy && (!critHp || enemyCarrier)) {
@@ -393,9 +469,11 @@ function utilBest(p, ctx) {
     if (enemyDist < 38 && mood.ki > 0.18) fight += 16 + agg * 8;
     if (enemyDist < 22 && mood.ki > 0.12) fight += 14;
     if (defend) {
-      fight += 38 + (enemyCarrier ? 22 : 10) + Math.max(0, 0.55 - agg) * 18;
+      fight += 42 + (enemyCarrier ? 22 : 10) + Math.max(0, 0.55 - agg) * 18;
       if (inHomeAir) fight += 16;
     }
+    if (role === "aggro") fight += 14;
+    if (role === "guard" && (defend || inHomeAir)) fight += 16;
     if (lowHp && !enemyCarrier) fight -= 22;
   }
   rows.push(["fight", fight]);
@@ -404,18 +482,21 @@ function utilBest(p, ctx) {
     const d = Math.hypot(ball.mesh.position.x - p.pos().x, ball.mesh.position.z - p.pos().z);
     ballS = 56 - d * 0.035 + sticky("ball") + (inHomeAir ? 10 : 0);
     if (defend) ballS -= 28;
+    if (role === "baller") ballS += 16;
+    if (role === "guard" && !defend) ballS -= 6;
   }
   rows.push(["ball", ballS]);
-  rows.push(["help", help ? 16 + sticky("help") : -40]);
-  rows.push(["raid", loot.length && !lowHp && !defend ? 14 + sticky("raid") : -40]);
+  rows.push(["help", help ? 16 + sticky("help") + (role === "guard" ? 6 : 0) : -40]);
+  rows.push(["raid", loot.length && !lowHp && !defend && role !== "guard" ? 14 + sticky("raid") + (role === "aggro" ? 6 : 0) : -40]);
   let chargeS =
     needCharge && !(p.aiMode === "fight" && enemyDist < 28) && !defend
-      ? 40 + (0.6 - mood.ki) * 40 + sticky("charge")
-      : -15;
-  if (enemy && enemyDist < 34 && mood.ki > 0.1) chargeS -= 26;
-  if (defend) chargeS -= 40;
+      ? 34 + (0.6 - mood.ki) * 36 + sticky("charge")
+      : -22;
+  if (enemy && enemyDist < 34 && mood.ki > 0.1) chargeS -= 30;
+  if (defend) chargeS -= 44;
+  if (role === "aggro") chargeS -= 8;
   rows.push(["charge", chargeS]);
-  rows.push(["wander", 5 - (inHomeAir ? 12 : 0) - (ball ? 8 : 0) - (defend ? 18 : 0) + sticky("wander")]);
+  rows.push(["wander", 2 - (inHomeAir ? 12 : 0) - (ball ? 8 : 0) - (defend ? 18 : 0) + sticky("wander")]);
   let best = "wander";
   let bestV = -1e9;
   for (const [k, v] of rows) {
@@ -429,15 +510,13 @@ function utilBest(p, ctx) {
 
 /** Vagabundeo por laterales (no solo el corredor central). */
 function pickWanderTarget(p, homeZ, enemyZ) {
-  if (p.aiLaneX == null) {
-    p.aiLaneX = (seed(p) > 0.5 ? 1 : -1) * (110 + seed(p) * 180);
-  }
-  const lane = p.aiLaneX;
-  const phase = Math.floor(p.aiWanderPhase || 0) % 4;
-  if (phase === 0) return { x: lane, z: homeZ * 0.25 + enemyZ * 0.15 };
-  if (phase === 1) return { x: lane * 0.85, z: (homeZ + enemyZ) * 0.5 };
-  if (phase === 2) return { x: lane * 0.55, z: enemyZ * 0.62 };
-  return { x: -lane * 0.75, z: (homeZ + enemyZ) * 0.4 };
+  const lane = ensureLane(p);
+  const phase = Math.floor(p.aiWanderPhase || 0) % 5;
+  if (phase === 0) return { x: lane, z: homeZ * 0.35 };
+  if (phase === 1) return { x: lane * 1.05, z: (homeZ + enemyZ) * 0.35 };
+  if (phase === 2) return { x: lane * 0.9, z: enemyZ * 0.55 };
+  if (phase === 3) return { x: -lane * 0.85, z: (homeZ + enemyZ) * 0.45 };
+  return { x: lane * 0.7, z: homeZ * 0.15 + enemyZ * 0.25 };
 }
 
 /** Spot de cobertura: lejos de enemigos, hacia la base, terreno alto, no agua. */
@@ -626,8 +705,9 @@ function runUnstick(p, people, balls, combat, match, dt) {
     }
   } else if (p.aiBreak === "home" || p.esfera != null) {
     p.aiBreak = "home";
-    dir.set(-p.pos().x, 0, homeZ - p.pos().z);
-    const d = Math.hypot(dir.x, dir.z);
+    const home = sideSteer(p, 0, homeZ);
+    dir.set(home.x, 0, home.z);
+    const d = Math.hypot(p.pos().x, p.pos().z - homeZ);
     fly = d > 55 && body.ki > 0.2;
     if (d < 40 || inOwnBase(p.pos(), p.faccion)) {
       fly = false;
@@ -679,7 +759,7 @@ function runUnstick(p, people, balls, combat, match, dt) {
 export function aiTick(p, people, balls, combat, match, dt) {
   if (p.controller !== "ia" || p.dead) return;
   tickStuck(p, dt);
-  if ((p._stkT || 0) > 2.6 && (p.aiUnstick || 0) <= 0) pickUnstick(p, balls);
+  if ((p._stkT || 0) > 2.0 && (p.aiUnstick || 0) <= 0) pickUnstick(p, balls);
   if ((p.aiUnstick || 0) > 0) {
     runUnstick(p, people, balls, combat, match, dt);
     return;
@@ -698,9 +778,25 @@ export function aiTick(p, people, balls, combat, match, dt) {
   const mood = temper(p);
   p.aiHeat = THREE.MathUtils.damp(p.aiHeat || 0, 0, 0.07, dt);
   const agg = seed(p);
+  const role = p.aiRole || (p.aiRole = aiRole(p));
   const lowHp = mood.hp < (mood.front > 0.25 ? 0.28 : mood.front < -0.25 ? 0.45 : 0.35);
   const critHp = mood.hp < 0.16;
-  const carrying = p.esfera != null;
+  let carrying = p.esfera != null;
+  // Soltar esfera si van a morir / rodeados (pelear o huir sin lastre)
+  if (carrying && (critHp || (lowHp && mood.hp < 0.22))) {
+    let nearFoe = false;
+    for (const o of people) {
+      if (o.dead || o.faccion === p.faccion) continue;
+      if (o.pos().distanceTo(p.pos()) < 16) {
+        nearFoe = true;
+        break;
+      }
+    }
+    if (critHp || nearFoe) {
+      p.dropBall(balls);
+      carrying = false;
+    }
+  }
   // Esconderse solo con HP crítico, o cautelosos ya muy bajos
   const hideOk =
     !carrying &&
@@ -710,13 +806,13 @@ export function aiTick(p, people, balls, combat, match, dt) {
   const enemyZ = -homeZ;
   const baseDist = Math.hypot(p.pos().x, p.pos().z - homeZ);
   const nearOwnBase = baseDist < BASE_INNER_R + 2;
-  const inHomeAir = baseDist < (mood.front < -0.2 ? 90 : 70);
+  const inHomeAir = baseDist < (mood.front < -0.2 ? 90 : 70) || (role === "guard" && baseDist < 110);
   const kiFrac = mood.ki;
   const band = kiBand(p);
 
   const loot = balls.items.filter((b) => !b.held && b.inBase && b.inBase !== p.faccion);
   if (carrying || !loot.length || lowHp) p.aiRaid = 0;
-  else if (p.aiRaid <= 0 && agg > 0.55 && !carrying && Math.random() < 0.004 * dt * 60) {
+  else if (p.aiRaid <= 0 && (role === "aggro" || agg > 0.55) && !carrying && Math.random() < 0.004 * dt * 60) {
     let nRaid = 0;
     for (const o of people) if (o.faccion === p.faccion && (o.aiRaid || 0) > 0) nRaid++;
     if (nRaid < 1) {
@@ -740,14 +836,44 @@ export function aiTick(p, people, balls, combat, match, dt) {
     for (const o of people) if (o.faccion === p.faccion && o.aiMode === "snipe") nSnipe++;
   }
   const threat = pickBaseThreat(p, people, homeZ, 200);
+  p.aiMemT = Math.max(0, (p.aiMemT || 0) - dt);
+  p.aiMemDefendT = Math.max(0, (p.aiMemDefendT || 0) - dt);
+  if (threat) {
+    p.aiMemDefendT = 4.2;
+    p.aiMemTx = threat.pos().x;
+    p.aiMemTz = threat.pos().z;
+  }
+  const memDefend = (p.aiMemDefendT || 0) > 0 && baseDist < 220 && role !== "baller";
   const defend =
-    !!(threat && !carrying && !critHp && (inHomeAir || baseDist < 300 || (threat.esfera != null && baseDist < 300)));
+    !!(
+      (threat || memDefend) &&
+      !carrying &&
+      !critHp &&
+      (inHomeAir || baseDist < 300 || role === "guard" || (threat && threat.esfera != null && baseDist < 300))
+    );
   const snipeFoe = sniper && kiFrac > 0.38 && !critHp && nSnipe < 2 ? pickSnipeFoe(p, people, powerStyle(p.nombre, p.faccion).range || 90) : null;
   const foeRange = carrying ? 14 : p.aiMode === "fight" || defend ? 95 : inHomeAir ? 72 : 52;
   let enemy = pickFoe(p, people, foeRange, homeZ) || (p.aiMode === "snipe" ? snipeFoe : null);
   if (threat && defend) {
     const td = threat.pos().distanceTo(p.pos());
     if (!enemy || threat.esfera != null || td < (enemy ? enemy.pos().distanceTo(p.pos()) : 1e9) + 25) enemy = threat;
+  } else if (!enemy && (p.aiMemT || 0) > 0 && p.aiMemCx != null && !carrying) {
+    // Memoria: último portador visto → perseguir zona
+    const md = Math.hypot(p.aiMemCx - p.pos().x, p.aiMemCz - p.pos().z);
+    if (md < 140) {
+      for (const o of people) {
+        if (o.dead || o.faccion === p.faccion || o.esfera == null) continue;
+        if (o.pos().distanceTo(p.pos()) < 110) {
+          enemy = o;
+          break;
+        }
+      }
+    }
+  }
+  if (enemy && enemy.esfera != null) {
+    p.aiMemCx = enemy.pos().x;
+    p.aiMemCz = enemy.pos().z;
+    p.aiMemT = 5;
   }
   const enemyDist = enemy ? enemy.pos().distanceTo(p.pos()) : snipeFoe ? snipeFoe.pos().distanceTo(p.pos()) : 1e9;
   const enemyCarrier = !!(enemy && enemy.esfera != null);
@@ -787,14 +913,17 @@ export function aiTick(p, people, balls, combat, match, dt) {
     hideOk,
     baseThreat: threat,
     defend,
+    role,
   });
   const interrupt =
     (pick === "fight" &&
       enemy &&
-      (enemyDist < 36 || defend || enemyCarrier) &&
       p.aiMode !== "fight" &&
       p.aiMode !== "deliver" &&
-      p.aiMode !== "hide") ||
+      (enemyDist < 42 || defend || enemyCarrier || role === "aggro")) ||
+    (pick === "deliver" && carrying && p.aiMode !== "deliver") ||
+    (pick === "ball" && ballCand && (p.aiMode === "charge" || p.aiMode === "wander")) ||
+    (defend && pick === "fight" && (p.aiMode === "charge" || p.aiMode === "wander" || p.aiMode === "raid")) ||
     (pick === "hide" && p.aiMode === "fight" && critHp);
   if (interrupt || p.aiMode !== pick || p.aiModeT <= 0) {
     if (pick === "hide") {
@@ -803,32 +932,35 @@ export function aiTick(p, people, balls, combat, match, dt) {
       p.aiHideZ = spot.z;
       p.aiFight = 0;
       p.aiFoe = null;
-      commitMode(p, "hide", 5.5 + (1 - agg) * 3);
+      commitMode(p, "hide", 4.2 + (1 - agg) * 2.2);
     } else if (pick === "snipe") {
       p.aiFoe = snipeFoe || p.aiFoe || enemy;
       const nest = pickNest(p, p.aiFoe);
       p.aiNestX = nest.x;
       p.aiNestZ = nest.z;
-      commitMode(p, "snipe", 9 + seed(p) * 5);
+      commitMode(p, "snipe", 7 + seed(p) * 4);
     } else if (pick === "fight" && enemy) {
       p.aiFoe = enemy;
-      p.aiFight = 6 + agg * 3.5 + Math.max(0, mood.front) * 2.5;
+      p.aiFight = 5 + agg * 2.8 + Math.max(0, mood.front) * 2;
       commitMode(p, "fight", p.aiFight);
     } else if (pick === "deliver") commitMode(p, "deliver", 99);
-    else if (pick === "help") commitMode(p, "help", 8 + seed(p) * 3);
-    else if (pick === "ball") commitMode(p, "ball", 9 + seed(p) * 4);
+    else if (pick === "help") commitMode(p, "help", 6 + seed(p) * 2.5);
+    else if (pick === "ball") commitMode(p, "ball", 7 + seed(p) * 3);
     else if (pick === "raid") {
       p.aiRaid = Math.max(p.aiRaid || 0, 12);
-      commitMode(p, "raid", 10);
+      commitMode(p, "raid", 8);
     } else if (pick === "charge") {
       p.aiChargeTo = band.hi;
-      commitMode(p, "charge", 4.5 + seed(p) * 2.5);
+      commitMode(p, "charge", 2.6 + seed(p) * 1.6);
     } else {
       p.aiWanderPhase = (p.aiWanderPhase || 0) + 1;
-      const wt = pickWanderTarget(p, homeZ, enemyZ);
+      const wt =
+        (p.aiMemT || 0) > 0 && p.aiMemCx != null && role === "aggro"
+          ? { x: p.aiMemCx + (seed(p) - 0.5) * 40, z: p.aiMemCz + (seed(p) - 0.5) * 40 }
+          : pickWanderTarget(p, homeZ, enemyZ);
       p.aiWanderX = wt.x;
       p.aiWanderZ = wt.z;
-      p.aiWander = 7 + seed(p) * 5;
+      p.aiWander = 4 + seed(p) * 3;
       commitMode(p, "wander", p.aiWander);
     }
   }
@@ -853,22 +985,15 @@ export function aiTick(p, people, balls, combat, match, dt) {
     const nav = steerShipNav(p.pos().x, p.pos().z, p.faccion, "deposit");
     if (nav) dir.set(nav.x, 0, nav.z);
     else {
-      const home = steerHome(p.pos().x, p.pos().z, homeZ);
+      const home = sideSteer(p, 0, homeZ);
       dir.set(home.x, 0, home.z);
     }
     if (kiFrac > 0.22 && !inShipBase(p.pos(), p.faccion)) {
       const avoid = heatAvoid(p, people, dir);
-      if (avoid && avoid.strength > 0.35 && enemyDist < 22) {
-        const mix = Math.min(avoid.strength * 0.28, 0.22);
-        const hx = dir.x;
-        const hz = dir.z;
-        const prog = dir.x * hx + dir.z * hz;
-        const nx = dir.x * (1 - mix) + avoid.x * mix;
-        const nz = dir.z * (1 - mix) + avoid.z * mix;
-        if (nx * hx + nz * hz > prog * 0.35) {
-          dir.x = nx;
-          dir.z = nz;
-        }
+      if (avoid && avoid.strength > 0.28) {
+        const mix = Math.min(avoid.strength * 0.45, 0.4);
+        dir.x = dir.x * (1 - mix) + avoid.x * mix;
+        dir.z = dir.z * (1 - mix) + avoid.z * mix;
       }
     }
   } else if (sniping) {
@@ -905,7 +1030,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
       }
       // si el enemigo está muy cerca, huir hacia la base
       if (enemy && enemyDist < 16) {
-        const home = steerHome(p.pos().x, p.pos().z, homeZ);
+        const home = sideSteer(p, 0, homeZ);
         dir.x = dir.x * 0.35 + home.x * 0.65;
         dir.z = dir.z * 0.35 + home.z * 0.65;
       }
@@ -917,53 +1042,82 @@ export function aiTick(p, people, balls, combat, match, dt) {
       }
     }
   } else if (fighting) {
-    dir.set(foe.pos().x - p.pos().x, 0, foe.pos().z - p.pos().z);
+    const dist0 = foe.pos().distanceTo(p.pos());
+    if (dist0 > 42 && !huntingCarrier) {
+      const wp = sideWaypoint(p, foe.pos().x, foe.pos().z);
+      dir.set(wp.x - p.pos().x, 0, wp.z - p.pos().z);
+    } else {
+      dir.set(foe.pos().x - p.pos().x, 0, foe.pos().z - p.pos().z);
+    }
     const dist = foe.pos().distanceTo(p.pos());
     const rng = powerStyle(p.nombre, p.faccion).range || 55;
-    const preferKi = !huntingCarrier && mood.ki > 0.38 && mood.front < -0.05 && p.s.ki > 18;
-    const hold = preferKi ? Math.min(16, rng * (mood.front < 0 ? 0.32 : 0.22)) : 3.6;
-    const inKiRange = dist < rng * 0.92 && dist > 2.2;
+    const preferKi = !huntingCarrier && mood.ki > 0.32 && p.s.ki > 14 && (p.cooldown || 0) <= 0;
+    const hold = preferKi
+      ? Math.min(18, rng * (mood.front < 0 ? 0.34 : 0.24))
+      : huntingCarrier
+        ? 3.2
+        : mood.ki < 0.2
+          ? 7.5
+          : 4.2;
+    const inKiRange = dist < rng * 0.9 && dist > 2.4;
     const close = dist < 4.2;
-    const lockChance = (0.012 + agg * 0.02 + Math.max(0, mood.front) * 0.025) * dt * 60;
+    const lockChance = (0.014 + agg * 0.022 + Math.max(0, mood.front) * 0.025) * dt * 60;
     const locked = (p.lockFoe === foe && (p.lockT || 0) > 0) || (dist < rng * 0.88 && Math.random() < lockChance);
-    if (locked) faceLock(p, foe, dt, 1.25 + agg * 0.8);
+    if (locked) faceLock(p, foe, dt, 1.35 + agg * 0.8);
     else {
       p.lockT = Math.max(0, (p.lockT || 0) - dt);
       const approachYaw = dist > 4.5 ? flankAngle(p, foe, dt) : Math.atan2(dir.x, dir.z);
-      smoothYaw(p, approachYaw, dt, 6);
+      smoothYaw(p, approachYaw, dt, 7);
     }
     const lookYaw = Math.atan2(dir.x, dir.z);
+    let dy = lookYaw - p.yaw;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    const facing = Math.abs(dy) < 0.55;
     if (dir.lengthSq() > 0.4) {
       dir.normalize();
       const side = seed(p) > 0.5 ? 1 : -1;
       const strafe = new THREE.Vector3(Math.cos(lookYaw) * side, 0, -Math.sin(lookYaw) * side);
       if (mood.hp < 0.32 && mood.front < 0.1 && dist < 8 && !huntingCarrier) aiMove(p, dir.clone().multiplyScalar(-1), true, dt);
-      else if (p.s.ki < p.s.kiMax * 0.2 && dist > 2.4) aiMove(p, dir, huntingCarrier, dt);
-      else if (dist > hold) {
+      else if (p.s.ki < p.s.kiMax * 0.16 && dist > 5 && !huntingCarrier) {
+        // Sin ki: no embestir; ganar espacio o cargar si lejos
+        if (dist < 12) aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, 0.5).normalize(), true, dt);
+        else if (dry) p.aiCharge = true;
+        else aiMove(p, strafe, false, dt);
+      } else if (dist > hold) {
         const fd = dir.clone().lerp(strafe, locked ? 0.35 : 0.22).normalize();
-        aiMove(p, fd, dist > 8 && (mood.ki > 0.28 || huntingCarrier), dt);
-      } else if (dist < hold * 0.55 && p.s.ki > 12 && preferKi && !huntingCarrier) aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, 0.4).normalize(), false, dt);
-      else if (close && (p.flyAlt || 0) > 0.35) {
+        aiMove(p, fd, dist > 8 && (mood.ki > 0.22 || huntingCarrier), dt);
+      } else if (dist < hold * 0.5 && p.s.ki > 12 && preferKi && !huntingCarrier) {
+        aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, 0.4).normalize(), false, dt);
+      } else if (close && (p.flyAlt || 0) > 0.35) {
         if ((p.aiHover || 0) > 0) p.aiHover -= dt;
         else p.aiHover = 0.35 + seed(p) * 0.45;
         if ((p.aiHover || 0) > 0.18) aiMove(p, strafe, false, dt);
       } else if (locked) aiMove(p, strafe, false, dt);
     }
     const blastOdds =
-      (mood.front < 0 ? 0.14 : 0.08) *
+      (facing ? 1 : 0.15) *
+      (mood.front < 0 ? 0.12 : 0.07) *
       (mood.ki > 0.42 ? 1.05 : mood.ki > 0.28 ? 0.4 : 0.08) *
-      (locked ? 1.05 : 1) *
+      (locked ? 1.1 : 0.85) *
       ((p.flyAlt || 0) > 2 ? 0.35 : dist > 22 ? 0.45 : 0.7);
     const rank = superRank(p.s.ki, p.s.kiMax, p.s.ataque);
     const canSuper = rank >= 1;
-    const superOdds = (0.042 + agg * 0.028 + (rank >= 2 ? 0.03 : 0) + (rank >= 3 ? 0.02 : 0)) * dt * 60;
-    if (canSuper && inKiRange && dist < 52 && Math.random() < superOdds) {
+    const superOdds = (0.048 + agg * 0.03 + (rank >= 2 ? 0.03 : 0) + (rank >= 3 ? 0.02 : 0)) * dt * 60;
+    if (canSuper && inKiRange && facing && dist < 52 && (p.cooldown || 0) <= 0 && Math.random() < superOdds) {
       combat.blast(p, true, people, dist > 40);
-    } else if (inKiRange && dist < 38 && p.s.ki >= p.s.kiMax * 0.18 && Math.random() < blastOdds) {
+    } else if (
+      inKiRange &&
+      facing &&
+      dist < 38 &&
+      p.s.ki >= p.s.kiMax * 0.18 &&
+      (p.cooldown || 0) <= 0 &&
+      Math.random() < blastOdds
+    ) {
       combat.blast(p, false, people, dist > 48);
     }
     const meleeOdds = close ? (mood.front > 0.2 ? 0.42 : 0.28) : dist < 5.5 ? 0.12 : 0;
-    if (dist < 5.5 && Math.random() < meleeOdds * MELEE) combat.melee(p, people);
+    if (dist < 5.5 && facing && Math.random() < meleeOdds * MELEE) combat.melee(p, people);
   } else {
     if ((p.lockT || 0) > 0) p.lockT = Math.max(0, p.lockT - dt * 2.2);
     if (p.lockT <= 0) p.lockFoe = null;
@@ -973,19 +1127,23 @@ export function aiTick(p, people, balls, combat, match, dt) {
         const db = Math.hypot(b.mesh.position.x - p.pos().x, b.mesh.position.z - p.pos().z);
         return db < da ? b : a;
       });
-      const far = Math.abs(p.pos().z - t.mesh.position.z) > 70;
-      if (far) dir.set((p.aiRaidX || 90) - p.pos().x, 0, t.mesh.position.z - p.pos().z);
-      else dir.set(t.mesh.position.x - p.pos().x, 0, t.mesh.position.z - p.pos().z);
+      const wp = sideWaypoint(p, p.aiRaidX || ensureLane(p), t.mesh.position.z);
+      const near = Math.hypot(t.mesh.position.x - p.pos().x, t.mesh.position.z - p.pos().z) < 55;
+      if (near) dir.set(t.mesh.position.x - p.pos().x, 0, t.mesh.position.z - p.pos().z);
+      else {
+        const hs = hideSteer(p.pos().x, p.pos().z, wp.x, wp.z, enemy);
+        dir.set(hs.x, 0, hs.z);
+      }
     } else if (p.aiMode === "help" && help) {
-      const hs = hideSteer(p.pos().x, p.pos().z, help.pos().x, help.pos().z, enemy);
+      const wp = sideWaypoint(p, help.pos().x, help.pos().z);
+      const hs = hideSteer(p.pos().x, p.pos().z, wp.x, wp.z, enemy);
       dir.set(hs.x, 0, hs.z);
     } else if (p.aiMode === "ball" && ball) {
-      if (p.aiLaneX == null) p.aiLaneX = (seed(p) > 0.5 ? 1 : -1) * (90 + seed(p) * 140);
+      ensureLane(p);
       const bx = ball.mesh.position.x;
       const bz = ball.mesh.position.z;
-      const far = Math.hypot(bx - p.pos().x, bz - p.pos().z) > 55;
-      const tx = far ? bx * 0.55 + p.aiLaneX * 0.45 : bx;
-      const hs = hideSteer(p.pos().x, p.pos().z, tx, bz, enemy);
+      const wp = sideWaypoint(p, bx, bz);
+      const hs = hideSteer(p.pos().x, p.pos().z, wp.x, wp.z, enemy);
       dir.set(hs.x, 0, hs.z);
     } else if (p.aiMode === "charge") {
       dir.set(0, 0, 0);
@@ -1000,7 +1158,10 @@ export function aiTick(p, people, balls, combat, match, dt) {
       }
       dir.set(p.aiWanderX - p.pos().x, 0, p.aiWanderZ - p.pos().z);
       if (dir.lengthSq() < 140) p.aiWander = 0;
-      else if ((mood.front < -0.28 || lowHp) && !huntCarrier) dir.set(-p.pos().x, 0, homeZ - p.pos().z);
+      else if ((mood.front < -0.28 || lowHp) && !huntCarrier) {
+        const home = sideSteer(p, 0, homeZ);
+        dir.set(home.x, 0, home.z);
+      }
     }
   }
 

@@ -9,7 +9,8 @@ const BALL_R = 0.72;
 function ballRestY(x, z) {
   const floor = groundHeight(x, z) + BALL_R + 0.08;
   if (floor >= WATER_Y + 0.2) return floor;
-  return Math.max(floor, WATER_Y - 1.7);
+  // Flotar un poco sobre el lecho profundo (no a 1.7 m fijos)
+  return Math.max(floor, Math.min(WATER_Y - 0.4, floor + 0.6));
 }
 
 function starGeo(r = 0.11) {

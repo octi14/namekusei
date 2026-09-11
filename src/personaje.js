@@ -87,7 +87,7 @@ export class Personaje {
 
     const h = this.s.altura * 1.21;
     const mixamo = CHAR_RIG[def.nombre];
-    this.mesh = mixamo && gokuReady() ? makeRiggedBody(h, def.look, mixamo) : makeBody(h, def.look);
+    this.mesh = mixamo && gokuReady() ? makeRiggedBody(h, def.look, mixamo) : makeBody(h, { ...def.look, who: def.look?.who || def.nombre });
     this.mesh.rotation.order = "YXZ";
     this.height = 1.55 * h;
     const p = spawnPos(def.faccion, indexInTeam, teamCount);

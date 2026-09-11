@@ -17,6 +17,7 @@ import { renderHud } from "./ui.js";
 import { setAudioListener, playSfx, stopSfxLoop, atPos } from "./sfx.js";
 import { powerStyle } from "./powers.js";
 import { preloadGoku } from "./gokuRig.js";
+import { toggleCharEditor, charEditorOpen, setCharEditor } from "./charEditor.js";
 
 loadSettings();
 
@@ -385,11 +386,22 @@ document.addEventListener("pointerlockchange", () => {
 });
 addEventListener("mousemove", (e) => {
   if (!locked) return;
-  if (spectating) cam.orbit -= e.movementX * 0.00115 * MOUSE;
-  else player.yaw -= e.movementX * 0.00115 * MOUSE;
+  const sens = 0.00115 * MOUSE;
+  if (spectating || cam.third) cam.orbit -= e.movementX * sens;
+  else player.yaw -= e.movementX * sens;
   cam.pitch = Math.max(-1.45, Math.min(1.28, cam.pitch - e.movementY * 0.00135 * MOUSE));
 });
 addEventListener("keydown", (e) => {
+  if (e.code === "F2") {
+    e.preventDefault();
+    if (document.pointerLockElement) document.exitPointerLock();
+    toggleCharEditor();
+    return;
+  }
+  if (charEditorOpen()) {
+    if (e.code === "Escape") setCharEditor(false);
+    return;
+  }
   if (!worldReady) return;
   if (e.code === "KeyM") {
     e.preventDefault();
@@ -416,6 +428,7 @@ addEventListener("keydown", (e) => {
   if (menuOpen || match.phase !== "play") return;
   if (spectating) return;
   if (e.code === "KeyQ") lockOn();
+  if (e.code === "KeyG") player.dropBall(balls);
   if (e.code === "KeyB") player.setSsj(!player.ssj);
   if (e.code === "KeyT") combat.blast(player, false, people, true); // ki largo (snipe)
 });
@@ -479,27 +492,29 @@ function loop(now) {
         while (dy > Math.PI) dy -= Math.PI * 2;
         while (dy < -Math.PI) dy += Math.PI * 2;
         player.yaw += dy * Math.min(1, dt * 9);
+        // Cámara acompaña al lock (no pelea con orbit del mouse)
+        cam.orbit *= Math.exp(-8 * dt);
       } else player.lockT = 0;
-      const flying = player.flyAlt > 0.22 && cam.third;
-      if (flying) {
-        const turn = (keys.has("ShiftLeft") || keys.has("ShiftRight") ? 1.85 : 2.55) * dt;
-        if (keys.has("KeyA")) player.yaw += turn;
-        if (keys.has("KeyD")) player.yaw -= turn;
-      }
-      const f = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
+      // En 3ª: WASD relativo a la cámara; el mouse solo mueve orbit
+      const viewYaw = cam.third ? player.yaw + cam.orbit : player.yaw;
+      const f = new THREE.Vector3(Math.sin(viewYaw), 0, Math.cos(viewYaw));
       const r = new THREE.Vector3(f.z, 0, -f.x);
       const dir = new THREE.Vector3();
       if (keys.has("KeyW")) dir.add(f);
       if (keys.has("KeyS")) dir.sub(f);
-      if (!flying) {
-        if (keys.has("KeyA")) dir.add(r);
-        if (keys.has("KeyD")) dir.sub(r);
-      } else if ((keys.has("KeyA") || keys.has("KeyD")) && !keys.has("KeyW") && !keys.has("KeyS") && (player.flyBlend || 0) > 0.2) {
-        dir.add(f);
-      }
+      if (keys.has("KeyA")) dir.add(r);
+      if (keys.has("KeyD")) dir.sub(r);
       if (keys.has("KeyR")) player.charge(dt);
       if (dir.lengthSq() > 0) {
         dir.normalize();
+        if (cam.third && !(player.lockT > 0)) {
+          const ny = Math.atan2(dir.x, dir.z);
+          let dYaw = ny - player.yaw;
+          while (dYaw > Math.PI) dYaw -= Math.PI * 2;
+          while (dYaw < -Math.PI) dYaw += Math.PI * 2;
+          cam.orbit -= dYaw;
+          player.yaw = ny;
+        }
         player.move(dir, keys.has("ShiftLeft") || keys.has("ShiftRight"), dt);
       }
       if (keys.has("KeyE")) {
