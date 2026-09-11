@@ -31,6 +31,7 @@ function temper(p) {
   return { hp, ki, heat, front };
 }
 
+
 function ballByN(balls, n) {
   return balls.items.find((b) => b.n === n && !b.held) || null;
 }
@@ -409,9 +410,9 @@ function utilBest(p, ctx) {
   rows.push(["raid", loot.length && !lowHp && !defend ? 14 + sticky("raid") : -40]);
   let chargeS =
     needCharge && !(p.aiMode === "fight" && enemyDist < 28) && !defend
-      ? 40 + (0.5 - mood.ki) * 40 + sticky("charge")
-      : -18;
-  if (enemy && enemyDist < 34 && mood.ki > 0.2) chargeS -= 26;
+      ? 40 + (0.6 - mood.ki) * 40 + sticky("charge")
+      : -15;
+  if (enemy && enemyDist < 34 && mood.ki > 0.1) chargeS -= 26;
   if (defend) chargeS -= 40;
   rows.push(["charge", chargeS]);
   rows.push(["wander", 5 - (inHomeAir ? 12 : 0) - (ball ? 8 : 0) - (defend ? 18 : 0) + sticky("wander")]);
@@ -738,9 +739,9 @@ export function aiTick(p, people, balls, combat, match, dt) {
   if (sniper) {
     for (const o of people) if (o.faccion === p.faccion && o.aiMode === "snipe") nSnipe++;
   }
-  const threat = pickBaseThreat(p, people, homeZ, 120);
+  const threat = pickBaseThreat(p, people, homeZ, 200);
   const defend =
-    !!(threat && !carrying && !critHp && (inHomeAir || baseDist < 155 || (threat.esfera != null && baseDist < 240)));
+    !!(threat && !carrying && !critHp && (inHomeAir || baseDist < 300 || (threat.esfera != null && baseDist < 300)));
   const snipeFoe = sniper && kiFrac > 0.38 && !critHp && nSnipe < 2 ? pickSnipeFoe(p, people, powerStyle(p.nombre, p.faccion).range || 90) : null;
   const foeRange = carrying ? 14 : p.aiMode === "fight" || defend ? 95 : inHomeAir ? 72 : 52;
   let enemy = pickFoe(p, people, foeRange, homeZ) || (p.aiMode === "snipe" ? snipeFoe : null);

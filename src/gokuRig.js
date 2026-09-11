@@ -46,10 +46,12 @@ function mixPart(name) {
     [/^HEAD_\d/, "Head"],
     [/^CLAVICLE_L_/, "LeftShoulder"],
     [/^SHOULDER_L_/, "LeftArm"],
+    [/^ELBOWROLL_L_/, "LeftForeArmRoll"],
     [/^ELBOW_L_/, "LeftForeArm"],
     [/^WRIST_L_/, "LeftHand"],
     [/^CLAVICLE_R_/, "RightShoulder"],
     [/^SHOULDER_R_/, "RightArm"],
+    [/^ELBOWROLL_R_/, "RightForeArmRoll"],
     [/^ELBOW_R_/, "RightForeArm"],
     [/^WRIST_R_/, "RightHand"],
     [/^THIGH_L_/, "LeftUpLeg"],
@@ -100,9 +102,17 @@ function fist(bones, left, amt, mode) {
   setLocal(bones[p + "Thumb3"], null, 0, 0, 0.7 * amt * sign);
 }
 
-function setLocal(bone, hang, x, y, z, hangW = 1) {
+function vegFore(b, left, x, y, z, snap = false) {
+  // Codo: x,z = flex ELBOW. y = twist ELBOWROLL (no gimbal en el codo).
+  const fa = left ? b.LeftForeArm : b.RightForeArm;
+  const roll = left ? b.LeftForeArmRoll : b.RightForeArmRoll;
+  setLocal(fa, null, x ?? 0, 0, z ?? 0, 1, snap);
+  setLocal(roll, null, 0, y ?? 0, 0, 1, snap);
+}
+
+function setLocal(bone, hang, x, y, z, hangW = 1, snap = false) {
   if (!bone?.userData.restQ) return;
-  _e.set(x || 0, y || 0, z || 0, "XYZ");
+  _e.set(x ?? 0, y ?? 0, z ?? 0, "XYZ");
   _q.setFromEuler(_e);
   bone.quaternion.copy(bone.userData.restQ);
   if (hang && hangW > 0.001) {
@@ -110,6 +120,11 @@ function setLocal(bone, hang, x, y, z, hangW = 1) {
     bone.quaternion.multiply(_hangMix);
   }
   bone.quaternion.multiply(_q);
+  if (snap) {
+    if (!bone.userData._smQ) bone.userData._smQ = bone.quaternion.clone();
+    else bone.userData._smQ.copy(bone.quaternion);
+    return;
+  }
   if (!bone.userData._smQ) bone.userData._smQ = bone.quaternion.clone();
   else {
     bone.userData._smQ.slerp(bone.quaternion, 0.58);
@@ -138,7 +153,17 @@ async function loadRig(id) {
   };
 }
 
-function instanceRig(id, altura) {
+function paintHair(mat, look) {
+  if (!mat || !/hair/i.test(mat.name || "")) return mat;
+  const m = mat.clone();
+  m.userData.ssjHair = true;
+  m.map = null;
+  m.color.setHex(look?.hairC ?? 0x0a0a0a);
+  m.needsUpdate = true;
+  return m;
+}
+
+function instanceRig(id, altura, look) {
   const p = pack[id];
   const wrap = new THREE.Group();
   const vis = cloneSkinned(p.proto);
@@ -149,6 +174,11 @@ function instanceRig(id, altura) {
       o.receiveShadow = true;
       o.frustumCulled = false;
       if (!o.isSkinnedMesh || /alpha|joint|cube|col/i.test(o.name)) o.visible = false;
+      if (o.material) {
+        o.material = Array.isArray(o.material)
+          ? o.material.map((m) => paintHair(m, look))
+          : paintHair(o.material, look);
+      }
     }
   });
   vis.updateMatrixWorld(true);
@@ -256,6 +286,10 @@ function syncAndroid(g, wrap, b, L) {
 }
 
 function syncVegeta(g, wrap, b, L) {
+  // Sparking (no Mixamo). Bind A-pose ~45°, brazos ±X.
+  // setLocal(hueso, hang, x, y, z): Euler XYZ extra sobre rest. hang=null.
+  // Hombro: no Y (entra al pecho). Z=abrir/hang. X=adelante/atrás.
+  // Codo: flex en X (L −el, R +el). Muslo X=paso, Y=juntar. Rodilla flex X.
   const { armL, armR, legL, legR, elbowL, elbowR, kneeL, kneeR, torsoG, hips, headG, waistY } = L;
   const lxL = legL.rotation.x;
   const lxR = legR.rotation.x;
@@ -263,25 +297,130 @@ function syncVegeta(g, wrap, b, L) {
   const axR = armR.rotation.x;
   const elL = elbowL?.rotation.x || 0;
   const elR = elbowR?.rotation.x || 0;
+  // Cómo se elige el movimiento de BRAZOS (cápsula → hombro/codo):
+  // charging = ambos codos muy flexionados (ki). hover = ambos hombros atrás + codos (flotar).
+  // punchL/R = cross de ese lado. lay = cuerpo acostado (vuelo/nado) 0..1.
+  // Prioridad en Z hombro: hover o el otro brazo pega → z=0; si no, braceo ax*swing (idle/caminar/correr/ki débil).
+  // Cross: el brazo que pega sigue ax en Z; el de atrás se anula (punchR apaga zL, punchL apaga zR).
+  // Codo: siempre X desde cápsula, salvo el brazo que NO pega en un cross (0).
+  // Puño cerrado: ki, el que pega, o lay>0.35.
+  const azL = armL.rotation.z;
+  const azR = armR.rotation.z;
   const charging = elL < -1.15 && elR < -1.15;
-  const hover = axL > 0.45 && axR > 0.45 && elL < -0.7 && elR < -0.7 && !charging;
+  const hover = axL > 0.05 && axR > 0.05 && elL < -0.7 && elR < -0.7 && !charging;
   const punchL = g.userData.punchLead === "L";
   const punchR = g.userData.punchLead === "R";
+  const squat = lxL < -0.4 && lxR < -0.4;
   const lay = THREE.MathUtils.smoothstep(Math.abs(g.rotation.x), 0.38, 1.22);
-  const swing = 0.72;
-  // Y del hombro metía los brazos al torso (flotar/correr). Caminar usa casi solo Z.
-  const zL = hover || punchR ? 0 : axL * swing;
-  const zR = hover || punchL ? 0 : -axR * swing;
-  const down = 0.85 * (1 - lay);
-  setLocal(b.LeftArm, null, 0, 0, zL - down);
-  setLocal(b.RightArm, null, 0, 0, zR + down);
-  setLocal(b.LeftShoulder, null, 0, 0, 0);
-  setLocal(b.RightShoulder, null, 0, 0, 0);
-  setLocal(b.LeftForeArm, null, punchR ? 0 : -elL, 0, 0);
-  setLocal(b.RightForeArm, null, punchL ? 0 : elR, 0, 0);
+  const swing = 0.62;
+  const down = 0.05 * (1 - lay);
+  // VUELO brazos (cápsula en personaje s>0.04: ax atrás, az abrir, el flex).
+  // lay 0..1 = cuerpo acostado. Acá NO hay pose Superman extra (X hombro no se mezcla a 1.28).
+  // hover (flotar quieto): z hombro = 0 (solo hang down). Si no, z = ±ax*swing (mismo que caminar).
+  // down se apaga con lay. Codos: vegFore sigue elL/elR. Puño si lay>0.35.
+  const idleZL = (hover ? 0 : axL * swing) + down;
+  const idleZR = (hover ? 0 : -axR * swing) - down;
+  if (punchL || punchR) {
+    const cXL = -1;
+    const cXR = 1;
+    const cYL = 0;
+    const cYR = 0;
+    const cZL = 1;
+    const cZR = 1;
+    const hit = g.userData.punchPhase === "hit";
+    if (hit) {
+      // GOLPE. Cross IZQ = LeftArm+LeftForeArm. Cross DER = RightArm+RightForeArm.
+      // El otro par es el brazo de atrás; no lo uses para el golpe.
+      if (punchL) {
+        setLocal(b.LeftArm, null, axL * cXL, azL * cYL +1.5, azL * cZL -1.8, 0, true);
+        vegFore(b, true, -elL / 100, 0.5, 0, true);
+        setLocal(b.RightArm, null, 0, -0.3, idleZR, 1, true);
+        vegFore(b, false, elR, -0.3, 0, true);
+      } else {
+        setLocal(b.RightArm, null, axR * cXR, -0.4 + azR * cYR, -azR * cZR, 1, true);
+        vegFore(b, false, elR, -2.3, 0, true);
+        setLocal(b.LeftArm, null, 0, 0.3, idleZL, 1, true);
+        vegFore(b, true, -elL, 0.3, 0, true);
+      }
+    } else if (punchL) {
+      setLocal(b.LeftArm, null, axL * cXL - 1, azL * cYL, azL * cZL - 1, 1, true);
+      vegFore(b, true, -elL, 0, -2, true);
+      setLocal(b.RightArm, null, 0, -0.3, idleZR, 1, true);
+      vegFore(b, false, elR, -0.3, 0, true);
+    } else {
+      setLocal(b.RightArm, null, axR * cXR, 0.3 + azR * cYR, -azR * cZR * -5, 1, true);
+      vegFore(b, false, elR, -0.3, 0, true);
+      setLocal(b.LeftArm, null, 0, 0.3, idleZL, 1, true);
+      vegFore(b, true, -elL, 0.3, 0, true);
+    }
+  } else if (charging) {
+    // CHARGING Vegeta (ki). No usa el ax de idle. Tocá k* hombro y e* vegFore.
+    const kXL = 0;
+    const kYL = 0.3;
+    const kZL = 0;
+    const kXR = 0;
+    const kYR = -0.3;
+    const kZR = 0;
+    const keXL = elL;
+    const keYL = 1.8;
+    const keZL = 0;
+    const keXR = elR;
+    const keYR = -1.8;
+    const keZR = 0;
+    setLocal(b.LeftArm, null, kXL, kYL, kZL);
+    setLocal(b.RightArm, null, kXR, kYR, kZR);
+    vegFore(b, true, keXL, keYL, keZL);
+    vegFore(b, false, keXR, keYR, keZR);
+  } else if (squat) {
+    // AGACHADO Vegeta. Cápsula: ambos muslos x≈-1. Tocá q* hombro y qe* vegFore.
+    const qXL = 0;
+    const qYL = 0.3;
+    const qZL = 0;
+    const qXR = 0;
+    const qYR = -0.3;
+    const qZR = 0;
+    const qeXL = -elL;
+    const qeYL = -0.3;
+    const qeZL = -1.5;
+    const qeXR = elR;
+    const qeYR = -1;
+    const qeZR = 1.5;
+    setLocal(b.LeftArm, null, qXL, qYL, qZL);
+    setLocal(b.RightArm, null, qXR, qYR, qZR);
+    vegFore(b, true, qeXL, qeYL, qeZL);
+    vegFore(b, false, qeXR, qeYR, qeZR);
+  } else if (lay > 0.04) {
+    // VUELO VEGETA — no usa el Superman de la cápsula (un brazo ax≈-2.85).
+    // Hombro setLocal x,y,z · vegFore(x flex, y roll, z flex). lay mezcla 0→1.
+    const fXL = 0;
+    const fYL = -2.3;
+    const fZL = 0;
+    const fXR = 0;
+    const fYR = -0.3;
+    const fZR = 0;
+    const eXL = -1.6;
+    const eYL = 0;
+    const eZL = 0;
+    const eXR = 0;
+    const eYR = -0.3;
+    const eZR = 0;
+    const u = lay;
+    setLocal(b.LeftArm, null, fXL * u, 0.3 + (fYL - 0.3) * u, fZL * u);
+    setLocal(b.RightArm, null, fXR * u, -0.3 + (fYR + 0.3) * u, fZR * u);
+    vegFore(b, true, eXL * u, 0.3 + (eYL - 0.3) * u, eZL * u);
+    vegFore(b, false, eXR * u, -0.3 + (eYR + 0.3) * u, eZR * u);
+  } else {
+    // idle / caminar / hover (no acostado)
+    setLocal(b.LeftArm, null, 0, 0.3, idleZL);
+    setLocal(b.RightArm, null, 0, -0.3, idleZR);
+    vegFore(b, true, -elL, 0.3, 0);
+    vegFore(b, false, elR, -0.3, 0);
+  }
+  setLocal(b.LeftShoulder, null, 0, 0, punchL ? azL * 0.22 : 0, 1, !!(punchL || punchR));
+  setLocal(b.RightShoulder, null, 0, 0, punchR ? -azR * 0.22 : 0, 1, !!(punchL || punchR));
   fist(b, true, charging || punchL || lay > 0.35 ? 1 : 0, "veg");
   fist(b, false, charging || punchR || lay > 0.35 ? 1 : 0, "veg");
-  const close = lay * 0.22;
+  const close = lay * 0.02; // vuelo: Y muslo
   setLocal(b.LeftUpLeg, null, lxL * 1.15, -close, 0);
   setLocal(b.RightUpLeg, null, lxR * 1.15, close, 0);
   setLocal(b.LeftLeg, null, kneeL?.rotation.x || 0, 0, 0);
@@ -289,7 +428,7 @@ function syncVegeta(g, wrap, b, L) {
   const tx = torsoG.rotation.x || 0;
   const ty = torsoG.rotation.y || 0;
   const hx = headG.rotation.x || 0;
-  setLocal(b.Spine, null, tx * 0.35, 0, ty * 0.35);
+  setLocal(b.Spine, null, tx * 0.35, 0, ty * 0.35); // inclinar X, twist Z
   setLocal(b.Spine1, null, tx * 0.4, 0, ty * 0.4);
   setLocal(b.Spine2, null, tx * 0.35, 0, ty * 0.25);
   setLocal(b.Neck, null, -hx * 0.4, 0, 0);
@@ -299,7 +438,7 @@ function syncVegeta(g, wrap, b, L) {
     b.Hips.position.copy(b.Hips.userData.restP);
     const drop = waistY != null ? waistY - torsoG.position.y : 0;
     const charH = wrap.userData.charH || 1.7;
-    if (drop > 0.01) b.Hips.position.z -= (drop / charH) * 28;
+    if (drop > 0.01) b.Hips.position.z -= (drop / charH) * 28; // agachar −Z
   }
 }
 
@@ -362,7 +501,7 @@ function syncMixamo(g) {
   setLocal(b.RightForeArm, null, 0, lay * Math.PI, THREE.MathUtils.lerp(elZR, 0, lay));
   fist(b, true, charging || punchL || lay > 0.35 ? 1 : 0);
   fist(b, false, charging || punchR || lay > 0.35 ? 1 : 0);
-  const close = lay * 0.28;
+  const close = lay * 0.98;
   setLocal(b.LeftUpLeg, null, thigh(lxL), 0, -close);
   setLocal(b.RightUpLeg, null, thigh(lxR), 0, close);
   setLocal(b.LeftLeg, null, -knL, 0, 0);
@@ -398,7 +537,7 @@ export function makeRiggedBody(altura, look, id) {
       o.castShadow = false;
     }
   });
-  const vis = instanceRig(id, altura);
+  const vis = instanceRig(id, altura, look);
   g.userData.gokuVis = vis;
   g.add(vis);
   g.userData.syncRig = () => syncMixamo(g);

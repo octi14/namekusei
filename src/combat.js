@@ -7,7 +7,7 @@ import { playSfx, atPos, stopSfxLoop } from "./sfx.js";
 function meleeYOk(at, t) {
   const ay = at.pos().y + at.height * 0.55;
   const ty = t.pos().y + t.height * 0.55;
-  return Math.abs(ay - ty) <= 1.85;
+  return Math.abs(ay - ty) <= 2.55;
 }
 
 function fwd(yaw) {
@@ -40,7 +40,7 @@ export class Combat {
   melee(at, all) {
     if (at.cooldown > 0 || at.dead || at.stun > 0 || (at.hitstop || 0) > 0) return;
     const now = performance.now() * 0.001;
-    if (!at.comboT || now - at.comboT > 0.78) at.combo = 0;
+    if (!at.comboT || now - at.comboT > 1.05) at.combo = 0;
     const step = at.combo % 3;
     at.combo = step + 1;
     at.comboT = now;
@@ -50,7 +50,7 @@ export class Combat {
     at.airMelee = flying ? (dive ? "elbow" : step === 1 ? "kick" : "upright") : null;
     at.posePunch = at.airMelee === "elbow" ? 0.42 : at.airMelee === "kick" || step === 2 ? 0.48 : 0.52;
     at._punchDur = at.posePunch;
-    at.cooldown = at.airMelee === "elbow" ? 0.52 : at.airMelee === "kick" || step === 2 ? 0.78 : 0.44;
+    at.cooldown = at.airMelee === "elbow" ? 0.38 : at.airMelee === "kick" || step === 2 ? 0.55 : 0.32;
     if (at.airMelee === "kick") at.punchStep = 2;
     {
       const [sx, sy, sz] = atPos(at);
@@ -71,10 +71,10 @@ export class Combat {
       const d = t.pos().clone().sub(origin);
       d.y = 0;
       const dist = d.length();
-      if (dist > 2.7 || dist < 0.2 || !meleeYOk(at, t)) continue;
-      d.normalize();
-      const side = d.dot(fwd(at.yaw));
-      const score = dist - (side > 0.25 ? 1.4 : 0);
+      if (dist > 3.35 || !meleeYOk(at, t)) continue;
+      if (dist > 0.04) d.normalize();
+      const side = dist > 0.04 ? d.dot(fwd(at.yaw)) : 1;
+      const score = dist - (side > 0.15 ? 1.4 : 0);
       if (score < bestS) {
         bestS = score;
         best = t;
@@ -92,13 +92,18 @@ export class Combat {
     const f = fwd(at.yaw);
     const finisher = step === 2;
     spawnMeleeArc(this.scene, origin.clone().setY(origin.y + at.height * (finisher ? 0.42 : 0.62)), at.yaw, this.fx);
-      const reach = at.airMelee === "elbow" ? 3.15 : finisher ? 2.55 : 2.15;
+      const reach = at.airMelee === "elbow" ? 3.45 : finisher ? 3.05 : 2.75;
     for (const t of all) {
       if (t.faccion === at.faccion || t === at || t.dead) continue;
       const d = t.pos().clone().sub(origin);
       d.y = 0;
-      if (d.length() > reach || !meleeYOk(at, t)) continue;
-      if (d.normalize().dot(f) < 0.32) continue;
+      const dist = d.length();
+      if (dist > reach || !meleeYOk(at, t)) continue;
+      if (dist > 0.08) {
+        const facing = d.normalize().dot(f);
+        if (dist > 1.2 && facing < 0.12) continue;
+        if (dist <= 1.2 && facing < -0.35) continue;
+      }
       // Parry: si la víctima está atacando justo ahora (ventana ~0.15s), contraataca
       if ((t.posePunch || 0) > 0.19 && (t.posePunch || 0) < 0.34) {
         const parryDmg = Math.max(1, Math.round((t.s.ataque * 140) / (8 + at.s.defensa)));
@@ -138,6 +143,7 @@ export class Combat {
   }
 
   blast(at, superOn, people, snipe = false) {
+    // 2º arg superOn = especial. 4º snipe = largo alcance (jugador: T). Ki común: ambos false (click der).
     if (at.cooldown > 0 || at.dead || at.stun > 0) return false;
     const style = powerStyle(at.nombre, at.faccion);
     const rank = superOn ? superRank(at.s.ki, at.s.kiMax, at.s.ataque) : 0;
@@ -181,10 +187,12 @@ export class Combat {
     const hitR = superOn
       ? 3.8 + rank * 1.35 + (style.r || 0.22) * 6
       : (style.r || 0.22) * 1.15 + 0.7;
-    const rng = (style.range || 55) * (snipe ? 1.45 : 1) * (superOn ? 1.85 + rank * 0.22 : 1);
+    const rng = (style.range || 55) * (snipe ? 2.4 : 1) * (superOn ? 2.7 + rank * 0.35 : 1);
     const life = (style.life || 1.4) * (snipe ? 1.5 : 1) * (superOn ? 2.15 + rank * 0.28 : 1);
     const locked =
-      at.lockFoe && !at.lockFoe.dead && (at.lockT || 0) > 0 ? at.lockFoe : this.pickLock(at, dir, people, rng);
+      at.lockFoe && !at.lockFoe.dead && (at.lockT || 0) > 0
+        ? at.lockFoe
+        : this.pickLock(at, dir, people, rng, superOn || snipe ? 0.38 : 0.62);
     const home = superOn
       ? at.controller === "humano"
         ? locked && at.lockFoe === locked
@@ -199,7 +207,8 @@ export class Combat {
       dmg,
       life,
       atk: at,
-      speed: style.speed * (superOn ? 1.55 + rank * 0.18 : snipe ? 1.25 : 1),
+      // Velocidad: STYLES.speed (común). Tocá los × de abajo para largo/especial.
+      speed: style.speed * (superOn ? 1.55 + rank * 0.18 /* especial */ : snipe ? 1.25 /* largo T */ : 1 /* común */),
       hitR,
       kind: style.kind,
       color: style.color,
@@ -242,7 +251,7 @@ export class Combat {
     }
   }
 
-  pickLock(at, dir, people, maxD = 55) {
+  pickLock(at, dir, people, maxD = 55, cone = 0.62) {
     if (!people) return null;
     let best = null;
     let bestD = maxD;
@@ -251,9 +260,9 @@ export class Combat {
       if (t.faccion === at.faccion || t === at || t.dead) continue;
       const to = t.pos().clone().sub(origin);
       const dist = to.length();
-      if (dist > maxD || dist < 1.5) continue;
+      if (dist > maxD || dist < 0.8) continue;
       to.normalize();
-      if (to.dot(dir) < 0.62) continue;
+      if (to.dot(dir) < cone) continue;
       if (dist < bestD) {
         bestD = dist;
         best = t;
@@ -379,7 +388,7 @@ export class Combat {
           }
         }
       }
-      s.mesh.position.addScaledVector(s.dir, s.speed * dt);
+      s.mesh.position.addScaledVector(s.dir, s.speed * dt); // avance: speed (u/s) * dt
       if (s.kind === "disk") s.mesh.rotation.z += dt * 14;
       if (s.kind === "beam") alignBeam(s.mesh, s.dir);
       s.trail += dt;

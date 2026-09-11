@@ -292,14 +292,14 @@ addEventListener("keydown", (e) => {
   if (spectating) return;
   if (e.code === "KeyQ") lockOn();
   if (e.code === "KeyB") player.setSsj(!player.ssj);
-  if (e.code === "KeyT") combat.blast(player, false, people, true);
+  if (e.code === "KeyT") combat.blast(player, false, people, true); // ki largo (snipe)
 });
 addEventListener("keyup", (e) => keys.delete(e.code));
 addEventListener("mousedown", (e) => {
   if (!locked || spectating || match.phase !== "play") return;
   if (e.button === 0) combat.melee(player, people);
   if (e.button === 1) lockOn();
-  if (e.button === 2) combat.blast(player, false, people);
+  if (e.button === 2) combat.blast(player, false, people); // ki común
 });
 addEventListener("contextmenu", (e) => e.preventDefault());
 

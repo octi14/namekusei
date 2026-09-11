@@ -1,42 +1,45 @@
 import * as THREE from "three";
 
+// Tabla por personaje: kind = forma. speed = u/s del ki COMÚN (click der).
+// Largo y especial no tienen speed propio: se multiplican en combat.blast.
 const STYLES = {
-  Gokú: { kind: "beam", color: 0x4fc3f7, speed: 50, r: 0.2, life: 2.2, range: 120 },
-  Gohan: { kind: "beam", color: 0x81d4fa, speed: 47, r: 0.18, life: 1.8, range: 100 },
-  Krilin: { kind: "disk", color: 0xffee58, speed: 40, r: 0.55, life: 1.85, range: 100 },
-  Pikoro: { kind: "beam", color: 0x69f0ae, speed: 48, r: 0.1, life: 1.8, range: 120 },
-  Vegeta: { kind: "beam", color: 0xce93d8, speed: 46, r: 0.18, life: 2.0, range: 125 },
-  Nail: { kind: "ball", color: 0xa5d6a7, speed: 40, r: 0.28, life: 1.2, range: 80 },
-  Dendé: { kind: "ball", color: 0xc5e1a5, speed: 37, r: 0.2, life: 1.2, range: 70 },
-  Freezer: { kind: "beam", color: 0xf48fb1, speed: 52, r: 0.08, life: 2.2, range: 130 },
-  Zaabon: { kind: "ball", color: 0xf06292, speed: 42, r: 0.25, life: 1.5, range: 90 },
-  Dodoria: { kind: "ball", color: 0xff8a80, speed: 42, r: 0.42, life: 1.6, range: 90 },
-  Gurdo: { kind: "ball", color: 0xb39ddb, speed: 35, r: 0.35, life: 1.2, range: 70 },
-  Rikum: { kind: "ball", color: 0xff5252, speed: 38, r: 0.3, life: 1.6, range: 100 },
-  Yiz: { kind: "beam", color: 0x80d8ff, speed: 48, r: 0.14, life: 1.7, range: 100 },
-  Butter: { kind: "ball", color: 0xdce775, speed: 50, r: 0.26, life: 1.5, range: 100 },
-  Ginyu: { kind: "ball", color: 0xea80fc, speed: 45, r: 0.32, life: 1.8, range: 90 },
-  Kiwy: { kind: "ball", color: 0x80cbc4, speed: 35, r: 0.24, life: 1.3, range: 80 },
-  Appule: { kind: "ball", color: 0xce93d8, speed: 35, r: 0.22, life: 1.2, range: 70 },
-  "Ten Shin Han": { kind: "beam", color: 0xffee58, speed: 40, r: 0.16, life: 1.7, range: 90 },
-  Yamcha: { kind: "ball", color: 0xffcc80, speed: 38, r: 0.24, life: 1.3, range: 80 },
-  Chaoz: { kind: "ball", color: 0xeeeeee, speed: 35, r: 0.18, life: 1.0, range: 70 },
-  Yajirobee: { kind: "ball", color: 0xff8a65, speed: 35, r: 0.32, life: 1.0, range: 65 },
-  Kami: { kind: "beam", color: 0xa5d6a7, speed: 38, r: 0.12, life: 1.8, range: 80 },
-  Nappa: { kind: "ball", color: 0xffab40, speed: 40, r: 0.4, life: 1.5, range: 100 },
-  Raditz: { kind: "beam", color: 0x81c784, speed: 42, r: 0.16, life: 1.9, range: 100 },
-  Saibaman: { kind: "ball", color: 0x9ccc65, speed: 40, r: 0.2, life: 1.2, range: 80 },
-  Trunks: { kind: "beam", color: 0xce93d8, speed: 46, r: 0.16, life: 2.0, range: 110 },
-  "Mr. Satan": { kind: "ball", color: 0xef5350, speed: 35, r: 0.28, life: 1.2, range: 60 },
-  Cell: { kind: "beam", color: 0x69f0ae, speed: 50, r: 0.14, life: 2.4, range: 130 },
-  "Nº16": { kind: "ball", color: 0x90a4ae, speed: 45, r: 0.38, life: 1.5, range: 120 },
-  "Nº17": { kind: "beam", color: 0x81d4fa, speed: 42, r: 0.12, life: 1.9, range: 100 },
-  "Nº18": { kind: "beam", color: 0xf8bbd0, speed: 42, r: 0.12, life: 1.9, range: 100 },
-  "Nº19": { kind: "ball", color: 0xef9a9a, speed: 40, r: 0.3, life: 1.5, range: 80 },
-  "Dr. Gero": { kind: "ball", color: 0xb0bec5, speed: 40, r: 0.22, life: 1.5, range: 90 },
+  Gokú: { kind: "beam", color: 0x4fc3f7, speed: 70, r: 0.2, life: 2.2, range: 120 },
+  Gohan: { kind: "beam", color: 0x81d4fa, speed: 60, r: 0.18, life: 1.8, range: 100 },
+  Krilin: { kind: "disk", color: 0xffee58, speed: 50, r: 0.55, life: 1.85, range: 100 },
+  Pikoro: { kind: "beam", color: 0x69f0ae, speed: 60, r: 0.1, life: 1.8, range: 120 },
+  Vegeta: { kind: "beam", color: 0xce93d8, speed: 60, r: 0.18, life: 2.0, range: 125 },
+  Nail: { kind: "ball", color: 0xa5d6a7, speed: 50, r: 0.28, life: 1.2, range: 80 },
+  Dendé: { kind: "ball", color: 0xc5e1a5, speed: 57, r: 0.2, life: 1.2, range: 70 },
+  Freezer: { kind: "beam", color: 0xf48fb1, speed: 62, r: 0.08, life: 2.2, range: 130 },
+  Zaabon: { kind: "ball", color: 0xf06292, speed: 62, r: 0.25, life: 1.5, range: 90 },
+  Dodoria: { kind: "ball", color: 0xff8a80, speed: 62, r: 0.42, life: 1.6, range: 90 },
+  Gurdo: { kind: "ball", color: 0xb39ddb, speed: 55, r: 0.35, life: 1.2, range: 70 },
+  Rikum: { kind: "ball", color: 0xff5252, speed: 58, r: 0.3, life: 1.6, range: 100 },
+  Yiz: { kind: "beam", color: 0x80d8ff, speed: 60, r: 0.14, life: 1.7, range: 100 },
+  Butter: { kind: "ball", color: 0xdce775, speed: 60, r: 0.26, life: 1.5, range: 100 },
+  Ginyu: { kind: "ball", color: 0xea80fc, speed: 65, r: 0.32, life: 1.8, range: 90 },
+  Kiwy: { kind: "ball", color: 0x80cbc4, speed: 55, r: 0.24, life: 1.3, range: 80 },
+  Appule: { kind: "ball", color: 0xce93d8, speed: 45, r: 0.22, life: 1.2, range: 70 },
+  "Ten Shin Han": { kind: "beam", color: 0xffee58, speed: 60, r: 0.16, life: 1.7, range: 90 },
+  Yamcha: { kind: "ball", color: 0xffcc80, speed: 55, r: 0.24, life: 1.3, range: 80 },
+  Chaoz: { kind: "ball", color: 0xeeeeee, speed: 55, r: 0.18, life: 1.0, range: 70 },
+  Yajirobee: { kind: "ball", color: 0xff8a65, speed: 55, r: 0.32, life: 1.0, range: 65 },
+  Kami: { kind: "beam", color: 0xa5d6a7, speed: 60, r: 0.12, life: 1.8, range: 80 },
+  Nappa: { kind: "ball", color: 0xffab40, speed: 60, r: 0.4, life: 1.5, range: 100 },
+  Raditz: { kind: "beam", color: 0x81c784, speed: 60, r: 0.16, life: 1.9, range: 100 },
+  Saibaman: { kind: "ball", color: 0x9ccc65, speed: 50, r: 0.2, life: 1.2, range: 80 },
+  Trunks: { kind: "beam", color: 0xce93d8, speed: 60, r: 0.16, life: 2.0, range: 110 },
+  "Mr. Satan": { kind: "ball", color: 0xef5350, speed: 45, r: 0.28, life: 1.2, range: 60 },
+  Cell: { kind: "beam", color: 0x69f0ae, speed: 70, r: 0.14, life: 2.4, range: 130 },
+  "Nº16": { kind: "ball", color: 0x90a4ae, speed: 55, r: 0.38, life: 1.5, range: 120 },
+  "Nº17": { kind: "beam", color: 0x81d4fa, speed: 60, r: 0.12, life: 1.9, range: 100 },
+  "Nº18": { kind: "beam", color: 0xf8bbd0, speed: 60, r: 0.12, life: 1.9, range: 100 },
+  "Nº19": { kind: "ball", color: 0xef9a9a, speed: 50, r: 0.3, life: 1.5, range: 80 },
+  "Dr. Gero": { kind: "ball", color: 0xb0bec5, speed: 50, r: 0.22, life: 1.5, range: 90 },
 };
 
 export function powerStyle(nombre, faccion) {
+  // Fallback si el nombre no está en STYLES. speed acá también es u/s base.
   if (STYLES[nombre]) return { ...STYLES[nombre] };
   if (nombre.startsWith("Saibaman")) return { ...STYLES.Saibaman };
   if (nombre.startsWith("Cell Jr.")) return { kind: "beam", color: 0xa5d6a7, speed: 36, r: 0.1, life: 1.6, range: 80 };
@@ -101,6 +104,7 @@ export function makePowerMesh(style, superOn, rank = 0) {
   const c = style.color;
   const g = new THREE.Group();
   if (style.kind === "beam") {
+    // rayo (Kame/Galick…): cilindro. velocidad = style.speed, igual que ball/disk.
     const len = 3.6 * s;
     const r0 = Math.max(0.06, style.r * s * 0.55);
     const core = new THREE.Mesh(
@@ -121,6 +125,7 @@ export function makePowerMesh(style, superOn, rank = 0) {
     aura.scale.set(r0 * 4.2, len * 0.72, 1);
     g.add(aura);
   } else if (style.kind === "disk") {
+    // disco (Kienzan). misma speed de STYLES.
     const R = Math.max(0.35, style.r * s);
     const rim = new THREE.Mesh(new THREE.TorusGeometry(R * 0.72, R * 0.16, 10, 28), mat(c, 0.95));
     rim.rotation.x = Math.PI / 2;
@@ -135,6 +140,7 @@ export function makePowerMesh(style, superOn, rank = 0) {
     halo.scale.setScalar(R * 3.4);
     g.add(halo);
   } else {
+    // bola de ki. misma speed de STYLES.
     const R = Math.max(0.14, style.r * s * 1.35);
     const ball = new THREE.Mesh(new THREE.SphereGeometry(R, 14, 12), mat(c, 0.92));
     g.add(ball);

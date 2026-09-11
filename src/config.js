@@ -1,12 +1,12 @@
-export const TEAM_SIZE = 15;
-export const MAP = 2200;
-export const BASE_Z = 960;
-export const FLY_MAX = 58;
-export const FLY_UP = 11;
-export const FLY_DOWN = 14;
-export const SUPER_KI = 0.6;
-export const SUPER_ATK2 = 30;
-export const SUPER_ATK3 = 35;
+export const TEAM_SIZE = 12;
+export const MAP = 2000;
+export const BASE_Z = 960 * MAP / 2200;
+export const FLY_MAX = 60;
+export const FLY_UP = 25;
+export const FLY_DOWN = 50;
+export const SUPER_KI = 0.7;
+export const SUPER_ATK2 = 28;
+export const SUPER_ATK3 = 32;
 
 export function superRank(ki, kiMax, atk) {
   if (ki / kiMax < SUPER_KI) return 0;
@@ -17,6 +17,6 @@ export function superRank(ki, kiMax, atk) {
 export const MATCH_SEC = 15 * 60;
 export const STAT_FLOOR = 0.5;
 export const DEATH_MULT = 0.97;
-export const HP_REGEN = 4;
+export const HP_REGEN = 5;
 export const KI_REGEN = 18;
-export const KI_REGEN_PASSIVE = 2.2;
+export const KI_REGEN_PASSIVE = 2;

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
-import { FLY_MAX, HP_REGEN, KI_REGEN, KI_REGEN_PASSIVE, DEATH_MULT, STAT_FLOOR } from "./config.js";
+import { FLY_MAX, FLY_UP, FLY_DOWN, HP_REGEN, KI_REGEN, KI_REGEN_PASSIVE, DEATH_MULT, STAT_FLOOR } from "./config.js";
 import { spawnPos, clampMap, resolveObstacles, inOwnBase, surfaceHeight, isWater, groundHeight, WATER_Y } from "./world.js";
 import { resolveShipCollisions } from "./bases.js";
 import { log, logKill } from "./log.js";
@@ -75,6 +75,8 @@ export class Personaje {
     this.controller = "ia";
     this.canSsj = !!def.canSsj;
     this.ssj = false;
+    this._ssjAtk = 0;
+    this._ssjVel = 0;
     this.lookHairC = def.look?.hairC ?? 0x111111;
     this.orig = {
       ataque: this.s.ataque,
@@ -279,8 +281,17 @@ export class Personaje {
     on = !!on;
     if (this.ssj === on) return;
     this.ssj = on;
-    this.s.ataque = this.orig.ataque * (on ? 1.28 : 1);
-    this.s.velocidad = this.orig.velocidad * (on ? 1.14 : 1);
+    if (on) {
+      this._ssjAtk = this.s.ataque * 0.28;
+      this._ssjVel = this.s.velocidad * 0.14;
+      this.s.ataque += this._ssjAtk;
+      this.s.velocidad += this._ssjVel;
+    } else {
+      this.s.ataque -= this._ssjAtk;
+      this.s.velocidad -= this._ssjVel;
+      this._ssjAtk = 0;
+      this._ssjVel = 0;
+    }
     const col = on ? 0xffe082 : this.lookHairC;
     this.mesh.traverse((o) => {
       if (o.material?.userData?.ssjHair) {
@@ -590,7 +601,10 @@ export class Personaje {
   animate(dt) {
     const { armL, armR, legL, legR, kneeL, kneeR, elbowL, elbowR, torsoG, hips, waistY, hipY, headG } = this.limbs;
     this.posePunch = Math.max(0, (this.posePunch || 0) - dt);
-    if (this.posePunch <= 0 && this.mesh.userData) this.mesh.userData.punchLead = 0;
+    if (this.posePunch <= 0 && this.mesh.userData) {
+      this.mesh.userData.punchLead = 0;
+      this.mesh.userData.punchPhase = 0;
+    }
     this.hitstop = Math.max(0, (this.hitstop || 0) - dt);
     this.poseBlast = Math.max(0, (this.poseBlast || 0) - dt);
     this.stun = Math.max(0, (this.stun || 0) - ((this.hitstop || 0) > 0 ? 0 : dt));
@@ -608,12 +622,14 @@ export class Personaje {
       !swimming &&
       !hopping &&
       !tumbling &&
+      this.didMove &&
       horizSpd > 5;
     let target = hopping || swimGo || cruise ? (hopping ? 0 : 1) : 0;
-    if (tumbling) target = 0; // salir de la pose acostada
+    if (tumbling) target = 0;
     else if (airHit === "upright" || airHit === "kick") target = 0;
     else if (airHit === "elbow") target = 1;
-    const lam = tumbling ? 9 : target > this.flyBlend ? 2.15 : 3.35;
+    const sitUp = !tumbling && target < this.flyBlend;
+    const lam = tumbling ? 9 : target > this.flyBlend ? 2.15 : 18;
     this.flyBlend = THREE.MathUtils.damp(this.flyBlend, target, lam, dt);
     const u = this.flyBlend;
     const s = u * u * (3 - 2 * u);
@@ -633,7 +649,7 @@ export class Personaje {
     else if (!swimming && this.didMove && this.flyAlt < 0.2) {
       pitch = (this.rush || 0) > 0.82 ? 0.38 : 0.12;
     }
-    this.mesh.rotation.x = THREE.MathUtils.damp(this.mesh.rotation.x, pitch, tumbling ? 11 : 7.5, dt);
+    this.mesh.rotation.x = THREE.MathUtils.damp(this.mesh.rotation.x, pitch, tumbling ? 11 : sitUp ? 22 : 7.5, dt);
     let dy = this.yaw - (this._yawPrev ?? this.yaw);
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
@@ -725,6 +741,7 @@ export class Personaje {
           ty = 0.04;
           eCross = 0;
         } else if (u < 0.48) {
+          // recobro cápsula: codo queda en el=-1.28 (Vegeta lo lee como elL/elR)
           const t = (u - 0.28) / 0.2;
           ax = sm(-0.62, 1.12, t);
           az = 0.08;
@@ -742,6 +759,7 @@ export class Personaje {
         const left = st === 1;
         const flip = this.mesh.userData.syncRig ? 1 : -1;
         this.mesh.userData.punchLead = left ? "L" : "R";
+        this.mesh.userData.punchPhase = u >= 0.48 ? "hit" : "prep";
         const lead = left ? armL : armR;
         const rear = left ? armR : armL;
         const leadEl = left ? elbowL : elbowR;
@@ -854,7 +872,7 @@ export class Personaje {
     if (this._kiCharge || (this.superHold || 0) > 0.04) {
       this.animT += dt * 4.2;
       const pulse = Math.sin(this.animT) * 0.06;
-      lx(armL, -0.08 + pulse);
+      lx(armL, -0.08 + pulse); // charging cápsula: Vegeta override en gokuRig `else if (charging)`
       lx(armR, -0.08 - pulse);
       lz(armL, 0.22);
       lz(armR, -0.22);
@@ -936,6 +954,7 @@ export class Personaje {
       lx(headG, -0.35);
       this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, Math.sin(t) * 0.28, 6, dt);
     } else if (s > 0.04) {
+      // vuelo acostado (cápsula). Vegeta: ax→Z hombro si no hover; el→vegFore. No hay X Superman en gokuRig.
       this._strideBob = 0;
       this.animT += dt * (2.2 + (this.rush || 0) * 3.5);
       const w = Math.sin(this.animT);
@@ -1057,16 +1076,17 @@ export class Personaje {
       this._strideBob = THREE.MathUtils.damp(this._strideBob || 0, 0, 12, dt);
       this.animT += dt * 1.1;
       const breath = Math.sin(this.animT) * 0.035;
-      lx(armL, 0.04 + breath);
-      lx(armR, 0.04 - breath * 0.8);
-      lz(armL, 0.06);
-      lz(armR, -0.06);
+      // idle brazos cápsula (todos los personajes). Ejes cápsula: x adelante(<0)/atrás(>0), z abrir.
+      lx(armL, 0.04 + breath); // X hombro izq
+      lx(armR, 0.04 - breath * 0.8); // X hombro der
+      lz(armL, 0.06); // Z hombro izq
+      lz(armR, -0.06); // Z hombro der
       lx(legL, 0.02);
       lx(legR, 0.04);
       if (kneeL) lx(kneeL, 0.1);
       if (kneeR) lx(kneeR, 0.1);
-      if (elbowL) lx(elbowL, -0.18);
-      if (elbowR) lx(elbowR, -0.18);
+      if (elbowL) lx(elbowL, -0.18); // X codo izq
+      if (elbowR) lx(elbowR, -0.18); // X codo der
       lx(torsoG, breath * 0.45);
       torsoG.rotation.y += (0 - torsoG.rotation.y) * k;
       if (hips) hips.rotation.y += (0 - hips.rotation.y) * k;
@@ -1203,10 +1223,10 @@ export class Personaje {
         }
       }
     } else if (lift > 0) {
-      this.vy = Math.min(11, this.vy + 15 * dt);
+      this.vy = Math.min(FLY_UP, this.vy + 15 * dt);
       this._crouch = Math.max(0, (this._crouch || 0) - dt * 8);
     } else if (lift < 0) {
-      this.vy = Math.max(-17, this.vy - 24 * dt);
+      this.vy = Math.max(-FLY_DOWN, this.vy - 24 * dt);
       this._crouch = 0;
     } else {
       this._crouch = Math.max(0, (this._crouch || 0) - dt * 7);
