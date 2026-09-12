@@ -20,6 +20,7 @@ export let MOUSE = 1;
 export let SHADOWS = true;
 export let MELEE = 1;
 export let FOV = 55;
+export let CAM_ZOOM = 4.15;
 export let QUALITY = 1;
 export const MATCH_MINS = [0, 5, 10, 20, 30, 40, 50, 60];
 
@@ -41,7 +42,7 @@ function clamp(v, a, b) {
 export function snapshot() {
   return {
     TEAM_SIZE, MAP, MATCH_MIN: MATCH_SEC > 0 ? MATCH_SEC / 60 : 0,
-    SFX_VOL, MOUSE, QUALITY,
+    SFX_VOL, MOUSE, QUALITY, CAM_ZOOM,
   };
 }
 
@@ -56,6 +57,7 @@ export function applySettings(s, save = true) {
   }
   if (s.SFX_VOL != null) SFX_VOL = clamp(s.SFX_VOL, 0, 1);
   if (s.MOUSE != null) MOUSE = clamp(s.MOUSE, 0.3, 2.5);
+  if (s.CAM_ZOOM != null) CAM_ZOOM = clamp(s.CAM_ZOOM, 1.6, 14);
   if (s.QUALITY != null) QUALITY = Math.round(clamp(s.QUALITY, 0, 2));
   const q = [{ p: 0.7, b: 0, s: false }, { p: 1.15, b: 0.75, s: true }, { p: 1.75, b: 1.15, s: true }][QUALITY];
   PIXEL = q.p;

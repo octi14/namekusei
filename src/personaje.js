@@ -95,6 +95,8 @@ export class Personaje {
     const p = spawnPos(def.faccion, indexInTeam, teamCount);
     this.mesh.position.copy(p);
     this.stickY();
+    this.yaw = def.faccion === "z" ? 0 : Math.PI;
+    this.aiLeaveBase = 8;
     scene.add(this.mesh);
     this._scene = scene;
     this._trailN = 40;
@@ -285,11 +287,11 @@ export class Personaje {
 
   /** Aplica un clip del editor. bones: lista o "arms". mirror: espeja L/R. */
   applyEditorClip(name, phase, k, bones, mirror = false, scale = 1) {
-    if (this.mesh.userData.syncRig) return false;
-    if (!this._animCustom?.[name]) return false;
+    const oneshot = name === "punch" || name === "punchTwo" || name === "punchKick" || name === "elbow" || name === "blast" || name === "blastTwo";
+    if (!oneshot && !this._animCustom?.[name]) return false;
     const clip = this._anims?.[name];
     if (!clip?.keys?.length) return false;
-    const pose = evalClip(clip, phase);
+    const pose = evalClip(clip, phase, oneshot);
     if (mirror) {
       const swap = (a, b) => {
         const pa = pose[a];
@@ -710,7 +712,7 @@ export class Personaje {
     const wasPunch = (this.posePunch || 0) > 0;
     this.posePunch = Math.max(0, (this.posePunch || 0) - dt);
     if (wasPunch && this.posePunch <= 0) {
-      this._poseRec = this.punchStep === 2 || this.airMelee === "kick" ? 0.75 : 0.32;
+      this._poseRec = this.punchStep === 2 || this.airMelee === "kick" ? 0.95 : 0.7;
     }
     if (this.posePunch <= 0 && this.mesh.userData) {
       this.mesh.userData.punchLead = 0;
@@ -782,7 +784,10 @@ export class Personaje {
       bank += Math.sin(this.airShudder * 36) * 0.12;
     }
     this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, bank, tumbling ? 9 : 7.2, dt);
-    const k = Math.min(1, dt * (4.15 + (1 - s) * 4.6));
+    const k = Math.min(
+      1,
+      dt * (4.15 + (1 - s) * 4.6) * ((this._poseRec || 0) > 0 && this.posePunch <= 0 ? 0.38 : 1)
+    );
     const charging = this._kiCharge || (this.superHold || 0) > 0.04;
     if (!charging && waistY != null) {
       const e = Math.min(1, dt * 10);
@@ -826,13 +831,13 @@ export class Personaje {
         if (o) o.rotation.z += (t - o.rotation.z) * pk;
       };
       if (this.airMelee === "elbow") {
-        const left = st === 1;
         const dur = this._punchDur || 0.42;
-        const u = 1 - Math.min(1, this.posePunch / dur);
-        if (this.applyEditorClip("elbow", u, pk, null, left)) {
+        const elapsed = Math.max(0, dur - this.posePunch);
+        if (this.applyEditorClip("elbow", elapsed, 1)) {
           this.didMove = true;
           return;
         }
+        const left = st === 1;
         const flip = this.mesh.userData.syncRig ? 1 : -1;
         const lead = left ? armL : armR;
         const back = left ? armR : armL;
@@ -855,19 +860,15 @@ export class Personaje {
       }
       if (st === 1 || st === 0) {
         const dur = this._punchDur || 0.52;
-        const u = 1 - Math.min(1, this.posePunch / dur);
+        const elapsed = Math.max(0, dur - this.posePunch);
+        const u = dur > 1e-4 ? Math.min(1, elapsed / dur) : 1;
         const left = st === 1;
         const flip = this.mesh.userData.syncRig ? 1 : -1;
         this.mesh.userData.punchLead = left ? "L" : "R";
         this.mesh.userData.punchPhase = u >= 0.48 ? "hit" : "prep";
         const clipName = left ? "punchTwo" : "punch";
-        const spd = this._anims?.[clipName]?.speed || this._anims?.punch?.speed || 1;
-        if (this.applyEditorClip(clipName, u / spd, pk)) {
-          this.didMove = false;
-          return;
-        }
-        if (left && this.applyEditorClip("punch", u / (this._anims?.punch?.speed || 1), pk, null, true)) {
-          this.didMove = false;
+        if (this.applyEditorClip(clipName, elapsed, 1)) {
+          this.didMove = true;
           return;
         }
         const sm = (a, b, t) => THREE.MathUtils.lerp(a, b, t * t * (3 - 2 * t));
@@ -913,7 +914,8 @@ export class Personaje {
         lx(torsoG, 0.1 + eCross * (0.18 + lunge * 0.4));
         lx(headG, -0.08 - eCross * (0.1 + lunge * 0.12));
       } else if (st === 2) {
-        if (!this.applyEditorClip("punchKick", 0, pk)) {
+        const elapsed = Math.max(0, (this._punchDur || 0.48) - this.posePunch);
+        if (!this.applyEditorClip("punchKick", elapsed, 1)) {
           px(armL, -0.28);
           px(armR, -0.4);
           pz(armL, 0.32);
@@ -1165,7 +1167,8 @@ export class Personaje {
         hard ? 3.9 : sprint ? 3.05 : 2.15
       );
       const clipName = wantRun ? "run" : "walk";
-      const usedClip = this.applyEditorClip(clipName, (this._clipClock = (this._clipClock || 0) + dt), 1);
+      const recK = (this._poseRec || 0) > 0 ? Math.min(1, dt * 3.1) : 1;
+      const usedClip = this.applyEditorClip(clipName, (this._clipClock = (this._clipClock || 0) + dt), recK);
       if (usedClip) this._usedLocoClip = true;
       else {
         this.animT += dt * hz * Math.PI * 2 * (hard || sprint ? 0.85 : 0.765) * (this.mesh.userData.syncRig ? (hard || sprint ? 0.72 : 0.5) : 1);
@@ -1308,34 +1311,36 @@ export class Personaje {
         legR.position.y = hipY - drop - (this._poseDrop || 0);
       }
     }
-    if ((this._poseRec || 0) > 0 && this.posePunch <= 0 && this.stun <= 0 && !this._usedLocoClip) {
+    if ((this._poseRec || 0) > 0 && this.posePunch <= 0 && this.stun <= 0) {
       this._poseRec -= dt;
-      const rk = Math.min(1, dt * 18);
-      const yz = (o) => {
-        if (!o) return;
-        o.rotation.y += (0 - o.rotation.y) * rk;
-        o.rotation.z += (0 - o.rotation.z) * rk;
-      };
-      yz(torsoG);
-      yz(headG);
-      yz(hips);
-      yz(armL);
-      yz(armR);
-      yz(elbowL);
-      yz(elbowR);
-      yz(legL);
-      yz(legR);
-      yz(kneeL);
-      yz(kneeR);
-      yz(this.limbs.wristL);
-      yz(this.limbs.wristR);
-      if (!this.didMove) {
-        torsoG.rotation.x += (0 - torsoG.rotation.x) * rk;
-        headG.rotation.x += (0 - headG.rotation.x) * rk;
-        if (legL) legL.rotation.x += (0.02 - legL.rotation.x) * rk;
-        if (legR) legR.rotation.x += (0.04 - legR.rotation.x) * rk;
-        if (kneeL) kneeL.rotation.x += (0.1 - kneeL.rotation.x) * rk;
-        if (kneeR) kneeR.rotation.x += (0.1 - kneeR.rotation.x) * rk;
+      if (!this._usedLocoClip) {
+        const rk = Math.min(1, dt * 4.4);
+        const yz = (o) => {
+          if (!o) return;
+          o.rotation.y += (0 - o.rotation.y) * rk;
+          o.rotation.z += (0 - o.rotation.z) * rk;
+        };
+        yz(torsoG);
+        yz(headG);
+        yz(hips);
+        yz(armL);
+        yz(armR);
+        yz(elbowL);
+        yz(elbowR);
+        yz(legL);
+        yz(legR);
+        yz(kneeL);
+        yz(kneeR);
+        yz(this.limbs.wristL);
+        yz(this.limbs.wristR);
+        if (!this.didMove) {
+          torsoG.rotation.x += (0 - torsoG.rotation.x) * rk;
+          headG.rotation.x += (0 - headG.rotation.x) * rk;
+          if (legL) legL.rotation.x += (0.02 - legL.rotation.x) * rk;
+          if (legR) legR.rotation.x += (0.04 - legR.rotation.x) * rk;
+          if (kneeL) kneeL.rotation.x += (0.1 - kneeL.rotation.x) * rk;
+          if (kneeR) kneeR.rotation.x += (0.1 - kneeR.rotation.x) * rk;
+        }
       }
     }
     this.didMove = false;
@@ -1638,12 +1643,13 @@ export class Personaje {
     this.vx = 0;
     this.vz = 0;
     this.setFly(false);
-    this.aiLeaveBase = 5;
+    this.yaw = this.faccion === "z" ? 0 : Math.PI;
+    this.aiLeaveBase = 8;
   }
 
   tryGrab(balls, dt, match) {
     const wet = this.inSwim() || isWater(this.pos().x, this.pos().z);
-    if (this.dead || this.esfera != null || (!wet && (this.volando || this.flyAlt > 0.2))) {
+    if (this.dead || this.esfera != null || (!wet && (this.volando || this.flyAlt > 0.45))) {
       this.grabT = 0;
       this._grabbing = false;
       this._grabBall = null;

@@ -123,6 +123,7 @@ const OPTS = [
   { tab: "opciones", key: "SFX_VOL", label: "Volumen", min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%` },
   { tab: "opciones", key: "QUALITY", label: "Gráficos", sel: [[0, "Baja"], [1, "Media"], [2, "Alta"]] },
   { tab: "opciones", key: "MOUSE", label: "Sensibilidad", min: 0.3, max: 2.5, step: 0.05 },
+  { tab: "opciones", key: "CAM_ZOOM", label: "Zoom 3ª persona", min: 1.6, max: 14, step: 0.05, fmt: (v) => (+v).toFixed(2) },
 ];
 const TABS = [
   ["partida", "Partida"],

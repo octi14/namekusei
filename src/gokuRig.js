@@ -332,8 +332,8 @@ function syncVegeta(g, wrap, b, L) {
       // GOLPE. Cross IZQ = LeftArm+LeftForeArm. Cross DER = RightArm+RightForeArm.
       // El otro par es el brazo de atrás; no lo uses para el golpe.
       if (punchL) {
-        setLocal(b.LeftArm, null, axL * cXL, azL * cYL +1.5, azL * cZL -1.8, 0, true);
-        vegFore(b, true, -elL / 100, 0.5, 0, true);
+        setLocal(b.LeftArm, null, axL * cXL, 0.4 + azL * cYL, azL * cZL, 1, true);
+        vegFore(b, true, elL, 2.3, 0, true);
         setLocal(b.RightArm, null, 0, -0.3, idleZR, 1, true);
         vegFore(b, false, elR, -0.3, 0, true);
       } else {
@@ -343,8 +343,8 @@ function syncVegeta(g, wrap, b, L) {
         vegFore(b, true, -elL, 0.3, 0, true);
       }
     } else if (punchL) {
-      setLocal(b.LeftArm, null, axL * cXL - 1, azL * cYL, azL * cZL - 1, 1, true);
-      vegFore(b, true, -elL, 0, -2, true);
+      setLocal(b.LeftArm, null, axL * cXL, -0.3 + azL * cYL, azL * cZL, 1, true);
+      vegFore(b, true, elL, 0.3, 0, true);
       setLocal(b.RightArm, null, 0, -0.3, idleZR, 1, true);
       vegFore(b, false, elR, -0.3, 0, true);
     } else {

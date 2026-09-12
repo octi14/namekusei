@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { surfaceHeight } from "./world.js";
+import { CAM_ZOOM } from "./config.js";
 
 export class PlayerCamera {
   constructor(camera) {
@@ -85,7 +86,7 @@ export class PlayerCamera {
       const torso = p.pos().clone();
       torso.y += 0.88 + b * 0.06;
       const look = torso.clone().addScaledVector(aim, 14);
-      const dist = 4.15 + b * 1.55;
+      const dist = CAM_ZOOM + b * 1.55;
       const dest = torso.clone().addScaledVector(aim, -dist);
       dest.y += 0.28;
       dest.addScaledVector(right, this._bank * 0.85);

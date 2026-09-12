@@ -151,13 +151,30 @@ function mixPose(a, b, t, swing) {
   return o;
 }
 
-export function evalClip(clip, time) {
+export function clipOnceDuration(clip, fallback = 0.5) {
+  if (!clip?.keys?.length) return fallback;
+  let last = 0;
+  for (const k of clip.keys) last = Math.max(last, +k.u || 0);
+  const span = last > 0.08 ? last : 1;
+  return Math.max(0.22, span / (clip.speed || 1));
+}
+
+export function evalClip(clip, time, once = false) {
   if (!clip?.keys?.length) return P({});
   const keys = [...clip.keys].sort((a, b) => a.u - b.u);
   const speed = clip.speed || 1;
-  let u = (time * speed) % 1;
-  if (u < 0) u += 1;
+  let u = time * speed;
+  if (once) u = Math.min(Math.max(u, 0), 0.99999);
+  else {
+    u = u % 1;
+    if (u < 0) u += 1;
+  }
   const swing = clip.swing ?? 1;
+  if (once) {
+    if (u <= keys[0].u) return mixPose(keys[0].pose, keys[0].pose, 0, swing);
+    const last = keys[keys.length - 1];
+    if (u >= last.u) return mixPose(last.pose, last.pose, 0, swing);
+  }
   let i = keys.length - 1;
   for (let k = 0; k < keys.length; k++) {
     if (keys[k].u > u) {
@@ -165,16 +182,16 @@ export function evalClip(clip, time) {
       break;
     }
   }
-  const a = keys[i < 0 ? keys.length - 1 : i];
-  const b = keys[(i + 1) % keys.length];
+  const a = keys[i < 0 ? (once ? 0 : keys.length - 1) : i];
+  const b = keys[once ? Math.min(i + 1, keys.length - 1) : (i + 1) % keys.length];
   let ua = a.u;
   let ub = b.u;
   let t;
-  if (ub <= ua) {
+  if (!once && ub <= ua) {
     const span = 1 - ua + ub;
     const x = u >= ua ? u - ua : 1 - ua + u;
     t = span < 1e-6 ? 0 : x / span;
-  } else t = (u - ua) / (ub - ua);
+  } else t = ub <= ua ? 1 : (u - ua) / (ub - ua);
   if (clip.ease === "smooth") t = t * t * (3 - 2 * t);
   return mixPose(a.pose, b.pose, t, swing);
 }
@@ -222,6 +239,24 @@ export function saveClips(who, clips) {
     const all = JSON.parse(localStorage.getItem(KEY) || "{}");
     all[who] = clips;
     localStorage.setItem(KEY, JSON.stringify(all));
+    shipPack();
+  } catch {
+    /* ignore */
+  }
+}
+
+function shipPack() {
+  if (!import.meta.env.DEV) return;
+  try {
+    fetch("/__namekusei-pack", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        anims: JSON.parse(localStorage.getItem(KEY) || "{}"),
+        looks: JSON.parse(localStorage.getItem("namekusei.lookMap") || "{}"),
+        sculpts: JSON.parse(localStorage.getItem("namekusei.sculptMap") || "{}"),
+      }),
+    }).catch(() => {});
   } catch {
     /* ignore */
   }

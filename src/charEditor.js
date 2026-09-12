@@ -3,6 +3,24 @@ import { makeBody, DEFAULT_SCULPT, SCULPT_SELECTS, saveSculpt, loadSavedSculpt, 
 import { LOOK, saveLook, loadSavedLook } from "./looks.js";
 
 const EDITOR_KEY = "namekusei.charEditor";
+const LOOK_COLORS = [
+  ["skin", "Piel", (l) => l.skin],
+  ["hairC", "Pelo", (l) => l.hairC ?? 0x1a1208],
+  ["body", "Gi / túnica", (l) => l.body],
+  ["undershirt", "Interior", (l) => l.undershirt ?? 0x5d4037],
+  ["sleeves", "Mangas", (l) => l.sleeves ?? l.body],
+  ["pants", "Pantalón", (l) => l.pants ?? l.accent ?? l.body],
+  ["sash", "Fajín", (l) => l.sash ?? l.accent ?? 0x0d47a1],
+  ["wrist", "Muñequeras", (l) => l.wrist ?? l.accent ?? 0x1565c0],
+  ["boots", "Botas", (l) => l.boots ?? 0x0d47a1],
+  ["cape", "Capa", (l) => l.cape ?? 0xfafafa],
+  ["turbanC", "Turbante", (l) => l.turbanC ?? l.cape ?? 0xf5f5f5],
+  ["suit", "Traje", (l) => l.suit ?? l.body],
+  ["trim", "Placa", (l) => l.trim ?? 0xeeeeee],
+  ["pads", "Hombreras", (l) => l.pads ?? l.trim ?? 0xeeeeee],
+  ["helm", "Casco", (l) => l.helm ?? 0x37474f],
+  ["accent", "Acento", (l) => l.accent ?? 0x1565c0],
+];
 const KITS = ["gi", "namek", "armor", "soldier", "frost", "brute"];
 const HAIRS = ["goku", "gohan", "trunks", "vegeta", "raditz", "bald", "piccolo", "turban", "nail", "dende", "tien", "frieza", "helm"];
 const MOLD_PARTS = [
@@ -332,13 +350,7 @@ function ensureDom() {
           <label>Pelo<select id="ce-hair"></select></label>
           <label>Altura<input id="ce-alt" type="range" min="1.2" max="2.4" step="0.01" /></label>
         </div>
-        <div class="row">
-          <label>Piel<input id="ce-skin" type="color" /></label>
-          <label>Cuerpo<input id="ce-bodyc" type="color" /></label>
-          <label>Acento<input id="ce-accent" type="color" /></label>
-          <label>Trim armor<input id="ce-trim" type="color" /></label>
-          <label>Pelo color<input id="ce-hairc" type="color" /></label>
-        </div>
+        <div class="row" id="ce-look-colors"></div>
         <h2>Tipos</h2>
         <div id="ce-selects" class="row"></div>
         <h2>Parámetros</h2>
@@ -408,6 +420,18 @@ function ensureDom() {
     brushStr = +e.target.value;
   });
 
+  const colorBox = root.querySelector("#ce-look-colors");
+  for (const [key, lab] of LOOK_COLORS) {
+    const el = document.createElement("label");
+    el.innerHTML = `${lab}<input type="color" data-lookc="${key}" />`;
+    colorBox.appendChild(el);
+  }
+  colorBox.addEventListener("input", (e) => {
+    const el = e.target;
+    if (!el.dataset.lookc) return;
+    look[el.dataset.lookc] = parseHex(el.value);
+    dirty = true;
+  });
   const selBox = root.querySelector("#ce-selects");
   for (const [key, opts] of Object.entries(SCULPT_SELECTS)) {
     const lab = document.createElement("label");
@@ -470,26 +494,6 @@ function ensureDom() {
     dropSizeMolds("footScale");
     sculpt.moldAltura = altura;
     sculpt.altura = altura;
-    dirty = true;
-  });
-  root.querySelector("#ce-skin").addEventListener("input", (e) => {
-    look.skin = parseHex(e.target.value);
-    dirty = true;
-  });
-  root.querySelector("#ce-bodyc").addEventListener("input", (e) => {
-    look.body = parseHex(e.target.value);
-    dirty = true;
-  });
-  root.querySelector("#ce-accent").addEventListener("input", (e) => {
-    look.accent = parseHex(e.target.value);
-    dirty = true;
-  });
-  root.querySelector("#ce-trim").addEventListener("input", (e) => {
-    look.trim = parseHex(e.target.value);
-    dirty = true;
-  });
-  root.querySelector("#ce-hairc").addEventListener("input", (e) => {
-    look.hairC = parseHex(e.target.value);
     dirty = true;
   });
   box.addEventListener("input", (e) => {
@@ -745,12 +749,11 @@ function syncLookUi() {
   root.querySelector("#ce-preset").value = presetName;
   root.querySelector("#ce-kit").value = look.kit || "gi";
   root.querySelector("#ce-hair").value = look.hair || "goku";
-  root.querySelector("#ce-skin").value = hexInput(look.skin);
-  root.querySelector("#ce-bodyc").value = hexInput(look.body);
-  root.querySelector("#ce-accent").value = hexInput(look.accent ?? 0x1565c0);
-  root.querySelector("#ce-trim").value = hexInput(look.trim ?? look.boots ?? 0xeeeeee);
-  root.querySelector("#ce-hairc").value = hexInput(look.hairC ?? 0x1a1208);
   root.querySelector("#ce-alt").value = altura;
+  for (const [key, , get] of LOOK_COLORS) {
+    const el = root.querySelector(`input[data-lookc="${key}"]`);
+    if (el) el.value = hexInput(get(look));
+  }
 }
 
 function ensureScene() {

@@ -20,9 +20,14 @@ export default {
               const writeIfChanged = (name, obj) => {
                 if (!obj || !Object.keys(obj).length) return;
                 const p = path.join(dest, name);
-                const next = JSON.stringify(obj);
-                const prev = fs.existsSync(p) ? fs.readFileSync(p, "utf8") : "";
-                if (prev === next) return;
+                let prev = {};
+                try {
+                  prev = JSON.parse(fs.readFileSync(p, "utf8") || "{}");
+                } catch {
+                  prev = {};
+                }
+                const next = JSON.stringify({ ...prev, ...obj });
+                if (JSON.stringify(prev) === next) return;
                 fs.writeFileSync(p, next);
               };
               writeIfChanged("anims.json", j.anims);

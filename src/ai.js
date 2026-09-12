@@ -256,9 +256,12 @@ function aiMove(p, dir, run, dt) {
 
 function applyLoco(p, dir, ctx, dt) {
   const body = senseBody(p);
-  const shipFac = nearAnyShip({ x: body.x, z: body.z }, 14);
-  const depositLand = !!(ctx.carrying && shipDist({ x: body.x, z: body.z }, p.faccion) < BASE_INNER_R + 26);
-  const atShip = !!(shipFac || ctx.shipGate || depositLand);
+  const dOwn = shipDist({ x: body.x, z: body.z }, p.faccion);
+  const dFoe = shipDist({ x: body.x, z: body.z }, p.faccion === "z" ? "f" : "z");
+  const aligned = Math.abs(body.x) < 9;
+  const inCorridor = aligned && (dOwn < BASE_INNER_R + 22 || dFoe < BASE_INNER_R + 22);
+  const insideShip = dOwn < BASE_INNER_R - 0.2 || dFoe < BASE_INNER_R - 0.2;
+  const atShip = !!(insideShip || (ctx.shipGate && inCorridor));
 
   const needKi = body.ki < ctx.band.lo || ((p.aiChargeTo || 0) > 0 && body.ki < p.aiChargeTo);
   if (ctx.chargingHard && body.dry && body.grounded) p.aiCharge = true;
@@ -654,7 +657,8 @@ function tickStuck(p, dt) {
   p._stkZ = z;
   p._stkAcc = 0;
   const hovering = (p.flyAlt || 0) > 0.45;
-  const lim = hovering ? 5.5 : 3.2;
+  const nearShip = !!nearAnyShip({ x, z }, 22);
+  const lim = hovering ? 5.5 : nearShip ? 9 : 3.2;
   if (prog < lim) p._stkT = (p._stkT || 0) + window;
   else p._stkT = Math.max(0, (p._stkT || 0) - window * 1.35);
 }
@@ -669,6 +673,10 @@ function pickUnstick(p, balls) {
   p._stkT = 0;
   if (p.esfera != null) {
     p.aiBreak = "home";
+    return;
+  }
+  if (nearAnyShip(p.pos(), 36)) {
+    p.aiUnstick = 0;
     return;
   }
   if ((p.flyAlt || 0) > 0.35) {
@@ -943,12 +951,19 @@ export function aiTick(p, people, balls, combat, match, dt) {
     defend,
     role,
   });
+  const hardFight =
+    pick === "fight" &&
+    enemy &&
+    p.aiMode !== "deliver" &&
+    !(p.aiShipJob && p.aiShipJob.t > 0) &&
+    shipDist(p.pos(), p.faccion) > BASE_INNER_R + 22 &&
+    shipDist(p.pos(), p.faccion === "z" ? "f" : "z") > BASE_INNER_R + 22;
   const hard =
     (carrying && p.aiMode !== "deliver") ||
     (pick === "deliver" && carrying) ||
-    (pick === "fight" && enemyCarrier && enemyDist < 58 && p.aiMode !== "deliver") ||
-    (pick === "fight" && enemy && enemyDist < 15 && p.aiMode !== "deliver") ||
-    (defend && pick === "fight" && enemyDist < 32 && p.aiMode !== "deliver") ||
+    (hardFight && enemyCarrier && enemyDist < 58) ||
+    (hardFight && enemyDist < 15) ||
+    (defend && hardFight && enemyDist < 32) ||
     (pick === "ball" && role === "baller" && ballCand && (p.aiMode === "wander" || p.aiMode === "charge"));
   if (hard || (p.aiModeT || 0) <= 0) {
     if (pick === "hide") {
@@ -1007,6 +1022,11 @@ export function aiTick(p, people, balls, combat, match, dt) {
     else if (ratio < 0.18) p.setSsj(false);
   }
   const raiding = p.aiMode === "raid" && loot.length > 0;
+  const foeFac = p.faccion === "z" ? "f" : "z";
+  const doorBusy =
+    carrying ||
+    ((raiding || p.aiMode === "ball") && shipDist(p.pos(), foeFac) < BASE_INNER_R + 48) ||
+    (carrying && shipDist(p.pos(), p.faccion) < BASE_INNER_R + 40);
 
   if (carrying) {
     const nav = steerShipNav(p.pos().x, p.pos().z, p.faccion, "deposit");
@@ -1015,7 +1035,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
       const home = steerHome(p.pos().x, p.pos().z, homeZ);
       dir.set(home.x, 0, home.z);
     }
-    if (kiFrac > 0.22 && shipDist(p.pos(), p.faccion) > BASE_INNER_R + 55) {
+    if (kiFrac > 0.22 && shipDist(p.pos(), p.faccion) > BASE_INNER_R + 80) {
       const avoid = heatAvoid(p, people, dir);
       if (avoid && avoid.strength > 0.45) {
         const mix = Math.min(avoid.strength * 0.22, 0.22);
@@ -1068,7 +1088,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
         p.aiCharge = true;
       }
     }
-  } else if (fighting) {
+  } else if (fighting && !doorBusy) {
     const dist0 = foe.pos().distanceTo(p.pos());
     if (dist0 > 42 && !huntingCarrier) {
       const wp = sideWaypoint(p, foe.pos().x, foe.pos().z);
@@ -1194,61 +1214,39 @@ export function aiTick(p, people, balls, combat, match, dt) {
     }
   }
 
-  // —— Puerta de naves: entrar / salir / depositar ——
   let shipGate = false;
   {
     const pos = p.pos();
     const own = p.faccion;
     const foeFac = own === "z" ? "f" : "z";
-    const ballPos = ball?.mesh?.position;
-    const ballInFoeShip =
-      !!ballPos &&
-      (ball.inBase === foeFac || shipDist(ballPos, foeFac) < BASE_INNER_R + 4);
-    const wantFoeInside = raiding || (p.aiMode === "ball" && ballInFoeShip) || ballInFoeShip;
-
-    if (carrying) {
-      // Si estás en la nave enemiga con esfera, primero salir; si no, depositar en la propia
-      if (inShipBase(pos, foeFac)) {
-        const nav = steerShipNav(pos.x, pos.z, foeFac, "exit");
-        if (nav) {
-          dir.set(nav.x, 0, nav.z);
-          shipGate = true;
-        }
+    const wantFoe =
+      raiding ||
+      (ball && (ball.inBase === foeFac || shipDist(ball.mesh.position, foeFac) < BASE_INNER_R + 4));
+    let fac = null;
+    let goal = null;
+    if (!carrying && inShipBase(pos, own) && (p.aiLeaveBase || 0) > 0) {
+      fac = own;
+      goal = "exit";
+    } else if (carrying && inShipBase(pos, foeFac)) {
+      fac = foeFac;
+      goal = "exit";
+    } else if (carrying) {
+      fac = own;
+      goal = "deposit";
+    } else if (wantFoe && (inShipBase(pos, foeFac) || shipDist(pos, foeFac) < 110)) {
+      fac = foeFac;
+      goal = inShipBase(pos, foeFac) ? "enter" : "enter";
+    }
+    if ((p.aiLeaveBase || 0) > 0) {
+      p.aiLeaveBase -= dt;
+      if (!inShipBase(pos, own) && shipDist(pos, own) > BASE_INNER_R + 12) p.aiLeaveBase = 0;
+    }
+    if (fac) {
+      if (goal === "enter" && inShipBase(pos, fac) && ball) {
+        dir.set(ball.mesh.position.x - pos.x, 0, ball.mesh.position.z - pos.z);
+        shipGate = true;
       } else {
-        const nav = steerShipNav(pos.x, pos.z, own, "deposit");
-        if (nav) {
-          dir.set(nav.x, 0, nav.z);
-          shipGate = true;
-        }
-      }
-    } else if (inShipBase(pos, foeFac) && wantFoeInside) {
-      // Dentro del rival: ir a la esfera / centro, no huir
-      if (ballPos) dir.set(ballPos.x - pos.x, 0, ballPos.z - pos.z);
-      else {
-        const nav = steerShipNav(pos.x, pos.z, foeFac, "enter");
-        if (nav) dir.set(nav.x, 0, nav.z);
-      }
-      shipGate = true;
-    } else if (inShipBase(pos, own) && !carrying) {
-      const nav = steerShipNav(pos.x, pos.z, own, "exit");
-      if (nav) {
-        dir.set(nav.x, 0, nav.z);
-        shipGate = true;
-        p.aiLeaveBase = Math.max(p.aiLeaveBase || 0, 2.2);
-      }
-    } else if (inShipBase(pos, foeFac)) {
-      const nav = steerShipNav(pos.x, pos.z, foeFac, "exit");
-      if (nav) {
-        dir.set(nav.x, 0, nav.z);
-        shipGate = true;
-      }
-    } else {
-      if ((p.aiLeaveBase || 0) > 0) {
-        p.aiLeaveBase = Math.max(0, (p.aiLeaveBase || 0) - dt);
-        if (shipDist(pos, own) > BASE_INNER_R + 16) p.aiLeaveBase = 0;
-      }
-      if (!shipGate && wantFoeInside && shipDist(pos, foeFac) < BASE_INNER_R + 90) {
-        const nav = steerShipNav(pos.x, pos.z, foeFac, "enter");
+        const nav = steerShipNav(pos.x, pos.z, fac, goal);
         if (nav) {
           dir.set(nav.x, 0, nav.z);
           shipGate = true;
@@ -1282,13 +1280,28 @@ export function aiTick(p, people, balls, combat, match, dt) {
     dt
   );
 
+  const grabbing = !!(balls.near(p) || p._grabbing);
+  if (grabbing) {
+    if ((p.flyAlt || 0) > 0.08) p.descend();
+    p.tryGrab(balls, dt, match);
+    p.stickY();
+    return;
+  }
+
   const forceLocoMove = shipGate || locoOut.loco === "shipDoor" || !fighting || !locoOut.allowFight;
-  if (forceLocoMove && dir.lengthSq() > 0.25) {
+  if (shipGate && dir.lengthSq() > 0.04) {
     dir.normalize();
-    smoothYaw(p, Math.atan2(dir.x, dir.z), dt, carrying || shipGate ? 10 : 3.8);
+    const x = p.mesh.position.x;
+    if (Math.abs(x) > 1.2 && nearAnyShip(p.pos(), 48) && !inShipBase(p.pos(), p.faccion === "z" ? "f" : "z"))
+      p.mesh.position.x += -x * Math.min(1, dt * 4.5);
+    p.yaw = Math.atan2(dir.x, dir.z);
+    aiMove(p, dir, true, dt);
+  } else if (forceLocoMove && dir.lengthSq() > 0.25) {
+    dir.normalize();
+    smoothYaw(p, Math.atan2(dir.x, dir.z), dt, 3.8);
     const moveDir = new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw));
-    moveDir.lerp(dir, carrying || shipGate ? 0.8 : 0.4).normalize();
-    aiMove(p, moveDir, locoOut.run || shipGate, dt);
+    moveDir.lerp(dir, 0.4).normalize();
+    aiMove(p, moveDir, locoOut.run, dt);
   }
 
   p.tryGrab(balls, dt, match);

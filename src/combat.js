@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { SUPER_KI, superRank } from "./config.js";
+import { clipOnceDuration } from "./capsuleAnim.js";
 import { powerStyle, makePowerMesh, alignBeam, spawnBurst, spawnClash, spawnHit, spawnMuzzle, spawnMeleeArc, spawnImpactRing, spawnTelegraph } from "./powers.js";
 import { playSfx, atPos, stopSfxLoop } from "./sfx.js";
 
@@ -48,7 +49,9 @@ export class Combat {
     const flying = (at.flyAlt || 0) > 0.28 || !!at.volando;
     const dive = flying && (at.rush || 0) > 0.88;
     at.airMelee = flying ? (dive ? "elbow" : step === 1 ? "kick" : "upright") : null;
-    at.posePunch = at.airMelee === "elbow" ? 0.42 : at.airMelee === "kick" || step === 2 ? 0.48 : 0.52;
+    const clipName = at.airMelee === "elbow" ? "elbow" : at.airMelee === "kick" || step === 2 ? "punchKick" : step === 1 ? "punchTwo" : "punch";
+    const clipDur = clipOnceDuration(at._anims?.[clipName], at.airMelee === "elbow" ? 0.42 : at.airMelee === "kick" || step === 2 ? 0.48 : 0.52);
+    at.posePunch = clipDur;
     at._punchDur = at.posePunch;
     at.cooldown = at.airMelee === "elbow" ? 0.38 : at.airMelee === "kick" || step === 2 ? 0.55 : 0.32;
     if (at.airMelee === "kick") at.punchStep = 2;

@@ -350,7 +350,7 @@ function addEarthTrees(scene, thick) {
     guard++;
     const x = (Math.random() * 2 - 1) * m;
     const z = (Math.random() * 2 - 1) * m;
-    if (Math.hypot(x, z + BASE_Z) < 28 || Math.hypot(x, z - BASE_Z) < 28) continue;
+    if (Math.hypot(x, z + BASE_Z) < BASE_PAD_R + 24 || Math.hypot(x, z - BASE_Z) < BASE_PAD_R + 24) continue;
     const gy = groundHeight(x, z);
     if (gy < WATER_Y + 0.6 || earthMountAmt(x, z) > 0.48) continue;
     pts.push({
@@ -401,7 +401,7 @@ function addEarthGrass(scene) {
     g++;
     const x = (Math.random() * 2 - 1) * m;
     const z = (Math.random() * 2 - 1) * m;
-    if (Math.hypot(x, z + BASE_Z) < 18 || Math.hypot(x, z - BASE_Z) < 18) continue;
+    if (Math.hypot(x, z + BASE_Z) < BASE_PAD_R + 24 || Math.hypot(x, z - BASE_Z) < BASE_PAD_R + 24) continue;
     const gy = groundHeight(x, z);
     if (gy < WATER_Y + 0.5 || earthMountAmt(x, z) > 0.45) continue;
     dummy.position.set(x, gy + 0.35, z);
@@ -419,7 +419,7 @@ function addEarthGrass(scene) {
     g++;
     const x = (Math.random() * 2 - 1) * m;
     const z = (Math.random() * 2 - 1) * m;
-    if (Math.hypot(x, z + BASE_Z) < 22) continue;
+    if (Math.hypot(x, z + BASE_Z) < BASE_PAD_R + 24 || Math.hypot(x, z - BASE_Z) < BASE_PAD_R + 24) continue;
     const gy = groundHeight(x, z);
     if (gy < WATER_Y + 0.6 || earthMountAmt(x, z) > 0.45) continue;
     dummy.position.set(x, gy + 0.4, z);
@@ -462,7 +462,7 @@ function addCellArchipelago(scene) {
     const z = (Math.random() * 2 - 1) * m * 0.7;
     const gy = groundHeight(x, z);
     if (gy < WATER_Y + 11) continue;
-    if (Math.hypot(x, z + BASE_Z) < 28 || Math.hypot(x, z - BASE_Z) < 28) continue;
+    if (Math.hypot(x, z + BASE_Z) < BASE_PAD_R + 24 || Math.hypot(x, z - BASE_Z) < BASE_PAD_R + 24) continue;
     const s = 1.4 + Math.random() * 1.2;
     const body = new THREE.Mesh(new THREE.BoxGeometry(2.4 * s, 1.8 * s, 2.2 * s), wall);
     body.position.set(x, gy + 0.9 * s, z);
@@ -500,7 +500,7 @@ function addCellArchipelago(scene) {
 
 function addKameHouse(scene) {
   const x = -18;
-  const z = -BASE_Z + 28;
+  const z = -BASE_Z + 82;
   const y = groundHeight(x, z);
   const wall = new THREE.MeshLambertMaterial({ color: 0xfff8e1 });
   const roofM = new THREE.MeshLambertMaterial({ color: 0xe53935 });
@@ -524,7 +524,7 @@ function addAjisa(scene) {
     guard++;
     const x = (Math.random() * 2 - 1) * m;
     const z = (Math.random() * 2 - 1) * m;
-    if (Math.hypot(x, z + BASE_Z) < 22 || Math.hypot(x, z - BASE_Z) < 22) continue;
+    if (Math.hypot(x, z + BASE_Z) < BASE_PAD_R + 18 || Math.hypot(x, z - BASE_Z) < BASE_PAD_R + 18) continue;
     if (Math.hypot(x - patriarchHill.x, z - patriarchHill.z) < 42) continue;
     if (Math.hypot(x + 70, z + BASE_Z - 110) < 18) continue;
     if (Math.hypot(x - 160, z - BASE_Z + 160) < 42) continue;
@@ -767,8 +767,8 @@ function namekVillage(scene, cx, cz, n = 7, r = 22) {
 }
 
 function addBulmaShip(scene) {
-  const x = 22;
-  const z = -BASE_Z;
+  const x = 72;
+  const z = -BASE_Z + 70;
   const y = groundHeight(x, z);
   const white = new THREE.MeshLambertMaterial({ color: 0xfafafa });
   const orange = new THREE.MeshLambertMaterial({ color: 0xff6d00 });
@@ -792,8 +792,8 @@ function addBulmaShip(scene) {
 }
 
 function addFreezerShip(scene) {
-  const x = 58;
-  const z = BASE_Z;
+  const x = 140;
+  const z = BASE_Z - 95;
   const y = groundHeight(x, z);
   const hullM = new THREE.MeshLambertMaterial({ color: 0xeceff1 });
   const trim = new THREE.MeshLambertMaterial({ color: 0x6a1b9a });

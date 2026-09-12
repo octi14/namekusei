@@ -54,32 +54,27 @@ export function shipDist(pos, faccion) {
  * Devuelve { x, z, land: true } o null si no aplica.
  */
 export function steerShipNav(px, pz, faccion, goal) {
-  const wp = shipDoorWaypoints(faccion);
-  const d = Math.hypot(px - wp.origin.x, pz - wp.origin.z);
+  const o = baseOrigin(faccion);
+  const door = baseDoorDir(faccion);
+  const dx = px - o.x;
+  const dz = pz - o.z;
+  const d = Math.hypot(dx, dz);
   const inside = d < BASE_INNER_R - 0.4;
-  const to = (t) => {
-    const dx = t.x - px;
-    const dz = t.z - pz;
-    const len = Math.hypot(dx, dz) || 1;
-    return { x: dx / len, z: dz / len, land: true, dist: len, inside };
+  const nrm = (x, z) => {
+    const len = Math.hypot(x, z) || 1;
+    return { x: x / len, z: z / len, land: true, dist: len, inside };
   };
 
   if (goal === "exit") {
     if (!inside && d > BASE_INNER_R + 10) return null;
-    const doorD = Math.hypot(px - wp.door.x, pz - wp.door.z);
-    if (inside && doorD > 4) return to(wp.door);
-    return to(wp.out);
+    if (Math.abs(dx) > 4) return nrm(-dx, 0);
+    return nrm(0, door);
   }
 
   if (goal === "enter" || goal === "deposit") {
-    if (inside) {
-      if (goal === "deposit") return to(wp.in);
-      return null;
-    }
-    const outD = Math.hypot(px - wp.out.x, pz - wp.out.z);
-    // Primero al pie de la rampa, luego al umbral
-    if (outD > 6 && d > BASE_INNER_R + 4) return to(wp.out);
-    return to(wp.door);
+    if (inside) return goal === "deposit" ? nrm(-dx, -dz) : null;
+    if (Math.abs(dx) > 4) return nrm(-dx, 0);
+    return nrm(0, -door);
   }
   return null;
 }
@@ -96,7 +91,7 @@ export function nearAnyShip(pos, margin = 6) {
 export const SHIP_CEIL_ALT = 8.6;
 /** Alto útil de la puerta (no se sale volando por arriba del marco). */
 export const SHIP_DOOR_ALT = 6.8;
-export const SHIP_DOOR_HALF_W = 8.2;
+export const SHIP_DOOR_HALF_W = 10.5;
 /** Piso de nave sobre el pad aplanado. */
 export const SHIP_DECK = 0.55;
 
@@ -135,8 +130,8 @@ export function shipWalkHeight(x, z) {
 }
 
 function inDoorZone(dx, dz, door) {
-  if (Math.abs(dx) > SHIP_DOOR_HALF_W) return false;
-  return door > 0 ? dz > BASE_INNER_R * 0.42 : dz < -BASE_INNER_R * 0.42;
+  if (Math.abs(dx) > SHIP_DOOR_HALF_W + 2.4) return false;
+  return door > 0 ? dz > BASE_INNER_R * 0.12 : dz < -BASE_INNER_R * 0.12;
 }
 
 /**
@@ -245,15 +240,17 @@ function labelTex(lines, w = 512, h = 128) {
   return tex;
 }
 
-function hullObstacles(cx, cz, r, doorYaw, gap = 0.55) {
+function hullObstacles(cx, cz, r, doorYaw) {
   const n = 22;
+  const door = doorYaw > 0 ? 1 : -1;
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2;
-    let d = a - doorYaw;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    if (Math.abs(d) < gap) continue;
-    _obst(cx + Math.cos(a) * r, cz + Math.sin(a) * r, 3.2, 999);
+    const px = cx + Math.cos(a) * r;
+    const pz = cz + Math.sin(a) * r;
+    const dx = px - cx;
+    const dz = pz - cz;
+    if (Math.abs(dx) < 13 && (door > 0 ? dz > -4 : dz < 4)) continue;
+    _obst(px, pz, 2.6, 14);
   }
 }
 
@@ -338,7 +335,7 @@ function addInteriorRoom(g, y0, innerR, ceilY, door, doorHalfW = 6.5, floorY = n
     const sz = Math.cos(mid) * innerR;
     // puerta hacia ±Z según door
     const alongDoor = door > 0 ? sz : -sz;
-    if (alongDoor > innerR * 0.65 && Math.abs(sx) < doorHalfW) continue;
+    if (alongDoor > innerR * 0.38 && Math.abs(sx) < doorHalfW + 1.2) continue;
     const chord = 2 * innerR * Math.sin((a1 - a0) * 0.5);
     const panel = new THREE.Mesh(new THREE.BoxGeometry(chord * 1.05, wallH, 0.55), wallMat);
     panel.position.set(Math.sin(mid) * (innerR - 0.2), deckY + wallH * 0.5, Math.cos(mid) * (innerR - 0.2));
@@ -450,23 +447,8 @@ export function buildCapsuleCorpBase(scene) {
   banner.rotation.y = door > 0 ? 0 : Math.PI;
   g.add(banner);
 
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    if (Math.abs(a - (door > 0 ? Math.PI / 2 : -Math.PI / 2)) < 0.4) continue;
-    const w = new THREE.Mesh(new THREE.SphereGeometry(1.15, 10, 8), glass);
-    w.position.set(Math.cos(a) * R * 0.94, cy, Math.sin(a) * R * 0.94);
-    g.add(w);
-  }
-
-  const hatchYaw = door > 0 ? 0 : Math.PI;
-  const doorFrame = new THREE.Mesh(new THREE.TorusGeometry(6.6, 0.45, 8, 24, Math.PI * 1.28), metal);
-  doorFrame.position.set(0, deckY + 2.2, door * (innerR + 1.2));
-  doorFrame.rotation.y = hatchYaw;
-  doorFrame.rotation.x = Math.PI / 2;
-  g.add(doorFrame);
-
   const rampInfo = addDoorRamp(g, o, door, innerR, {
-    width: 8.5,
+    width: 12,
     thick: 0.35,
     outDist: 15,
     floorY: deckY,
@@ -479,14 +461,6 @@ export function buildCapsuleCorpBase(scene) {
       polygonOffsetUnits: -2,
     }),
   });
-  const mouth = new THREE.Mesh(
-    new THREE.CircleGeometry(5.8, 22),
-    new THREE.MeshBasicMaterial({ color: 0xffe082, transparent: true, opacity: 0.4 })
-  );
-  mouth.position.set(0, deckY + 2.1, door * (innerR - 0.1));
-  mouth.rotation.y = hatchYaw;
-  g.add(mouth);
-
   registerShipWalk(faccion, {
     ox: o.x,
     oz: o.z,
@@ -518,7 +492,7 @@ export function buildCapsuleCorpBase(scene) {
   g.add(_shadow(core));
 
   scene.add(g);
-  hullObstacles(o.x, o.z, BASE_HULL_R * 0.95, door > 0 ? Math.PI / 2 : -Math.PI / 2, 0.55);
+  hullObstacles(o.x, o.z, BASE_HULL_R * 0.95, door > 0 ? Math.PI / 2 : -Math.PI / 2);
   return g;
 }
 
@@ -576,8 +550,17 @@ export function buildFreezerBase(scene) {
   gem.position.set(0, y0 + 21, door * 14);
   g.add(gem);
 
+  const doorA = door > 0 ? Math.PI / 2 : -Math.PI / 2;
+  const nearDoorAng = (a) => {
+    let d = a - doorA;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return Math.abs(d) < 0.62;
+  };
+
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * Math.PI * 2;
+    if (nearDoorAng(a)) continue;
     const w = new THREE.Mesh(new THREE.SphereGeometry(0.95, 8, 6), glass);
     w.position.set(Math.cos(a) * 40.5, y0 + 9.5, Math.sin(a) * 40.5);
     g.add(w);
@@ -585,6 +568,7 @@ export function buildFreezerBase(scene) {
 
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
+    if (nearDoorAng(a)) continue;
     const bulb = new THREE.Mesh(new THREE.SphereGeometry(3.2, 10, 8), gold);
     bulb.position.set(Math.cos(a) * 28, y0 + 5.2, Math.sin(a) * 28);
     g.add(bulb);
@@ -601,11 +585,10 @@ export function buildFreezerBase(scene) {
   g.add(glowPad);
 
   const rampInfo = addDoorRamp(g, o, door, innerR, {
-    width: 11,
+    width: 13,
     thick: 0.38,
     outDist: 16,
     floorY: deckY,
-    rails: true,
     mat: new THREE.MeshStandardMaterial({
       color: 0xb0bec5,
       metalness: 0.5,
@@ -615,14 +598,6 @@ export function buildFreezerBase(scene) {
       polygonOffsetUnits: -2,
     }),
   });
-
-  const hatchLight = new THREE.Mesh(
-    new THREE.PlaneGeometry(10, 9.5),
-    new THREE.MeshBasicMaterial({ color: 0xffcc80, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
-  );
-  hatchLight.position.set(0, deckY + 2.6, door * (innerR + 0.5));
-  hatchLight.rotation.y = door > 0 ? 0 : Math.PI;
-  g.add(hatchLight);
 
   registerShipWalk(faccion, {
     ox: o.x,
@@ -639,6 +614,7 @@ export function buildFreezerBase(scene) {
 
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + 0.2;
+    if (nearDoorAng(a)) continue;
     const lx = Math.cos(a) * 36;
     const lz = Math.sin(a) * 36;
     const upper = new THREE.Mesh(new THREE.BoxGeometry(1.6, 4.5, 1.6), cream);
@@ -656,7 +632,7 @@ export function buildFreezerBase(scene) {
   }
 
   scene.add(g);
-  hullObstacles(o.x, o.z, BASE_HULL_R * 1.08, door > 0 ? Math.PI / 2 : -Math.PI / 2, 0.58);
+  hullObstacles(o.x, o.z, BASE_HULL_R * 1.08, door > 0 ? Math.PI / 2 : -Math.PI / 2);
   return g;
 }
 
