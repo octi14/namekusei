@@ -59,15 +59,16 @@ function patriarchDeck(x, z) {
   return (patriarchHill.baseY || 0) + PAT_H * t;
 }
 
-/** Plataformas secas bajo las naves en Namek (la Z cae en valle bajo el agua). */
-function namekBaseLand(x, z) {
+/** Meseta seca bajo cada nave, sigue el BASE_Z actual (cualquier tamaño de mapa). */
+function baseLandH(x, z) {
+  const dry = WATER_Y + 4.2;
   let best = 0;
   for (const cz of [-BASE_Z, BASE_Z]) {
-    const D = Math.hypot(x / 125, (z - cz) / 105);
+    const D = Math.hypot(x / 138, (z - cz) / 118);
     if (D >= 1) continue;
-    const edge = D < 0.62 ? 1 : (1 - D) / 0.38;
+    const edge = D < 0.58 ? 1 : (1 - D) / 0.42;
     const t = edge * edge * (3 - 2 * edge);
-    best = Math.max(best, 7.2 * t + Math.sin(x * 0.04) * Math.cos((z - cz) * 0.035) * 0.8 * t);
+    best = Math.max(best, dry * t + Math.sin(x * 0.04) * Math.cos((z - cz) * 0.035) * 0.7 * t);
   }
   return best;
 }
@@ -145,8 +146,6 @@ function earthHeight(x, z) {
 }
 
 const CELL_ISLANDS = [
-  { x: 0, z: -BASE_Z, rx: 160, rz: 128, h: 17, hills: 1 },
-  { x: 0, z: BASE_Z, rx: 155, rz: 122, h: 17, hills: 1 },
   { x: 50, z: -280, rx: 240, rz: 100, h: 16, peak: 22, hills: 1 },
   { x: -70, z: 240, rx: 210, rz: 85, h: 15, hills: 1 },
   { x: -400, z: -480, rx: 150, rz: 72, h: 14, peak: 18, hills: 1 },
@@ -242,6 +241,8 @@ function cellIslandH(x, z, isl) {
 
 function cellHeight(x, z) {
   let h = -14;
+  h = Math.max(h, cellIslandH(x, z, { x: 0, z: -BASE_Z, rx: 168, rz: 132, h: 17, hills: 1 }));
+  h = Math.max(h, cellIslandH(x, z, { x: 0, z: BASE_Z, rx: 162, rz: 126, h: 17, hills: 1 }));
   for (const isl of CELL_ISLANDS) h = Math.max(h, cellIslandH(x, z, isl));
   return h;
 }
@@ -265,11 +266,11 @@ function rawGroundHeight(x, z) {
   let h = namekSine(x, z);
   if (mapId === "earth") h = earthHeight(x, z);
   else if (mapId === "namek") {
-    const land = namekBaseLand(x, z);
-    if (land > 0) h = Math.max(h, land);
     const deck = patriarchDeck(x, z);
     if (deck != null) h = Math.max(h, deck);
   }
+  const land = baseLandH(x, z);
+  if (land > 0) h = Math.max(h, land);
   return h;
 }
 
@@ -277,7 +278,7 @@ function rawGroundHeight(x, z) {
 const _padH = { z: 0, f: 0 };
 
 export function refreshBasePads() {
-  const minDry = mapId === "namek" ? WATER_Y + 2.8 : -1e9;
+  const minDry = WATER_Y + 2.8;
   _padH.z = Math.max(rawGroundHeight(0, -BASE_Z), minDry);
   _padH.f = Math.max(rawGroundHeight(0, BASE_Z), minDry);
 }
@@ -948,7 +949,7 @@ function waterTex(green = false) {
   const c = document.createElement("canvas");
   c.width = c.height = n;
   const ctx = c.getContext("2d");
-  ctx.fillStyle = green ? "#2e7d32" : "#0277bd";
+  ctx.fillStyle = green ? "#145a32" : "#015079";
   ctx.fillRect(0, 0, n, n);
   for (let i = 0; i < 420; i++) {
     ctx.strokeStyle = green
@@ -1116,12 +1117,12 @@ export function createWorld(scene, id = "namek") {
     new THREE.PlaneGeometry(EXT + 8, EXT + 8),
     new THREE.MeshStandardMaterial({
       map: waterTex(!earth && !cell),
-      color: cell ? 0x0277bd : earth ? 0x4fc3f7 : 0x58b667,
-      roughness: 0.08,
-      metalness: 0.35,
+      color: cell ? 0x01579b : earth ? 0x0277bd : 0x1b5e20,
+      roughness: 0.12,
+      metalness: 0.28,
       transparent: true,
-      opacity: cell ? 0.9 : 0.78,
-      depthWrite: false,
+      opacity: cell ? 0.97 : 0.95,
+      depthWrite: true,
       side: THREE.DoubleSide,
     })
   );

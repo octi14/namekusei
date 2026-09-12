@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import shippedSculpts from "./data/sculpts.json";
 
 function surf(color, opts = {}) {
   const m = {
@@ -120,31 +121,45 @@ export const DEFAULT_SCULPT = {
   shinSx: 1.08,
   shoulderX: 0.24,
   shoulderY: 1.16,
+  armX: 0,
+  armY: 0,
+  armZ: 0,
   hipX: 0.1,
+  hipY: 0.6,
+  thighY: 0,
   // torso
   torsoMul: 0.15,
   hipsMul: 0.17,
   torsoSx: 1.18,
+  torsoChestSx: 1.18,
+  torsoWaistSx: 1.18,
   hipsSx: 1.18,
   torsoLen: 0.55,
+  torsoY: 0,
   hipsLen: 0.28,
   waistYMul: 0.62,
   // pecho
   pecType: "sphere", // none | sphere | flat | split | armor
   chestR: 0.145,
   chestSx: 1.25,
-  chestSy: 1.52,
+  chestSy: 1.18,
   chestSz: 1.08,
   pecR: 0.065,
   pecSep: 0.06,
-  pecY: 1.05,
+  pecY: 0.98,
   pecZ: 0.095,
   pecSx: 1.25,
   pecSy: 1.2,
   pecSz: 1.08,
+  chestY: 0.96,
+  chestZ: 0.02,
+  chestRx: 0,
+  chestRy: 0,
+  chestRz: 0,
   // cuello / cabeza
   neckR: 0.06,
   neckLen: 0.1,
+  neckY: 0,
   headR: 0.16,
   headSx: 1,
   headSy: 1,
@@ -160,6 +175,10 @@ export const DEFAULT_SCULPT = {
   // ojos / cara
   eyeType: "anime", // anime | dot | narrow | wide | none
   eyeSep: 0.05,
+  irisSep: 0.05,
+  irisY: 0.02,
+  irisZ: 0.155,
+  eyeTilt: 0,
   eyeY: 0.02,
   eyeZ: 0.13,
   eyeWhiteR: 0.032,
@@ -167,18 +186,34 @@ export const DEFAULT_SCULPT = {
   eyeSx: 1,
   eyeSy: 0.85,
   brow: 0, // 0–1 cejas
+  browY: 0.035,
+  browTilt: -0.25,
   mouth: 0, // 0–1 boca
-  nose: 0, // 0–1 nariz
+  nose: 0,
+  noseType: "none", // none | bulb | hook | flat | ridge | namek
   thirdEye: 0, // 0 off, 1 on
   // manos / pies
   handScale: 1,
   fingerLen: 1,
+  handRx: 0.12,
+  handRy: 0,
+  handRz: 0,
   footScale: 1,
+  footLen: 2.45,
+  footSx: 1.22,
+  footSy: 0.36,
+  footZ: 0.22,
+  footY: 0,
+  footPitch: 0,
+  bootCuff: 1.05,
   showHands: 1,
   showBoots: 1,
   // capa / cinturón
   capeScale: 1,
   capeThick: 1,
+  capeX: 0,
+  capeY: 0,
+  capeZ: 0,
   beltR: 0.155,
   beltThick: 0.034,
   showBelt: 1,
@@ -196,12 +231,14 @@ export const DEFAULT_SCULPT = {
   clothFit: 1.12,
   hairSpikeR: 1,
   hairSpikeLen: 1,
+  hairY: 0,
 };
 
 export const SCULPT_SELECTS = {
   pecType: ["none", "sphere", "flat", "split", "armor"],
   earType: ["none", "round", "pointed", "wide"],
   eyeType: ["anime", "dot", "narrow", "wide", "none"],
+  noseType: ["none", "bulb", "hook", "flat", "ridge", "namek"],
 };
 
 const SCULPT_MAP_KEY = "namekusei.sculptMap";
@@ -240,16 +277,22 @@ function migrateSculpt(j) {
     if (out.shinSx == null) out.shinSx = out.legSx * 0.95;
     delete out.legSx;
   }
+  if (out.torsoChestSx == null) out.torsoChestSx = out.torsoSx ?? 1.18;
+  if (out.torsoWaistSx == null) out.torsoWaistSx = out.torsoSx ?? 1.18;
+  if (out.altura == null && out.moldAltura != null) out.altura = out.moldAltura;
   return out;
 }
 
 function readSculptMap() {
   try {
+    const shipped = shippedSculpts && typeof shippedSculpts === "object" ? shippedSculpts : {};
     const raw = localStorage.getItem(SCULPT_MAP_KEY);
     if (raw) {
       const j = JSON.parse(raw);
-      return j && typeof j === "object" ? j : {};
+      const local = j && typeof j === "object" ? j : {};
+      return { ...shipped, ...local };
     }
+    if (Object.keys(shipped).length) return { ...shipped };
     // migrar guardado global viejo → solo Gokú (ya no aplica a todos)
     const old = localStorage.getItem(SCULPT_KEY_OLD);
     if (old) {
@@ -271,6 +314,13 @@ function writeSculptMap(map) {
 
 export function sculptIdFromLook(look = {}) {
   return look.who || look.sculptId || look.name || null;
+}
+
+export function sculptAltura(id, statsH) {
+  const sc = id ? loadSavedSculpt(id) : {};
+  const a = sc.altura ?? sc.moldAltura;
+  if (a != null && a > 0.5) return a;
+  return (statsH ?? 1.18) * 1.21;
 }
 
 export function loadSavedSculpt(id) {
@@ -317,8 +367,10 @@ function latheProfile(pts, segs = 16) {
  */
 function loftGeo(profile, len, opts = {}) {
   const radial = opts.radial ?? 14;
-  const sx = opts.sx ?? 1;
-  const sz = opts.sz ?? 1;
+  const sxOpt = opts.sx ?? 1;
+  const szOpt = opts.sz ?? 1;
+  const sxAt = typeof sxOpt === "function" ? sxOpt : () => sxOpt;
+  const szAt = typeof szOpt === "function" ? szOpt : () => szOpt;
   const n = profile.length;
   const pos = [];
   const uvs = [];
@@ -328,6 +380,8 @@ function loftGeo(profile, len, opts = {}) {
     const y = half - (i / (n - 1)) * len;
     const r = Math.max(0.004, profile[i]);
     const v = i / (n - 1);
+    const sx = sxAt(v);
+    const sz = szAt(v);
     for (let j = 0; j < radial; j++) {
       const a = (j / radial) * Math.PI * 2;
       pos.push(Math.cos(a) * r * sx, y, Math.sin(a) * r * sz);
@@ -407,27 +461,39 @@ function handMesh(r, mat, fingerLen = 1) {
   return g;
 }
 
-/** Pie / bota. */
-function footMesh(r, mat) {
+/** Pie plano (suela en XZ). loft Y → rot X 90°: largo en Z, grosor en Y. */
+function footMesh(r, mat, o = {}) {
   const g = new THREE.Group();
-  const sole = loftMesh([r * 0.5, r * 1.05, r * 1.0, r * 0.7], r * 0.7, mat, {
-    radial: 12,
-    sx: 1.15,
-    sz: 1.55,
-  });
-  sole.rotation.x = Math.PI / 2;
-  sole.position.z = r * 0.15;
+  const len = r * (o.footLen ?? 2.45);
+  const sx = o.footSx ?? 1.22;
+  const sy = o.footSy ?? 0.36;
+  const cuffH = r * (o.bootCuff ?? 1.05);
+  const pitch = o.footPitch ?? 0;
+  const halfH = r * sy;
+  const cuff = loftMesh([r * 1.02, r * 1.08, r * 1.04], cuffH, mat, { radial: 12, sx: 1.08, sz: 1.08 });
+  cuff.position.y = -cuffH * 0.2;
+  g.add(cuff);
+  const y0 = -cuffH * 0.38 - halfH * 0.35;
+  const z0 = len * 0.26;
+  const sole = loftMesh(
+    [r * 0.68, r * 1.02, r * 1.1, r * 1.02, r * 0.78],
+    len,
+    mat,
+    { radial: 12, sx, sz: sy }
+  );
+  sole.rotation.x = Math.PI / 2 + pitch;
+  sole.position.set(0, y0, z0);
   g.add(sole);
-  const toe = loftMesh([r * 0.55, r * 0.5, r * 0.35], r * 0.55, mat, { radial: 10, sx: 1.3, sz: 0.9 });
-  toe.rotation.x = Math.PI / 2;
-  toe.position.set(0, 0, r * 0.7);
+  const toe = loftMesh([r * 0.78, r * 0.62, r * 0.4], r * 0.62, mat, { radial: 10, sx: sx * 0.98, sz: sy * 0.9 });
+  toe.rotation.x = Math.PI / 2 + pitch;
+  toe.position.set(0, y0 - halfH * 0.08, z0 + len * 0.48);
   g.add(toe);
   return g;
 }
 
 function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
   const sh = new THREE.Group();
-  sh.position.set(x, y, 0);
+  sh.position.set(x, y, extras?.z ?? 0);
   const uBulk = extras?.upperBulk ?? extras?.bulk ?? 1.12;
   const lBulk = extras?.lowerBulk ?? extras?.bulk ?? 1.08;
   const uSx = extras?.upperSx ?? extras?.sx ?? 1.12;
@@ -491,8 +557,7 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
   if (extras?.hand && extras.showHands !== 0) {
     const hs = extras.handScale ?? 1;
     const hand = handMesh(lowerR * 1.25 * hs, extras.hand, extras.fingerLen ?? 1);
-    hand.position.y = -lowerLen + lowerR * 0.1;
-    hand.rotation.x = 0.12;
+    hand.rotation.set(extras.handRx ?? 0.12, extras.handRy ?? 0, extras.handRz ?? 0);
     hand.scale.multiplyScalar(hs);
     hand.traverse((o) => {
       if (o.isMesh) {
@@ -500,7 +565,12 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
         o.userData.moldId = o.userData.moldId || `hand_${side}`;
       }
     });
-    elbow.add(hand);
+    const wrist = new THREE.Group();
+    wrist.position.y = -lowerLen + lowerR * 0.1;
+    wrist.rotation.order = "XYZ";
+    wrist.add(hand);
+    elbow.add(wrist);
+    sh.userData.wrist = wrist;
   }
   sh.add(elbow);
   sh.userData.elbow = elbow;
@@ -521,7 +591,7 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
     sx: tSx,
     sz: tSx * 0.93,
   });
-  thigh.position.y = -thighLen / 2;
+  thigh.position.y = -thighLen / 2 + (extras?.thighY ?? 0);
   thigh.userData.moldId = `skin_thigh_${side}`;
   thigh.userData.moldFamily = "limb";
   hip.add(thigh);
@@ -531,7 +601,7 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
       sx: tSx * 1.02,
       sz: tSx * 0.95,
     });
-    ct.position.y = -thighLen * 0.45;
+    ct.position.y = -thighLen * 0.45 + (extras?.thighY ?? 0);
     ct.userData.moldId = `cloth_thigh_${side}`;
     ct.userData.moldFamily = "cloth";
     hip.add(ct);
@@ -561,8 +631,8 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
   }
   if (extras?.boot && extras.showBoots !== 0) {
     const fs = extras.footScale ?? 1;
-    const boot = footMesh(shinR * 1.4 * fs, extras.boot);
-    boot.position.set(0, -shinLen + shinR * 0.15, 0.05);
+    const boot = footMesh(shinR * 1.4, extras.boot, extras);
+    boot.position.set(0, -shinLen + (extras.footY ?? 0), extras.footZ ?? 0);
     boot.scale.multiplyScalar(fs);
     boot.traverse((o) => {
       if (o.isMesh) {
@@ -577,77 +647,211 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
   return hip;
 }
 
+function hairSpike(mat, s, hr, hl, o) {
+  const m = new THREE.Mesh(
+    new THREE.ConeGeometry((o.r ?? 0.042) * s * hr, (o.len ?? 0.22) * s * hl, 8),
+    mat
+  );
+  m.position.set((o.x ?? 0) * s, (o.y ?? 0.14) * s, (o.z ?? 0) * s);
+  m.rotation.set(o.rx ?? 0, o.ry ?? 0, o.rz ?? 0);
+  m.scale.set(o.sx ?? 1, 1, o.sz ?? 1);
+  return m;
+}
+
+function hairCap(mat, s, y, sx, sy, sz, headR = 0.16) {
+  const cap = new THREE.Mesh(
+    new THREE.SphereGeometry(headR * s * 1.04, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.92),
+    mat
+  );
+  cap.position.y = y * s;
+  cap.scale.set(sx, sy, sz);
+  return cap;
+}
+
 function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
   const hc = surf(look.hairC ?? 0x111, { roughness: 0.55 });
   hc.userData.ssjHair = true;
   const t = look.hair;
   const hr = sc.hairSpikeR ?? 1;
   const hl = sc.hairSpikeLen ?? 1;
+  const hk = (sc.headR || 0.16) / 0.16;
+  const hsx = sc.headSx || 1;
+  const hsy = sc.headSy || 1;
+  const hsz = sc.headSz || 1;
+  const hairRoot = new THREE.Group();
+  hairRoot.position.y = (sc.hairY || 0) * s;
+  headG.add(hairRoot);
   const tagHair = (m, id) => {
     m.userData.moldId = id;
     m.userData.moldFamily = "hair";
-    headG.add(m);
+    hairRoot.add(m);
   };
-  if (t === "spike" || t === "goku" || t === "gohan") {
-    for (let i = 0; i < 7; i++) {
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.05 * s * hr, 0.24 * s * hl, 12), hc);
-      const a = (i / 7) * Math.PI * 2;
-      spike.position.set(Math.cos(a) * 0.07 * s, 0.13 * s, Math.sin(a) * 0.07 * s);
-      spike.rotation.x = -0.4;
-      spike.rotation.z = Math.cos(a) * 0.35;
-      tagHair(spike, `hair_spike_${i}`);
-    }
-    const top = new THREE.Mesh(new THREE.ConeGeometry(0.065 * s * hr, 0.3 * s * hl, 12), hc);
-    top.position.y = 0.18 * s;
-    tagHair(top, "hair_top");
+  const spikes = (list, pre) =>
+    list.forEach((o, i) =>
+      tagHair(
+        hairSpike(hc, s, hr, hl, {
+          ...o,
+          x: (o.x ?? 0) * hk * hsx,
+          y: (o.y ?? 0.14) * hk * hsy,
+          z: (o.z ?? 0) * hk * hsz,
+          r: (o.r ?? 0.042) * hk,
+          len: (o.len ?? 0.22) * hk,
+        }),
+        `${pre}_${i}`
+      )
+    );
+  const putCap = (y, sx, sy, sz, id = "hair_cap") =>
+    tagHair(hairCap(hc, s, y * hk, sx * hsx, sy * hsy, sz * hsz, sc.headR || 0.16), id);
+
+  if (t === "spike" || t === "goku") {
+    putCap(0.04, 1.05, 0.72, 1.08);
+    spikes(
+      [
+        { x: -0.045, y: 0.07, z: 0.13, rx: 1.15, rz: 0.22, len: 0.17, r: 0.032 },
+        { x: 0.045, y: 0.07, z: 0.13, rx: 1.15, rz: -0.22, len: 0.17, r: 0.032 },
+        { x: 0, y: 0.08, z: 0.12, rx: 1.05, len: 0.12, r: 0.028 },
+        { x: -0.1, y: 0.14, z: 0.02, rx: -0.35, rz: 0.55, len: 0.2, r: 0.04 },
+        { x: 0.1, y: 0.14, z: 0.02, rx: -0.35, rz: -0.55, len: 0.2, r: 0.04 },
+        { x: -0.07, y: 0.16, z: -0.06, rx: -0.85, rz: 0.28, len: 0.26, r: 0.045 },
+        { x: 0.07, y: 0.16, z: -0.06, rx: -0.85, rz: -0.28, len: 0.26, r: 0.045 },
+        { x: -0.04, y: 0.17, z: -0.1, rx: -1.05, rz: 0.12, len: 0.32, r: 0.048 },
+        { x: 0.04, y: 0.17, z: -0.1, rx: -1.05, rz: -0.12, len: 0.32, r: 0.048 },
+        { x: 0, y: 0.18, z: -0.12, rx: -1.15, len: 0.38, r: 0.055 },
+        { x: 0, y: 0.2, z: -0.04, rx: -0.55, len: 0.28, r: 0.05 },
+      ],
+      "hair_goku"
+    );
+  } else if (t === "gohan") {
+    putCap(0.05, 1.08, 0.78, 1.05);
+    spikes(
+      [
+        { x: -0.05, y: 0.08, z: 0.12, rx: 0.95, rz: 0.2, len: 0.12, r: 0.03 },
+        { x: 0.05, y: 0.08, z: 0.12, rx: 0.95, rz: -0.2, len: 0.12, r: 0.03 },
+        { x: -0.09, y: 0.14, z: 0.04, rx: -0.2, rz: 0.4, len: 0.16, r: 0.038 },
+        { x: 0.09, y: 0.14, z: 0.04, rx: -0.2, rz: -0.4, len: 0.16, r: 0.038 },
+        { x: -0.06, y: 0.16, z: -0.05, rx: -0.55, rz: 0.2, len: 0.18, r: 0.04 },
+        { x: 0.06, y: 0.16, z: -0.05, rx: -0.55, rz: -0.2, len: 0.18, r: 0.04 },
+        { x: 0, y: 0.18, z: -0.02, rx: -0.25, len: 0.2, r: 0.048 },
+        { x: -0.05, y: 0.12, z: -0.12, rx: -1.15, rz: 0.15, len: 0.16, r: 0.042 },
+        { x: 0.05, y: 0.12, z: -0.12, rx: -1.15, rz: -0.15, len: 0.16, r: 0.042 },
+        { x: 0, y: 0.1, z: -0.13, rx: -1.25, len: 0.18, r: 0.05 },
+      ],
+      "hair_gohan"
+    );
+  } else if (t === "trunks") {
+    putCap(0.05, 1.02, 0.7, 1.0);
+    spikes(
+      [
+        { x: -0.035, y: 0.06, z: 0.14, rx: 1.25, rz: 0.18, len: 0.18, r: 0.028, sx: 0.7 },
+        { x: 0.035, y: 0.06, z: 0.14, rx: 1.25, rz: -0.18, len: 0.16, r: 0.026, sx: 0.7 },
+        { x: 0, y: 0.05, z: 0.13, rx: 1.35, len: 0.14, r: 0.024, sx: 0.65 },
+        { x: -0.08, y: 0.16, z: 0.02, rx: -0.08, rz: 0.22, len: 0.34, r: 0.036, sx: 0.55 },
+        { x: -0.04, y: 0.2, z: 0, rx: 0.05, rz: 0.08, len: 0.42, r: 0.038, sx: 0.5 },
+        { x: 0, y: 0.22, z: -0.01, rx: 0, len: 0.48, r: 0.04, sx: 0.48 },
+        { x: 0.04, y: 0.2, z: 0, rx: 0.05, rz: -0.08, len: 0.42, r: 0.038, sx: 0.5 },
+        { x: 0.08, y: 0.16, z: 0.02, rx: -0.08, rz: -0.22, len: 0.34, r: 0.036, sx: 0.55 },
+        { x: -0.06, y: 0.14, z: -0.08, rx: -0.7, rz: 0.15, len: 0.22, r: 0.034, sx: 0.55 },
+        { x: 0.06, y: 0.14, z: -0.08, rx: -0.7, rz: -0.15, len: 0.22, r: 0.034, sx: 0.55 },
+      ],
+      "hair_trunks"
+    );
+  } else if (t === "raditz") {
+    putCap(0.03, 1.08, 0.75, 1.12);
+    spikes(
+      [
+        { x: -0.05, y: 0.08, z: 0.12, rx: 1.1, rz: 0.25, len: 0.2, r: 0.03 },
+        { x: 0.05, y: 0.08, z: 0.12, rx: 1.1, rz: -0.25, len: 0.2, r: 0.03 },
+        { x: -0.1, y: 0.12, z: -0.04, rx: -1.2, rz: 0.4, len: 0.45, r: 0.04, sx: 0.45 },
+        { x: 0.1, y: 0.12, z: -0.04, rx: -1.2, rz: -0.4, len: 0.45, r: 0.04, sx: 0.45 },
+        { x: -0.05, y: 0.14, z: -0.1, rx: -1.45, rz: 0.15, len: 0.55, r: 0.042, sx: 0.4 },
+        { x: 0.05, y: 0.14, z: -0.1, rx: -1.45, rz: -0.15, len: 0.55, r: 0.042, sx: 0.4 },
+        { x: 0, y: 0.12, z: -0.12, rx: -1.55, len: 0.62, r: 0.048, sx: 0.38 },
+      ],
+      "hair_raditz"
+    );
   } else if (t === "spikeV" || t === "vegeta") {
-    for (let i = 0; i < 6; i++) {
-      const a = -0.7 + (i / 5) * 1.4;
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.04 * s * hr, 0.22 * s * hl, 12), hc);
-      spike.position.set(Math.sin(a) * 0.07 * s, 0.14 * s, -0.04 * s);
-      spike.rotation.x = -0.95;
-      spike.rotation.z = a * 0.35;
-      spike.scale.x = 0.4;
-      tagHair(spike, `hair_veg_${i}`);
-    }
-  } else if (t === "namek" || t === "piccolo" || t === "nail" || t === "dende") {
-    for (const side of [-1, 1]) {
-      const ant = loftMesh(
-        [sc.antR * s, sc.antR * 0.85 * s, sc.antR * 0.65 * s],
-        sc.antLen * s,
-        hc,
-        { radial: 8 }
+    putCap(0.06, 1.0, 0.55, 0.95);
+    for (let i = 0; i < 7; i++) {
+      const a = -0.85 + (i / 6) * 1.7;
+      tagHair(
+        hairSpike(hc, s, hr, hl, {
+          x: Math.sin(a) * 0.08,
+          y: 0.14,
+          z: -0.05,
+          rx: -1.05,
+          rz: a * 0.32,
+          len: 0.2 + (i === 3 ? 0.06 : 0),
+          r: 0.036,
+          sx: 0.38,
+        }),
+        `hair_veg_${i}`
       );
-      ant.position.set(side * sc.antSpread * s, 0.18 * s, 0.06 * s);
-      ant.rotation.z = side * -0.28;
-      ant.rotation.x = -0.35;
-      tagHair(ant, `ant_${side > 0 ? "R" : "L"}`);
     }
-    if (look.turban) {
-      const cloth = surf(0xf5f5f5, { roughness: 0.85 });
+  } else if (t === "namek" || t === "piccolo" || t === "nail" || t === "dende" || t === "turban") {
+    if (t !== "turban") {
+      for (const side of [-1, 1]) {
+        const ant = loftMesh(
+          [sc.antR * s, sc.antR * 0.85 * s, sc.antR * 0.65 * s],
+          sc.antLen * s,
+          hc,
+          { radial: 8 }
+        );
+        ant.position.set(side * sc.antSpread * s, 0.18 * s, 0.06 * s);
+        ant.rotation.z = side * -0.28;
+        ant.rotation.x = -0.35;
+        tagHair(ant, `ant_${side > 0 ? "R" : "L"}`);
+      }
+    }
+    if (t === "piccolo" || t === "turban" || look.turban) {
+      const cloth = surf(0xf5f5f5, { roughness: 0.88 });
       const wrap = new THREE.Mesh(
         latheProfile(
           [
-            [0.02 * s, 0.12 * s],
-            [0.16 * s, 0.1 * s],
-            [0.175 * s, 0.02 * s],
-            [0.14 * s, -0.04 * s],
-            [0.02 * s, -0.06 * s],
+            [0.01 * s, 0.2 * s],
+            [0.12 * s, 0.18 * s],
+            [0.17 * s, 0.12 * s],
+            [0.185 * s, 0.04 * s],
+            [0.17 * s, -0.02 * s],
+            [0.12 * s, -0.07 * s],
+            [0.02 * s, -0.08 * s],
           ],
-          18
+          20
         ),
         cloth
       );
-      wrap.position.y = 0.06 * s;
+      wrap.position.y = 0.05 * s;
       wrap.userData.moldId = "turban";
       wrap.userData.moldFamily = "cloth";
-      headG.add(wrap);
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.155 * s, 0.028 * s, 10, 22), cloth);
+      hairRoot.add(wrap);
+      const fold = new THREE.Mesh(
+        latheProfile(
+          [
+            [0.14 * s, 0.08 * s],
+            [0.19 * s, 0.05 * s],
+            [0.18 * s, 0.0],
+            [0.12 * s, -0.03 * s],
+          ],
+          16
+        ),
+        cloth
+      );
+      fold.position.set(0.02 * s, 0.07 * s, 0);
+      fold.rotation.z = 0.12;
+      fold.userData.moldId = "turban_fold";
+      fold.userData.moldFamily = "cloth";
+      hairRoot.add(fold);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.162 * s, 0.032 * s, 10, 24), cloth);
       band.rotation.x = Math.PI / 2;
-      band.position.y = 0.04 * s;
+      band.position.y = 0.03 * s;
       band.userData.moldId = "turban_band";
       band.userData.moldFamily = "cloth";
-      headG.add(band);
+      hairRoot.add(band);
+      const knot = new THREE.Mesh(new THREE.SphereGeometry(0.045 * s, 12, 10), cloth);
+      knot.position.set(0, 0.02 * s, 0.16 * s);
+      knot.scale.set(1.35, 0.7, 0.85);
+      knot.userData.moldId = "turban_knot";
+      knot.userData.moldFamily = "cloth";
+      hairRoot.add(knot);
     }
   } else if (t === "tien") {
     /* calvo */
@@ -668,7 +872,7 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
     helm.position.y = 0.02 * s;
     helm.userData.moldId = "helm";
     helm.userData.moldFamily = "cloth";
-    headG.add(helm);
+    hairRoot.add(helm);
     const visor = new THREE.Mesh(
       new THREE.BoxGeometry(0.1 * s, 0.04 * s, 0.06 * s, 2, 1, 1),
       surf(0x263238, { roughness: 0.35, metalness: 0.45 })
@@ -676,7 +880,7 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
     visor.position.set(0.12, 0.02 * s, 0.14 * s);
     visor.userData.moldId = "visor";
     visor.userData.moldFamily = "cloth";
-    headG.add(visor);
+    hairRoot.add(visor);
   } else if (t === "horns" || t === "frieza") {
     for (const side of [-1, 1]) {
       const horn = new THREE.Mesh(new THREE.ConeGeometry(0.035 * s * hr, 0.2 * s * hl, 12), hc);
@@ -712,18 +916,27 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     const wR = (dot ? sc.eyeWhiteR * 0.45 : sc.eyeWhiteR) * (wide ? 1.25 : narrow ? 0.75 : 1);
     const iR = (dot ? sc.eyeIrisR * 0.7 : sc.eyeIrisR) * (wide ? 1.2 : narrow ? 0.7 : 1);
     const sy = narrow ? 0.45 : wide ? 1.05 : sc.eyeSy;
+    const hk = (sc.headR || 0.16) / 0.16;
+    const hsx = sc.headSx || 1;
+    const hsy = sc.headSy || 1;
+    const hsz = sc.headSz || 1;
     for (const side of [-1, 1]) {
       const sideK = side > 0 ? "R" : "L";
       if (!dot) {
-        const w = new THREE.Mesh(new THREE.SphereGeometry(wR * s, 14, 12), whiteM);
-        w.position.set(side * sc.eyeSep * s, sc.eyeY * s, sc.eyeZ * s);
+        const w = new THREE.Mesh(new THREE.SphereGeometry(wR * s * hk, 14, 12), whiteM);
+        w.position.set(side * sc.eyeSep * s * hsx * hk, sc.eyeY * s * hsy * hk, sc.eyeZ * s * hsz * hk);
         w.scale.set(sc.eyeSx, sy, 0.6);
+        w.rotation.z = side * (sc.eyeTilt || 0);
         w.userData.moldId = `eye_${sideK}_w`;
         w.userData.moldFamily = "eye";
         headG.add(w);
       }
-      const e = new THREE.Mesh(new THREE.SphereGeometry(iR * s, 12, 10), eyeM);
-      e.position.set(side * sc.eyeSep * s, sc.eyeY * s, sc.eyeZ * s + (dot ? 0.02 * s : 0.025 * s));
+      const e = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk, 12, 10), eyeM);
+      e.position.set(
+        side * (sc.irisSep ?? sc.eyeSep) * s * hsx * hk,
+        (sc.irisY ?? sc.eyeY) * s * hsy * hk,
+        (sc.irisZ ?? sc.eyeZ + 0.025) * s * hsz * hk
+      );
       if (narrow) e.scale.set(1.2, 0.5, 1);
       e.userData.moldId = `eye_${sideK}_i`;
       e.userData.moldFamily = "eye";
@@ -734,12 +947,56 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     const browM = surf(look.hairC ?? 0x1a1208, { roughness: 0.7 });
     for (const side of [-1, 1]) {
       const b = new THREE.Mesh(new THREE.BoxGeometry(0.05 * s * sc.brow, 0.012 * s, 0.02 * s), browM);
-      b.position.set(side * sc.eyeSep * s, sc.eyeY * s + 0.035 * s, sc.eyeZ * s - 0.01 * s);
-      b.rotation.z = side * -0.25 * sc.brow;
+      b.position.set(
+        side * sc.eyeSep * s,
+        sc.eyeY * s + (sc.browY ?? 0.035) * s,
+        sc.eyeZ * s - 0.01 * s
+      );
+      b.rotation.z = side * (sc.browTilt ?? -0.25);
       headG.add(b);
     }
   }
-  if (sc.nose > 0.05) {
+  if (sc.noseType && sc.noseType !== "none") {
+    const skinN = surf(look.skin, { roughness: 0.7 });
+    const n = Math.max(0.2, sc.nose || 0.45);
+    const ny = sc.eyeY * s - 0.02 * s;
+    const nz = sc.eyeZ * s + 0.02 * s;
+    let nose;
+    if (sc.noseType === "hook") {
+      nose = new THREE.Mesh(new THREE.SphereGeometry(0.016 * s * n, 10, 8), skinN);
+      nose.scale.set(0.55, 1.35, 1.25);
+      nose.rotation.x = 0.55;
+      nose.position.set(0, ny - 0.012 * s, nz + 0.012 * s);
+    } else if (sc.noseType === "flat") {
+      nose = new THREE.Mesh(new THREE.BoxGeometry(0.038 * s * n, 0.014 * s * n, 0.022 * s * n), skinN);
+      nose.position.set(0, ny, nz + 0.008 * s);
+    } else if (sc.noseType === "ridge") {
+      nose = new THREE.Mesh(new THREE.BoxGeometry(0.016 * s * n, 0.04 * s * n, 0.02 * s * n), skinN);
+      nose.position.set(0, ny + 0.008 * s, nz + 0.006 * s);
+      nose.rotation.x = 0.25;
+    } else if (sc.noseType === "namek") {
+      const gN = new THREE.Group();
+      for (const side of [-1, 1]) {
+        const slit = new THREE.Mesh(new THREE.SphereGeometry(0.007 * s * n, 8, 6), surf(0x2e7d32, { roughness: 0.5 }));
+        slit.position.set(side * 0.012 * s, 0, 0.006 * s);
+        slit.scale.set(0.7, 1.4, 0.6);
+        gN.add(slit);
+      }
+      gN.position.set(0, ny, nz);
+      gN.userData.moldId = "nose";
+      gN.userData.moldFamily = "face";
+      headG.add(gN);
+    } else {
+      nose = new THREE.Mesh(new THREE.SphereGeometry(0.018 * s * n, 10, 8), skinN);
+      nose.scale.set(0.7, 1, 1.1);
+      nose.position.set(0, ny, nz);
+    }
+    if (nose) {
+      nose.userData.moldId = "nose";
+      nose.userData.moldFamily = "face";
+      headG.add(nose);
+    }
+  } else if (sc.nose > 0.05) {
     const nose = new THREE.Mesh(
       new THREE.SphereGeometry(0.018 * s * sc.nose, 10, 8),
       surf(look.skin, { roughness: 0.7 })
@@ -804,9 +1061,9 @@ function addEars(headG, s, skin, sc) {
   }
 }
 
-function addPecs(torsoG, s, waistY, torsoC, sc, brute) {
+function addPecs(torsoG, s, waistY, torsoC, sc, brute, ty = 0) {
   if (sc.pecType === "none") return;
-  const y = sc.pecY * s - waistY;
+  const y = sc.pecY * s - waistY + ty;
   const z = sc.pecZ * s;
   const sep = sc.pecSep * s;
   const sx = (brute ? 1.1 : 1) * sc.pecSx;
@@ -880,9 +1137,10 @@ export function makeBody(altura, look, sculpt = {}) {
     roughness: 0.5,
     metalness: 0.12,
   });
-  const white = surf(0xeeeeee, { roughness: 0.4, metalness: 0.2 });
+  const white = surf(look.trim ?? look.boots ?? 0xeeeeee, { roughness: 0.4, metalness: 0.2 });
 
   const waistY = sc.waistYMul * s;
+  const ty = (sc.torsoY || 0) * s;
   const torsoG = new THREE.Group();
   torsoG.position.y = waistY;
   g.add(torsoG);
@@ -902,13 +1160,20 @@ export function makeBody(altura, look, sculpt = {}) {
   hips.userData.moldFamily = clothMat ? "cloth" : "torso";
   g.add(hips);
 
+  const pecW = sc.torsoChestSx ?? sc.torsoSx ?? 1.18;
+  const absW = sc.torsoWaistSx ?? sc.torsoSx ?? 1.18;
+  const torsoSxAt = (v) => {
+    const t = v <= 0.28 ? 0 : v >= 0.72 ? 1 : (v - 0.28) / 0.44;
+    const e = t * t * (3 - 2 * t);
+    return pecW + (absW - pecW) * e;
+  };
   const torsoCore = loftMesh(
     mulProfile(PROF.torso, sc.torsoMul * s * bruteC),
     sc.torsoLen * s,
     torsoC,
-    { radial: 16, sx: sc.torsoSx, sz: sc.torsoSx * 0.85 }
+    { radial: 16, sx: torsoSxAt, sz: (v) => torsoSxAt(v) * 0.85 }
   );
-  torsoCore.position.y = 0.92 * s - waistY;
+  torsoCore.position.y = 0.92 * s - waistY + ty;
   torsoCore.userData.moldId = "torso";
   torsoCore.userData.moldFamily = "torso";
   torsoG.add(torsoCore);
@@ -918,22 +1183,24 @@ export function makeBody(altura, look, sculpt = {}) {
       mulProfile(PROF.torso, sc.torsoMul * s * bruteC * sc.clothFit),
       sc.torsoLen * s * 0.92,
       clothMat,
-      { radial: 16, sx: sc.torsoSx * 1.04, sz: sc.torsoSx * 0.9 }
+      { radial: 16, sx: (v) => torsoSxAt(v) * 1.04, sz: (v) => torsoSxAt(v) * 0.9 }
     );
-    shirt.position.y = 0.9 * s - waistY;
+    shirt.position.y = 0.9 * s - waistY + ty;
     shirt.userData.moldId = "cloth_shirt";
     shirt.userData.moldFamily = "cloth";
     torsoG.add(shirt);
   }
 
+  const chestLocalY = (sc.chestY ?? 0.96) * s - waistY + ty;
   const chest = new THREE.Mesh(new THREE.SphereGeometry(sc.chestR * s, 18, 14), torsoC);
-  chest.position.y = 1.1 * s - waistY;
+  chest.position.set(0, chestLocalY, (sc.chestZ ?? 0) * s);
+  chest.rotation.set(sc.chestRx || 0, sc.chestRy || 0, sc.chestRz || 0);
   chest.scale.set(brute ? sc.chestSx * 1.14 : sc.chestSx, sc.chestSy, sc.chestSz);
   chest.castShadow = true;
   chest.userData.moldId = "chest";
   chest.userData.moldFamily = "torso";
   torsoG.add(chest);
-  addPecs(torsoG, s, waistY, torsoC, sc, brute);
+  addPecs(torsoG, s, waistY, torsoC, sc, brute, ty);
 
   if (sc.showBelt > 0.5) {
     const belt = new THREE.Mesh(
@@ -941,7 +1208,7 @@ export function makeBody(altura, look, sculpt = {}) {
       kit === "namek" ? accent : kit === "armor" ? white : accent
     );
     belt.rotation.x = Math.PI / 2;
-    belt.position.y = 0.72 * s - waistY;
+    belt.position.y = 0.72 * s - waistY + ty;
     belt.userData.moldId = "belt";
     belt.userData.moldFamily = "cloth";
     torsoG.add(belt);
@@ -952,14 +1219,14 @@ export function makeBody(altura, look, sculpt = {}) {
       new THREE.SphereGeometry(0.185 * s, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.55),
       white
     );
-    plate.position.y = 1.02 * s - waistY;
+    plate.position.y = 1.02 * s - waistY + ty;
     plate.rotation.x = 0.15;
     plate.userData.moldId = "armor_plate";
     plate.userData.moldFamily = "cloth";
     torsoG.add(plate);
     for (const side of [-1, 1]) {
       const pad = new THREE.Mesh(new THREE.SphereGeometry(0.09 * s, 14, 12), white);
-      pad.position.set(side * 0.22 * s, 1.18 * s - waistY, 0);
+      pad.position.set(side * 0.22 * s, 1.18 * s - waistY + ty, 0);
       pad.scale.set(1.15, 0.75, 1.05);
       pad.userData.moldId = `armor_pad_${side > 0 ? "R" : "L"}`;
       pad.userData.moldFamily = "cloth";
@@ -968,7 +1235,7 @@ export function makeBody(altura, look, sculpt = {}) {
   }
   if (kit === "frost") {
     const line = new THREE.Mesh(new THREE.BoxGeometry(0.06 * s, 0.38 * s, 0.04 * s, 1, 2, 1), accent);
-    line.position.set(0, 0.98 * s - waistY, 0.16 * s);
+    line.position.set(0, 0.98 * s - waistY + ty, 0.16 * s);
     line.userData.moldId = "frost_line";
     line.userData.moldFamily = "cloth";
     torsoG.add(line);
@@ -978,7 +1245,7 @@ export function makeBody(altura, look, sculpt = {}) {
       new THREE.CylinderGeometry(0.13 * s, 0.14 * s, 0.2 * s, 14),
       new THREE.MeshStandardMaterial({ color: 0x5d4037, roughness: 0.82 })
     );
-    undershirt.position.y = 0.88 * s - waistY;
+    undershirt.position.y = 0.88 * s - waistY + ty;
     undershirt.userData.moldId = "undershirt";
     undershirt.userData.moldFamily = "cloth";
     torsoG.add(undershirt);
@@ -1003,7 +1270,7 @@ export function makeBody(altura, look, sculpt = {}) {
       }),
       capeM
     );
-    cape.position.set(0, 0.82 * s - waistY, -0.06 * s);
+    cape.position.set((sc.capeX || 0) * s, 0.82 * s - waistY + ty + (sc.capeY || 0) * s, -0.06 * s + (sc.capeZ || 0) * s);
     cape.rotation.y = Math.PI;
     cape.userData.wind = true;
     cape.userData.moldId = "cape";
@@ -1014,7 +1281,7 @@ export function makeBody(altura, look, sculpt = {}) {
       capeM
     );
     collar.rotation.x = 0.4;
-    collar.position.set(0, 1.18 * s - waistY, -0.02 * s);
+    collar.position.set((sc.capeX || 0) * s, chestLocalY + 0.22 * s + (sc.capeY || 0) * s, -0.02 * s + (sc.capeZ || 0) * s);
     collar.userData.moldId = "cape_collar";
     collar.userData.moldFamily = "cloth";
     torsoG.add(collar);
@@ -1024,13 +1291,19 @@ export function makeBody(altura, look, sculpt = {}) {
     new THREE.CylinderGeometry(sc.neckR * s, sc.neckR * 1.15 * s, sc.neckLen * s, 14),
     skin
   );
-  neck.position.y = 1.24 * s - waistY;
+  const neckY =
+    chestLocalY +
+    sc.chestR * (sc.chestSy || 1) * s +
+    sc.neckLen * s * 0.5 +
+    0.04 * s +
+    (sc.neckY || 0) * s;
+  neck.position.y = neckY;
   neck.userData.moldId = "neck";
   neck.userData.moldFamily = "head";
   torsoG.add(neck);
 
   const headG = new THREE.Group();
-  headG.position.y = 1.38 * s - waistY;
+  headG.position.y = neckY + sc.neckLen * s * 0.5 + sc.headR * (sc.headSy || 1) * s * 0.55;
   const head = new THREE.Mesh(new THREE.SphereGeometry(sc.headR * s, 22, 18), skin);
   head.scale.set(sc.headSx, sc.headSy, sc.headSz);
   head.castShadow = true;
@@ -1059,6 +1332,9 @@ export function makeBody(altura, look, sculpt = {}) {
     lowerSx: sc.foreArmSx,
     handScale: sc.handScale,
     fingerLen: sc.fingerLen,
+    handRx: sc.handRx,
+    handRy: sc.handRy,
+    handRz: sc.handRz,
     showHands: sc.showHands,
     clothMat,
     clothFit: sc.clothFit,
@@ -1068,8 +1344,16 @@ export function makeBody(altura, look, sculpt = {}) {
     thighBulk: sc.thighBulk,
     shinBulk: sc.shinBulk,
     thighSx: sc.thighSx,
+    thighY: (sc.thighY || 0) * s,
     shinSx: sc.shinSx,
     footScale: sc.footScale,
+    footLen: sc.footLen,
+    footSx: sc.footSx,
+    footSy: sc.footSy,
+    footZ: sc.footZ,
+    footY: sc.footY,
+    footPitch: sc.footPitch,
+    bootCuff: sc.bootCuff,
     showBoots: sc.showBoots,
     clothMat,
     clothFit: sc.clothFit,
@@ -1080,9 +1364,9 @@ export function makeBody(altura, look, sculpt = {}) {
     sc.upperArmLen * s,
     sc.foreArmLen * s,
     limbC,
-    -sc.shoulderX * s,
-    sc.shoulderY * s - waistY,
-    { ...armBase, side: "L" }
+    -sc.shoulderX * s - (sc.armX || 0) * s,
+    sc.shoulderY * s - waistY + (sc.armY || 0) * s,
+    { ...armBase, side: "L", z: (sc.armZ || 0) * s }
   );
   const armR = makeArm(
     sc.upperArmR * s,
@@ -1090,9 +1374,9 @@ export function makeBody(altura, look, sculpt = {}) {
     sc.upperArmLen * s,
     sc.foreArmLen * s,
     limbC,
-    sc.shoulderX * s,
-    sc.shoulderY * s - waistY,
-    { ...armBase, side: "R" }
+    sc.shoulderX * s + (sc.armX || 0) * s,
+    sc.shoulderY * s - waistY + (sc.armY || 0) * s,
+    { ...armBase, side: "R", z: (sc.armZ || 0) * s }
   );
   torsoG.add(armL, armR);
   const legL = makeLeg(
@@ -1102,7 +1386,7 @@ export function makeBody(altura, look, sculpt = {}) {
     sc.shinLen * s,
     limbC,
     -sc.hipX * s,
-    0.6 * s,
+    (sc.hipY ?? 0.6) * s,
     { ...legBase, side: "L" }
   );
   const legR = makeLeg(
@@ -1112,7 +1396,7 @@ export function makeBody(altura, look, sculpt = {}) {
     sc.shinLen * s,
     limbC,
     sc.hipX * s,
-    0.6 * s,
+    (sc.hipY ?? 0.6) * s,
     { ...legBase, side: "R" }
   );
   g.add(legL, legR);
@@ -1123,42 +1407,49 @@ export function makeBody(altura, look, sculpt = {}) {
     legR,
     elbowL: armL.userData.elbow,
     elbowR: armR.userData.elbow,
+    wristL: armL.userData.wrist,
+    wristR: armR.userData.wrist,
     kneeL: legL.userData.knee,
     kneeR: legR.userData.knee,
     torsoG,
     hips,
     waistY,
-    hipY: 0.6 * s,
+    hipY: (sc.hipY ?? 0.6) * s,
     headG,
     neck,
   };
   g.traverse((o) => {
     if (o.isMesh) o.castShadow = true;
   });
-  if (sc.molds) applyMolds(g, sc.molds);
+  if (sc.molds) applyMolds(g, sc.molds, s / (sc.moldAltura || 1.85));
   return g;
 }
 
 /** Aplica posiciones de vértices guardadas (moldeado con mouse). */
-export function applyMolds(root, molds) {
+export function applyMolds(root, molds, scale = 1) {
   if (!molds || typeof molds !== "object") return;
+  const keys = Object.keys(molds).filter((k) => Array.isArray(molds[k]));
+  if (keys.length > 14) return;
+  const k = scale || 1;
   root.traverse((o) => {
     if (!o.isMesh || !o.userData.moldId) return;
     const data = molds[o.userData.moldId];
     if (!data || !Array.isArray(data)) return;
     const pos = o.geometry?.attributes?.position;
     if (!pos || pos.count * 3 !== data.length) return;
-    pos.array.set(data);
+    if (k === 1) pos.array.set(data);
+    else for (let i = 0; i < data.length; i++) pos.array[i] = data[i] * k;
     pos.needsUpdate = true;
     o.geometry.computeVertexNormals();
   });
 }
 
 /** Captura molds actuales desde el mesh (para guardar). */
-export function captureMolds(root) {
+export function captureMolds(root, ids) {
   const molds = {};
   root.traverse((o) => {
     if (!o.isMesh || !o.userData.moldId) return;
+    if (ids && !ids.has(o.userData.moldId)) return;
     const pos = o.geometry?.attributes?.position;
     if (!pos) return;
     molds[o.userData.moldId] = Array.from(pos.array);

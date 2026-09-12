@@ -45,8 +45,8 @@ export class Combat {
     at.combo = step + 1;
     at.comboT = now;
     at.punchStep = step;
-    const flying = (at.flyAlt || 0) > 0.38;
-    const dive = flying && (at.rush || 0) > 0.82 && (step === 2 || Math.random() < 0.22);
+    const flying = (at.flyAlt || 0) > 0.28 || !!at.volando;
+    const dive = flying && (at.rush || 0) > 0.88;
     at.airMelee = flying ? (dive ? "elbow" : step === 1 ? "kick" : "upright") : null;
     at.posePunch = at.airMelee === "elbow" ? 0.42 : at.airMelee === "kick" || step === 2 ? 0.48 : 0.52;
     at._punchDur = at.posePunch;

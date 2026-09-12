@@ -48,7 +48,7 @@ export function snapshot() {
 export function applySettings(s, save = true) {
   if (s.TEAM_SIZE != null) TEAM_SIZE = Math.round(clamp(s.TEAM_SIZE, 5, 20));
   if (s.MAP != null) MAP = Math.round(clamp(s.MAP, 1000, 5000));
-  BASE_Z = 960 * MAP / 2200;
+  BASE_Z = Math.min(960 * MAP / 2200, MAP / 2 - 90);
   if (s.MATCH_MIN != null) {
     let m = +s.MATCH_MIN;
     if (!MATCH_MINS.includes(m)) m = MATCH_MINS.reduce((a, b) => Math.abs(b - m) < Math.abs(a - m) ? b : a);

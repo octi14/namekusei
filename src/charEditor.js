@@ -1,10 +1,10 @@
 import * as THREE from "three";
 import { makeBody, DEFAULT_SCULPT, SCULPT_SELECTS, saveSculpt, loadSavedSculpt, clearSavedSculpt, captureMolds } from "./body.js";
-import { LOOK } from "./looks.js";
+import { LOOK, saveLook, loadSavedLook } from "./looks.js";
 
 const EDITOR_KEY = "namekusei.charEditor";
 const KITS = ["gi", "namek", "armor", "soldier", "frost", "brute"];
-const HAIRS = ["goku", "gohan", "vegeta", "bald", "piccolo", "nail", "dende", "tien", "frieza", "helm"];
+const HAIRS = ["goku", "gohan", "trunks", "vegeta", "raditz", "bald", "piccolo", "turban", "nail", "dende", "tien", "frieza", "helm"];
 const MOLD_PARTS = [
   ["all", "Todas (moldeables)"],
   ["head", "Cabeza"],
@@ -30,40 +30,52 @@ const MOLD_TOOLS = [
 const SLIDERS = [
   null,
   "Brazos",
-  ["upperArmR", "Brazo radio", 0.03, 0.12, 0.001],
-  ["foreArmR", "Antebrazo radio", 0.025, 0.11, 0.001],
-  ["upperArmLen", "Brazo largo", 0.15, 0.4, 0.005],
-  ["foreArmLen", "Antebrazo largo", 0.12, 0.38, 0.005],
-  ["upperArmBulk", "Brazo bulk", 0.7, 1.6, 0.01],
-  ["foreArmBulk", "Antebrazo bulk", 0.7, 1.6, 0.01],
-  ["upperArmSx", "Brazo ancho", 0.8, 1.6, 0.01],
-  ["foreArmSx", "Antebrazo ancho", 0.8, 1.6, 0.01],
+  ["upperArmR", "Brazo radio", 0.02, 0.2, 0.001],
+  ["foreArmR", "Antebrazo radio", 0.02, 0.18, 0.001],
+  ["upperArmLen", "Brazo largo", 0.12, 0.55, 0.005],
+  ["foreArmLen", "Antebrazo largo", 0.1, 0.5, 0.005],
+  ["upperArmBulk", "Brazo bulk", 0.5, 2.2, 0.01],
+  ["foreArmBulk", "Antebrazo bulk", 0.5, 2.2, 0.01],
+  ["upperArmSx", "Brazo ancho", 0.5, 2.2, 0.01],
+  ["foreArmSx", "Antebrazo ancho", 0.5, 2.2, 0.01],
   ["shoulderX", "Hombro sep.", 0.14, 0.38, 0.005],
   ["shoulderY", "Hombro alto", 0.95, 1.3, 0.005],
+  ["armX", "Brazo X", -0.22, 0.22, 0.005],
+  ["armY", "Brazo Y", -0.28, 0.28, 0.005],
+  ["armZ", "Brazo Z", -0.22, 0.28, 0.005],
   null,
   "Piernas",
-  ["thighR", "Muslo radio", 0.03, 0.12, 0.001],
-  ["shinR", "Pantorrilla radio", 0.025, 0.11, 0.001],
-  ["thighLen", "Muslo largo", 0.18, 0.45, 0.005],
-  ["shinLen", "Pantorrilla largo", 0.18, 0.45, 0.005],
-  ["thighBulk", "Muslo bulk", 0.7, 1.6, 0.01],
-  ["shinBulk", "Pantorrilla bulk", 0.7, 1.6, 0.01],
-  ["thighSx", "Muslo ancho", 0.8, 1.6, 0.01],
-  ["shinSx", "Pantorrilla ancho", 0.8, 1.6, 0.01],
+  ["thighR", "Muslo radio", 0.02, 0.2, 0.001],
+  ["shinR", "Pantorrilla radio", 0.02, 0.18, 0.001],
+  ["thighLen", "Muslo largo", 0.14, 0.6, 0.005],
+  ["shinLen", "Pantorrilla largo", 0.14, 0.6, 0.005],
+  ["thighBulk", "Muslo bulk", 0.5, 2.2, 0.01],
+  ["shinBulk", "Pantorrilla bulk", 0.5, 2.2, 0.01],
+  ["thighSx", "Muslo ancho", 0.5, 2.2, 0.01],
+  ["shinSx", "Pantorrilla ancho", 0.5, 2.2, 0.01],
   ["hipX", "Cadera sep.", 0.05, 0.2, 0.005],
+  ["hipY", "Pierna Y", 0.32, 0.88, 0.005],
+  ["thighY", "Muslo Y", -0.18, 0.18, 0.005],
   null,
   "Torso",
-  ["torsoMul", "Torso radio", 0.08, 0.28, 0.005],
-  ["hipsMul", "Cadera radio", 0.08, 0.3, 0.005],
-  ["torsoSx", "Torso ancho", 0.8, 1.6, 0.01],
-  ["hipsSx", "Cadera ancho", 0.8, 1.6, 0.01],
-  ["torsoLen", "Torso alto", 0.35, 0.75, 0.01],
+  ["torsoMul", "Torso radio", 0.04, 0.45, 0.005],
+  ["hipsMul", "Cadera radio", 0.04, 0.45, 0.005],
+  ["torsoChestSx", "Pectorales ancho", 0.45, 2.4, 0.01],
+  ["torsoWaistSx", "Abdomen ancho", 0.45, 2.4, 0.01],
+  ["hipsSx", "Cadera ancho", 0.45, 2.4, 0.01],
+  ["torsoLen", "Torso alto", 0.2, 1.05, 0.01],
+  ["torsoY", "Torso Y", -0.25, 0.25, 0.005],
   ["hipsLen", "Cadera alto", 0.15, 0.4, 0.01],
   ["waistYMul", "Cintura Y", 0.5, 0.75, 0.005],
-  ["chestR", "Pecho radio", 0.08, 0.22, 0.005],
-  ["chestSx", "Pecho X", 0.8, 1.8, 0.01],
-  ["chestSy", "Pecho Y", 0.8, 2.0, 0.01],
-  ["chestSz", "Pecho Z", 0.8, 1.6, 0.01],
+  ["chestR", "Pecho radio", 0.04, 0.28, 0.005],
+  ["chestSx", "Pecho X", 0.4, 2.4, 0.01],
+  ["chestSy", "Pecho Y", 0.4, 2.4, 0.01],
+  ["chestSz", "Pecho Z", 0.4, 2.2, 0.01],
+  ["chestY", "Pecho pos Y", 0.7, 1.25, 0.005],
+  ["chestZ", "Pecho pos Z", -0.08, 0.16, 0.005],
+  ["chestRx", "Pecho rot X", -0.8, 0.8, 0.02],
+  ["chestRy", "Pecho rot Y", -0.6, 0.6, 0.02],
+  ["chestRz", "Pecho rot Z", -0.6, 0.6, 0.02],
   ["pecR", "Pectoral radio", 0.03, 0.12, 0.001],
   ["pecSep", "Pectoral sep.", 0.03, 0.12, 0.001],
   ["pecY", "Pectoral Y", 0.9, 1.2, 0.005],
@@ -76,10 +88,14 @@ const SLIDERS = [
   ["showBelt", "Cinturón on", 0, 1, 1],
   ["capeScale", "Capa escala", 0.5, 1.6, 0.05],
   ["capeThick", "Capa grosor", 0.4, 2, 0.05],
+  ["capeX", "Capa X", -0.2, 0.2, 0.005],
+  ["capeY", "Capa Y", -0.25, 0.25, 0.005],
+  ["capeZ", "Capa Z", -0.22, 0.22, 0.005],
   null,
   "Cabeza / cara",
   ["neckR", "Cuello radio", 0.03, 0.1, 0.001],
   ["neckLen", "Cuello largo", 0.05, 0.18, 0.005],
+  ["neckY", "Cuello Y", -0.2, 0.25, 0.005],
   ["headR", "Cabeza radio", 0.1, 0.22, 0.005],
   ["headSx", "Cabeza X", 0.7, 1.4, 0.01],
   ["headSy", "Cabeza Y", 0.7, 1.4, 0.01],
@@ -91,6 +107,10 @@ const SLIDERS = [
   ["earSy", "Oreja Y", 0.5, 1.5, 0.05],
   ["earSz", "Oreja Z", 0.4, 1.5, 0.05],
   ["eyeSep", "Ojos sep.", 0.03, 0.09, 0.001],
+  ["irisSep", "Iris sep.", 0.02, 0.1, 0.001],
+  ["irisY", "Iris Y", -0.04, 0.1, 0.001],
+  ["irisZ", "Iris Z", 0.08, 0.22, 0.001],
+  ["eyeTilt", "Blanco inclin.", -0.85, 0.85, 0.01],
   ["eyeY", "Ojos Y", -0.02, 0.08, 0.005],
   ["eyeZ", "Ojos Z", 0.08, 0.18, 0.005],
   ["eyeWhiteR", "Blanco ojo", 0.015, 0.05, 0.001],
@@ -98,6 +118,8 @@ const SLIDERS = [
   ["eyeSx", "Ojo X", 0.5, 1.5, 0.05],
   ["eyeSy", "Ojo Y", 0.3, 1.3, 0.05],
   ["brow", "Cejas", 0, 1, 0.05],
+  ["browY", "Ceja Y", -0.04, 0.12, 0.002],
+  ["browTilt", "Ceja inclin.", -1.2, 1.2, 0.02],
   ["nose", "Nariz", 0, 1, 0.05],
   ["mouth", "Boca", 0, 1, 0.05],
   ["thirdEye", "3er ojo", 0, 1, 1],
@@ -108,7 +130,17 @@ const SLIDERS = [
   "Manos / pies",
   ["handScale", "Mano escala", 0.5, 1.8, 0.05],
   ["fingerLen", "Dedos largo", 0.4, 1.6, 0.05],
+  ["handRx", "Puño rot X", -1.6, 1.6, 0.02],
+  ["handRy", "Puño rot Y", -1.6, 1.6, 0.02],
+  ["handRz", "Puño rot Z", -1.6, 1.6, 0.02],
   ["footScale", "Pie escala", 0.5, 1.8, 0.05],
+  ["footLen", "Pie largo", 1.2, 4, 0.05],
+  ["footSx", "Pie ancho", 0.6, 2.2, 0.05],
+  ["footSy", "Pie grosor", 0.15, 0.9, 0.01],
+  ["footZ", "Pie adelante", -0.08, 0.18, 0.005],
+  ["footY", "Pie Y", -0.12, 0.12, 0.005],
+  ["footPitch", "Pie inclin.", -0.45, 0.55, 0.01],
+  ["bootCuff", "Caña bota", 0.3, 2.2, 0.05],
   ["showHands", "Manos on", 0, 1, 1],
   ["showBoots", "Botas on", 0, 1, 1],
   null,
@@ -122,12 +154,14 @@ const SLIDERS = [
   ["clothFit", "Ropa holgura", 1.0, 1.35, 0.01],
   ["hairSpikeR", "Pelo grosor", 0.4, 2, 0.05],
   ["hairSpikeLen", "Pelo largo", 0.4, 2, 0.05],
+  ["hairY", "Pelo Y", -0.12, 0.16, 0.005],
 ];
 
 const SELECT_LABELS = {
   pecType: "Tipo pectorales",
   earType: "Tipo orejas",
   eyeType: "Tipo ojos",
+  noseType: "Tipo nariz",
 };
 
 let open = false;
@@ -138,9 +172,9 @@ let scene;
 let camera;
 let mesh;
 let raf;
-let sculpt = { ...DEFAULT_SCULPT, ...loadSavedSculpt("Gokú") };
-let look = { ...LOOK.Gokú };
-let presetName = "Gokú";
+let sculpt = { ...DEFAULT_SCULPT, ...loadSavedSculpt("Gohan") };
+let look = { ...LOOK.Gohan };
+let presetName = "Gohan";
 let altura = 1.85;
 let yaw = 0.4;
 let pitch = 0.15;
@@ -156,7 +190,13 @@ let moldTool = "inflate";
 let brushR = 0.14;
 let brushStr = 0.04;
 let lastHitLocal = null;
+let moldTouched = new Set();
 const _rc = new THREE.Raycaster();
+const SKIP_LOOK = new Set(["Gokú", "Vegeta"]);
+
+function lookNames() {
+  return Object.keys(LOOK).filter((n) => !SKIP_LOOK.has(n));
+}
 const _m = new THREE.Vector2();
 const _p = new THREE.Vector3();
 
@@ -165,6 +205,22 @@ function hexInput(v) {
 }
 function parseHex(str) {
   return parseInt(String(str).replace("#", ""), 16) >>> 0;
+}
+
+function dropSizeMolds(key) {
+  const molds = sculpt.molds;
+  if (!molds) return;
+  const pats = [];
+  if (/^(torso|hips|chest|pec|waist|belt|cape)/.test(key)) {
+    pats.push(/^(torso|chest|pec|hips|belt|cloth_shirt|undershirt|armor|cape|frost)/);
+  }
+  if (/arm|shoulder|hand|finger/i.test(key)) pats.push(/arm|band_/);
+  if (/thigh|shin|hipX|hipY|foot|boot/i.test(key)) pats.push(/thigh|shin|boot|^hips/);
+  if (/head|eye|ear|jaw|nose|hair|neck/i.test(key)) pats.push(/head|jaw|eye|ear|nose|mouth|hair|neck/);
+  if (!pats.length) return;
+  for (const id of Object.keys(molds)) {
+    if (pats.some((p) => p.test(id))) delete molds[id];
+  }
 }
 
 function ensureDom() {
@@ -198,6 +254,7 @@ function ensureDom() {
       }
       #ce-view {
         flex: 1; min-height: 42vh; position: relative; background: #161b22;
+        overflow: hidden; z-index: 0;
       }
       #ce-view canvas { width: 100% !important; height: 100% !important; display: block; }
       #ce-hint {
@@ -208,6 +265,8 @@ function ensureDom() {
         width: 100%; max-height: 48vh; overflow: auto;
         padding: 10px 12px 24px; border-top: 1px solid #30363d;
         -webkit-overflow-scrolling: touch;
+        position: relative; z-index: 2; flex-shrink: 0;
+        pointer-events: auto;
       }
       @media (min-width: 800px) {
         #ce-panel {
@@ -239,6 +298,7 @@ function ensureDom() {
       <button type="button" id="ce-save">Guardar</button>
       <button type="button" id="ce-reset">Reset sculpt</button>
       <button type="button" id="ce-clear-molds">Borrar moldes</button>
+      <button type="button" id="ce-anims">Anims (F3)</button>
       <button type="button" id="ce-close">Cerrar (F2)</button>
       <span id="ce-status" style="font-size:12px;opacity:0.7"></span>
     </div>
@@ -276,6 +336,8 @@ function ensureDom() {
           <label>Piel<input id="ce-skin" type="color" /></label>
           <label>Cuerpo<input id="ce-bodyc" type="color" /></label>
           <label>Acento<input id="ce-accent" type="color" /></label>
+          <label>Trim armor<input id="ce-trim" type="color" /></label>
+          <label>Pelo color<input id="ce-hairc" type="color" /></label>
         </div>
         <h2>Tipos</h2>
         <div id="ce-selects" class="row"></div>
@@ -290,7 +352,7 @@ function ensureDom() {
   document.body.appendChild(root);
 
   const preset = root.querySelector("#ce-preset");
-  for (const name of Object.keys(LOOK)) {
+  for (const name of lookNames()) {
     const o = document.createElement("option");
     o.value = name;
     o.textContent = name;
@@ -362,6 +424,7 @@ function ensureDom() {
     sel.addEventListener("change", () => {
       sculpt[key] = sel.value;
       dirty = true;
+      sel.blur();
     });
     lab.appendChild(sel);
     selBox.appendChild(lab);
@@ -385,8 +448,9 @@ function ensureDom() {
 
   preset.addEventListener("change", () => {
     presetName = preset.value;
-    look = { ...LOOK[presetName], who: presetName };
+    look = { ...LOOK[presetName], ...loadSavedLook(presetName), who: presetName };
     sculpt = { ...DEFAULT_SCULPT, ...loadSavedSculpt(presetName) };
+    altura = sculpt.altura ?? sculpt.moldAltura ?? 1.85;
     syncSculptUi();
     syncLookUi();
     dirty = true;
@@ -402,6 +466,10 @@ function ensureDom() {
   });
   root.querySelector("#ce-alt").addEventListener("input", (e) => {
     altura = +e.target.value;
+    dropSizeMolds("headR");
+    dropSizeMolds("footScale");
+    sculpt.moldAltura = altura;
+    sculpt.altura = altura;
     dirty = true;
   });
   root.querySelector("#ce-skin").addEventListener("input", (e) => {
@@ -416,10 +484,19 @@ function ensureDom() {
     look.accent = parseHex(e.target.value);
     dirty = true;
   });
+  root.querySelector("#ce-trim").addEventListener("input", (e) => {
+    look.trim = parseHex(e.target.value);
+    dirty = true;
+  });
+  root.querySelector("#ce-hairc").addEventListener("input", (e) => {
+    look.hairC = parseHex(e.target.value);
+    dirty = true;
+  });
   box.addEventListener("input", (e) => {
     const el = e.target;
     if (!el.dataset.sculpt) return;
     sculpt[el.dataset.sculpt] = +el.value;
+    dropSizeMolds(el.dataset.sculpt);
     const v = box.querySelector(`span.v[data-k="${el.dataset.sculpt}"]`);
     if (v) v.textContent = (+el.value).toFixed(3);
     dirty = true;
@@ -437,25 +514,12 @@ function ensureDom() {
     setStatus("Moldes borrados (este personaje)");
     dirty = true;
   });
-  root.querySelector("#ce-save").addEventListener("click", () => {
-    if (mesh) sculpt.molds = captureMolds(mesh);
-    look = { ...look, who: presetName };
-    saveSculpt(presetName, sculpt);
-    const payload = { preset: presetName, look, sculpt, altura };
-    localStorage.setItem(EDITOR_KEY, JSON.stringify({ lastPreset: presetName, altura }));
-    root.querySelector("#ce-json").value = JSON.stringify(
-      {
-        id: presetName,
-        look,
-        sculpt: { ...sculpt, molds: sculpt.molds ? `{${Object.keys(sculpt.molds).length} partes}` : null },
-        altura,
-      },
-      null,
-      2
-    );
-    setStatus(`Guardado ✓ solo para ${presetName}`);
-  });
+  root.querySelector("#ce-save").addEventListener("click", () => persistEditor(true));
   root.querySelector("#ce-close").addEventListener("click", () => setCharEditor(false));
+  root.querySelector("#ce-anims").addEventListener("click", () => {
+    setCharEditor(false);
+    import("./animEditor.js").then((m) => m.setAnimEditor(true));
+  });
 
   canvas = root.querySelector("#ce-canvas");
   canvas.addEventListener("pointerdown", (e) => {
@@ -482,10 +546,18 @@ function ensureDom() {
     }
     if (moldStroke) strokeMold(e);
   });
-  canvas.addEventListener("pointerup", () => {
-    if (moldStroke && mesh) {
-      sculpt.molds = captureMolds(mesh);
+  canvas.addEventListener("pointerup", (e) => {
+    if (canvas.hasPointerCapture?.(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    if (moldStroke && mesh && moldTouched.size) {
+      sculpt.molds = { ...(sculpt.molds || {}), ...captureMolds(mesh, moldTouched) };
     }
+    moldTouched.clear();
+    drag = false;
+    moldStroke = false;
+    lastHitLocal = null;
+  });
+  canvas.addEventListener("pointercancel", (e) => {
+    if (canvas.hasPointerCapture?.(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
     drag = false;
     moldStroke = false;
     lastHitLocal = null;
@@ -522,6 +594,7 @@ function strokeMold(e) {
   });
   if (!hit?.face) return;
   const obj = hit.object;
+  if (obj.userData.moldId) moldTouched.add(obj.userData.moldId);
   if (!obj.geometry?.attributes?.position) return;
   if (!obj.userData.moldCloned) {
     obj.geometry = obj.geometry.clone();
@@ -655,15 +728,17 @@ function loadEditorState() {
     const raw = localStorage.getItem(EDITOR_KEY);
     if (raw) {
       const j = JSON.parse(raw);
-      if (j.lastPreset && LOOK[j.lastPreset]) presetName = j.lastPreset;
-      else if (j.preset && LOOK[j.preset]) presetName = j.preset;
+      if (j.lastPreset && LOOK[j.lastPreset] && !SKIP_LOOK.has(j.lastPreset)) presetName = j.lastPreset;
+      else if (j.preset && LOOK[j.preset] && !SKIP_LOOK.has(j.preset)) presetName = j.preset;
+      else presetName = lookNames()[0] || "Gohan";
       if (j.altura) altura = j.altura;
     }
   } catch {
     /* ignore */
   }
-  look = { ...LOOK[presetName], who: presetName };
+  look = { ...LOOK[presetName], ...loadSavedLook(presetName), who: presetName };
   sculpt = { ...DEFAULT_SCULPT, ...loadSavedSculpt(presetName) };
+  altura = sculpt.altura ?? sculpt.moldAltura ?? 1.85;
 }
 
 function syncLookUi() {
@@ -673,6 +748,8 @@ function syncLookUi() {
   root.querySelector("#ce-skin").value = hexInput(look.skin);
   root.querySelector("#ce-bodyc").value = hexInput(look.body);
   root.querySelector("#ce-accent").value = hexInput(look.accent ?? 0x1565c0);
+  root.querySelector("#ce-trim").value = hexInput(look.trim ?? look.boots ?? 0xeeeeee);
+  root.querySelector("#ce-hairc").value = hexInput(look.hairC ?? 0x1a1208);
   root.querySelector("#ce-alt").value = altura;
 }
 
@@ -720,24 +797,35 @@ function rebuild() {
   mesh = makeBody(altura, { ...look, who: presetName }, sculpt);
   mesh.position.y = 0;
   scene.add(mesh);
-  root.querySelector("#ce-json").value = JSON.stringify({ preset: presetName, look, sculpt, altura }, null, 2);
   dirty = false;
 }
 
+let _ceW = 0;
+let _ceH = 0;
 function resize() {
   const view = root.querySelector("#ce-view");
   const w = view.clientWidth || 1;
   const h = view.clientHeight || 1;
+  if (w === _ceW && h === _ceH) return;
+  _ceW = w;
+  _ceH = h;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 
-function tick() {
+function tick(now) {
   if (!open) return;
   raf = requestAnimationFrame(tick);
-  if (dirty) rebuild();
+  if (dirty && now - (tick._reb || 0) > 45) {
+    const ae = document.activeElement;
+    if (ae?.tagName !== "SELECT") {
+      rebuild();
+      tick._reb = now;
+    }
+  }
   resize();
+  tick._last = now;
   const d = dist;
   camera.position.set(
     Math.sin(yaw) * Math.cos(pitch) * d,
@@ -766,8 +854,36 @@ export function setCharEditor(on) {
     cancelAnimationFrame(raf);
     tick();
   } else {
+    persistEditor(false);
     cancelAnimationFrame(raf);
   }
+}
+
+function persistEditor(fromBtn) {
+  if (!presetName) return;
+  if (mesh && sculpt.molds) {
+    sculpt.molds = { ...sculpt.molds, ...captureMolds(mesh, new Set(Object.keys(sculpt.molds))) };
+  }
+  sculpt.moldAltura = altura;
+  sculpt.altura = altura;
+  look = { ...look, who: presetName };
+  saveSculpt(presetName, sculpt);
+  saveLook(presetName, look);
+  localStorage.setItem(EDITOR_KEY, JSON.stringify({ lastPreset: presetName, altura }));
+  if (root) {
+    root.querySelector("#ce-json").value = JSON.stringify(
+      {
+        id: presetName,
+        look,
+        sculpt: { ...sculpt, molds: sculpt.molds ? `{${Object.keys(sculpt.molds).length} partes}` : null },
+        altura,
+      },
+      null,
+      2
+    );
+    if (fromBtn) setStatus(`Guardado ✓ solo para ${presetName}`);
+  }
+  dispatchEvent(new CustomEvent("nk-char-saved", { detail: { preset: presetName } }));
 }
 
 export function toggleCharEditor() {

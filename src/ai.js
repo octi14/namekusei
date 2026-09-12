@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { BASE_Z, superRank, SUPER_KI, MELEE } from "./config.js";
-import { inOwnBase, isWater, groundHeight } from "./world.js";
+import { isWater, groundHeight } from "./world.js";
 import { BASE_INNER_R, steerShipNav, nearAnyShip, shipDist, inShipBase } from "./bases.js";
 import { powerStyle } from "./powers.js";
 
@@ -257,7 +257,8 @@ function aiMove(p, dir, run, dt) {
 function applyLoco(p, dir, ctx, dt) {
   const body = senseBody(p);
   const shipFac = nearAnyShip({ x: body.x, z: body.z }, 14);
-  const atShip = !!(shipFac || ctx.shipGate);
+  const depositLand = !!(ctx.carrying && shipDist({ x: body.x, z: body.z }, p.faccion) < BASE_INNER_R + 26);
+  const atShip = !!(shipFac || ctx.shipGate || depositLand);
 
   const needKi = body.ki < ctx.band.lo || ((p.aiChargeTo || 0) > 0 && body.ki < p.aiChargeTo);
   if (ctx.chargingHard && body.dry && body.grounded) p.aiCharge = true;
@@ -266,10 +267,25 @@ function applyLoco(p, dir, ctx, dt) {
   if (ctx.carrying || ctx.sniping || atShip) p.aiCharge = false;
   const charging = !!p.aiCharge && body.grounded && body.dry;
 
-  const canFly = body.kiAbs > 8 && body.ki >= 0.18 && !charging && !atShip && !ctx.fighting;
+  const wet = body.overWater || body.swimming;
+  const canFlyKi = body.kiAbs > 8 && body.ki >= 0.16 && !charging && !atShip;
+  const hunted = !!(ctx.carrying && ctx.enemyDist < 48);
+    if (wet && !atShip) {
+    p.aiWetT = (p.aiWetT || 0) - dt;
+    if ((p.aiWetT || 0) <= 0) {
+      p.aiWetPlan = hunted ? "dive" : canFlyKi ? "air" : "swim";
+      p.aiWetT = hunted ? 3.6 : 2.8;
+    }
+  } else {
+    p.aiWetPlan = null;
+    p.aiWetT = 0;
+  }
+  const dive = p.aiWetPlan === "dive";
+  const canFly = canFlyKi && !dive;
   let wantFly = false;
-  if (canFly && (ctx.goalDist > 42 || (ctx.carrying && ctx.baseDist > 28) || ctx.mode === "raid")) wantFly = true;
-  else if ((p.aiFlyHold || 0) > 0.4 && body.ki > 0.16 && !atShip) wantFly = true;
+  if (canFly && (p.aiWetPlan === "air" || ctx.carrying || ctx.mode === "raid" || ctx.mode === "ball" || ctx.goalDist > 42))
+    wantFly = true;
+  else if ((p.aiFlyHold || 0) > 0.4 && body.ki > 0.16 && !atShip && !dive) wantFly = true;
 
   if (wantFly) p.aiFlyHold = Math.min(3.5, (p.aiFlyHold || 0) + dt);
   else p.aiFlyHold = Math.max(0, (p.aiFlyHold || 0) - dt * 0.45);
@@ -277,10 +293,17 @@ function applyLoco(p, dir, ctx, dt) {
   if (atShip) {
     if (body.flyAlt > 0.1) aiVert(p, body, "descend");
     p.aiFlyHold = 0;
-  } else if (wantFly && p.aiFlyHold > 0.28) {
-    aiVert(p, body, "climb");
-  } else if (body.flying) {
+  } else if (dive) {
     aiVert(p, body, "descend");
+    p.aiFlyHold = 0;
+  } else if (wantFly && (p.aiWetPlan === "air" || p.aiFlyHold > 0.18 || body.swimming)) {
+    if (wet && body.flyAlt > 7.5) aiVert(p, body, "descend");
+    else if (wet && body.flyAlt > 4.2) aiVert(p, body, "hold");
+    else aiVert(p, body, "climb");
+  } else if (body.flying && !wet) {
+    aiVert(p, body, "descend");
+  } else if (body.flying && wet && p.aiWetPlan !== "air") {
+    aiVert(p, body, "hold");
   }
 
   const loco = atShip ? "shipDoor" : body.flying ? "air" : body.swimming ? "swim" : "ground";
@@ -457,9 +480,10 @@ function utilBest(p, ctx) {
   if (carrying) return "deliver";
   const sticky = (m) => {
     if (p.aiMode !== m) return 0;
-    if (m === "charge" || m === "wander") return 3;
-    if (m === "fight") return 9;
-    return 11;
+    if (m === "wander") return 10;
+    if (m === "charge") return 16;
+    if (m === "fight") return 14;
+    return 20;
   };
   const rows = [];
   let fight = -60;
@@ -496,7 +520,7 @@ function utilBest(p, ctx) {
   if (defend) chargeS -= 44;
   if (role === "aggro") chargeS -= 8;
   rows.push(["charge", chargeS]);
-  rows.push(["wander", 2 - (inHomeAir ? 12 : 0) - (ball ? 8 : 0) - (defend ? 18 : 0) + sticky("wander")]);
+  rows.push(["wander", -6 - (inHomeAir ? 12 : 0) - (ball ? 14 : 0) - (defend ? 18 : 0) + sticky("wander")]);
   let best = "wander";
   let bestV = -1e9;
   for (const [k, v] of rows) {
@@ -705,11 +729,15 @@ function runUnstick(p, people, balls, combat, match, dt) {
     }
   } else if (p.aiBreak === "home" || p.esfera != null) {
     p.aiBreak = "home";
-    const home = sideSteer(p, 0, homeZ);
-    dir.set(home.x, 0, home.z);
+    const nav = steerShipNav(p.pos().x, p.pos().z, p.faccion, "deposit");
+    if (nav) dir.set(nav.x, 0, nav.z);
+    else {
+      const home = steerHome(p.pos().x, p.pos().z, homeZ);
+      dir.set(home.x, 0, home.z);
+    }
     const d = Math.hypot(p.pos().x, p.pos().z - homeZ);
-    fly = d > 55 && body.ki > 0.2;
-    if (d < 40 || inOwnBase(p.pos(), p.faccion)) {
+    fly = d > 70 && body.ki > 0.2 && shipDist(p.pos(), p.faccion) > BASE_INNER_R + 26;
+    if (d < 48 || inShipBase(p.pos(), p.faccion) || shipDist(p.pos(), p.faccion) < BASE_INNER_R + 26) {
       fly = false;
       aiVert(p, body, "descend");
       if (p.flyAlt > 0.8) p.vy = Math.min(p.vy, -12);
@@ -915,17 +943,14 @@ export function aiTick(p, people, balls, combat, match, dt) {
     defend,
     role,
   });
-  const interrupt =
-    (pick === "fight" &&
-      enemy &&
-      p.aiMode !== "fight" &&
-      p.aiMode !== "deliver" &&
-      (enemyDist < 42 || defend || enemyCarrier || role === "aggro")) ||
-    (pick === "deliver" && carrying && p.aiMode !== "deliver") ||
-    (pick === "ball" && ballCand && (p.aiMode === "charge" || p.aiMode === "wander")) ||
-    (defend && pick === "fight" && (p.aiMode === "charge" || p.aiMode === "wander" || p.aiMode === "raid")) ||
-    (pick === "hide" && p.aiMode === "fight" && critHp);
-  if (interrupt || p.aiMode !== pick || p.aiModeT <= 0) {
+  const hard =
+    (carrying && p.aiMode !== "deliver") ||
+    (pick === "deliver" && carrying) ||
+    (pick === "fight" && enemyCarrier && enemyDist < 58 && p.aiMode !== "deliver") ||
+    (pick === "fight" && enemy && enemyDist < 15 && p.aiMode !== "deliver") ||
+    (defend && pick === "fight" && enemyDist < 32 && p.aiMode !== "deliver") ||
+    (pick === "ball" && role === "baller" && ballCand && (p.aiMode === "wander" || p.aiMode === "charge"));
+  if (hard || (p.aiModeT || 0) <= 0) {
     if (pick === "hide") {
       const spot = pickHideSpot(p, people, homeZ);
       p.aiHideX = spot.x;
@@ -942,16 +967,18 @@ export function aiTick(p, people, balls, combat, match, dt) {
     } else if (pick === "fight" && enemy) {
       p.aiFoe = enemy;
       p.aiFight = 5 + agg * 2.8 + Math.max(0, mood.front) * 2;
-      commitMode(p, "fight", p.aiFight);
+      commitMode(p, "fight", 8 + agg * 3);
     } else if (pick === "deliver") commitMode(p, "deliver", 99);
-    else if (pick === "help") commitMode(p, "help", 6 + seed(p) * 2.5);
-    else if (pick === "ball") commitMode(p, "ball", 7 + seed(p) * 3);
+    else if (pick === "help") commitMode(p, "help", 10 + seed(p) * 3);
+    else if (pick === "ball") commitMode(p, "ball", 14 + seed(p) * 4);
     else if (pick === "raid") {
       p.aiRaid = Math.max(p.aiRaid || 0, 12);
-      commitMode(p, "raid", 8);
+      commitMode(p, "raid", 14);
     } else if (pick === "charge") {
       p.aiChargeTo = band.hi;
-      commitMode(p, "charge", 2.6 + seed(p) * 1.6);
+      commitMode(p, "charge", 8 + seed(p) * 3);
+    } else if (p.aiMode === "wander" && p.aiWanderX != null && Math.hypot((p.aiWanderX || 0) - p.pos().x, (p.aiWanderZ || 0) - p.pos().z) > 22) {
+      commitMode(p, "wander", 12);
     } else {
       p.aiWanderPhase = (p.aiWanderPhase || 0) + 1;
       const wt =
@@ -960,7 +987,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
           : pickWanderTarget(p, homeZ, enemyZ);
       p.aiWanderX = wt.x;
       p.aiWanderZ = wt.z;
-      p.aiWander = 4 + seed(p) * 3;
+      p.aiWander = 12 + seed(p) * 6;
       commitMode(p, "wander", p.aiWander);
     }
   }
@@ -985,13 +1012,13 @@ export function aiTick(p, people, balls, combat, match, dt) {
     const nav = steerShipNav(p.pos().x, p.pos().z, p.faccion, "deposit");
     if (nav) dir.set(nav.x, 0, nav.z);
     else {
-      const home = sideSteer(p, 0, homeZ);
+      const home = steerHome(p.pos().x, p.pos().z, homeZ);
       dir.set(home.x, 0, home.z);
     }
-    if (kiFrac > 0.22 && !inShipBase(p.pos(), p.faccion)) {
+    if (kiFrac > 0.22 && shipDist(p.pos(), p.faccion) > BASE_INNER_R + 55) {
       const avoid = heatAvoid(p, people, dir);
-      if (avoid && avoid.strength > 0.28) {
-        const mix = Math.min(avoid.strength * 0.45, 0.4);
+      if (avoid && avoid.strength > 0.45) {
+        const mix = Math.min(avoid.strength * 0.22, 0.22);
         dir.x = dir.x * (1 - mix) + avoid.x * mix;
         dir.z = dir.z * (1 - mix) + avoid.z * mix;
       }
@@ -1061,12 +1088,13 @@ export function aiTick(p, people, balls, combat, match, dt) {
           : 4.2;
     const inKiRange = dist < rng * 0.9 && dist > 2.4;
     const close = dist < 4.2;
+    const wetFight = isWater(p.pos().x, p.pos().z);
     const lockChance = (0.014 + agg * 0.022 + Math.max(0, mood.front) * 0.025) * dt * 60;
     const locked = (p.lockFoe === foe && (p.lockT || 0) > 0) || (dist < rng * 0.88 && Math.random() < lockChance);
     if (locked) faceLock(p, foe, dt, 1.35 + agg * 0.8);
     else {
       p.lockT = Math.max(0, (p.lockT || 0) - dt);
-      const approachYaw = dist > 4.5 ? flankAngle(p, foe, dt) : Math.atan2(dir.x, dir.z);
+      const approachYaw = dist > 4.5 && !wetFight ? flankAngle(p, foe, dt) : Math.atan2(dir.x, dir.z);
       smoothYaw(p, approachYaw, dt, 7);
     }
     const lookYaw = Math.atan2(dir.x, dir.z);
@@ -1076,24 +1104,25 @@ export function aiTick(p, people, balls, combat, match, dt) {
     const facing = Math.abs(dy) < 0.55;
     if (dir.lengthSq() > 0.4) {
       dir.normalize();
-      const side = seed(p) > 0.5 ? 1 : -1;
-      const strafe = new THREE.Vector3(Math.cos(lookYaw) * side, 0, -Math.sin(lookYaw) * side);
-      if (mood.hp < 0.32 && mood.front < 0.1 && dist < 8 && !huntingCarrier) aiMove(p, dir.clone().multiplyScalar(-1), true, dt);
-      else if (p.s.ki < p.s.kiMax * 0.16 && dist > 5 && !huntingCarrier) {
-        // Sin ki: no embestir; ganar espacio o cargar si lejos
-        if (dist < 12) aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, 0.5).normalize(), true, dt);
-        else if (dry) p.aiCharge = true;
-        else aiMove(p, strafe, false, dt);
-      } else if (dist > hold) {
-        const fd = dir.clone().lerp(strafe, locked ? 0.35 : 0.22).normalize();
-        aiMove(p, fd, dist > 8 && (mood.ki > 0.22 || huntingCarrier), dt);
-      } else if (dist < hold * 0.5 && p.s.ki > 12 && preferKi && !huntingCarrier) {
-        aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, 0.4).normalize(), false, dt);
-      } else if (close && (p.flyAlt || 0) > 0.35) {
-        if ((p.aiHover || 0) > 0) p.aiHover -= dt;
-        else p.aiHover = 0.35 + seed(p) * 0.45;
-        if ((p.aiHover || 0) > 0.18) aiMove(p, strafe, false, dt);
-      } else if (locked) aiMove(p, strafe, false, dt);
+    const side = seed(p) > 0.5 ? 1 : -1;
+    const strafe = new THREE.Vector3(Math.cos(lookYaw) * side, 0, -Math.sin(lookYaw) * side);
+    const mixS = wetFight ? 0.05 : locked ? 0.35 : 0.22;
+    if (mood.hp < 0.32 && mood.front < 0.1 && dist < 8 && !huntingCarrier) aiMove(p, dir.clone().multiplyScalar(-1), true, dt);
+    else if (p.s.ki < p.s.kiMax * 0.16 && dist > 5 && !huntingCarrier) {
+      if (dist < 12) aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, wetFight ? 0.12 : 0.5).normalize(), true, dt);
+      else if (dry) p.aiCharge = true;
+      else aiMove(p, wetFight ? dir : strafe, false, dt);
+    } else if (dist > hold) {
+      const fd = dir.clone().lerp(strafe, mixS).normalize();
+      aiMove(p, fd, dist > 8 && (mood.ki > 0.22 || huntingCarrier), dt);
+    } else if (dist < hold * 0.5 && p.s.ki > 12 && preferKi && !huntingCarrier) {
+      aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, wetFight ? 0.08 : 0.4).normalize(), false, dt);
+    } else if (close && (p.flyAlt || 0) > 0.35 && !wetFight) {
+      if ((p.aiHover || 0) > 0) p.aiHover -= dt;
+      else p.aiHover = 0.35 + seed(p) * 0.45;
+      if ((p.aiHover || 0) > 0.18) aiMove(p, strafe, false, dt);
+    } else if (locked && !wetFight) aiMove(p, strafe, false, dt);
+    else if (wetFight && dist > 3) aiMove(p, dir, mood.ki > 0.2, dt);
     }
     const blastOdds =
       (facing ? 1 : 0.15) *
@@ -1200,12 +1229,12 @@ export function aiTick(p, people, balls, combat, match, dt) {
         if (nav) dir.set(nav.x, 0, nav.z);
       }
       shipGate = true;
-    } else if (inShipBase(pos, own)) {
+    } else if (inShipBase(pos, own) && !carrying) {
       const nav = steerShipNav(pos.x, pos.z, own, "exit");
       if (nav) {
         dir.set(nav.x, 0, nav.z);
         shipGate = true;
-        p.aiLeaveBase = Math.max(p.aiLeaveBase || 0, 3.5);
+        p.aiLeaveBase = Math.max(p.aiLeaveBase || 0, 2.2);
       }
     } else if (inShipBase(pos, foeFac)) {
       const nav = steerShipNav(pos.x, pos.z, foeFac, "exit");
@@ -1216,17 +1245,9 @@ export function aiTick(p, people, balls, combat, match, dt) {
     } else {
       if ((p.aiLeaveBase || 0) > 0) {
         p.aiLeaveBase = Math.max(0, (p.aiLeaveBase || 0) - dt);
-        const nav = steerShipNav(pos.x, pos.z, own, "exit");
-        if (nav) {
-          dir.set(nav.x, 0, nav.z);
-          shipGate = true;
-        }
-        if (shipDist(pos, own) > BASE_INNER_R + 14) p.aiLeaveBase = 0;
-      } else if (shipDist(pos, own) < BASE_INNER_R + 3) {
-        p.aiLeaveBase = 4;
+        if (shipDist(pos, own) > BASE_INNER_R + 16) p.aiLeaveBase = 0;
       }
-      // Entrar a la nave enemiga por la rampa (raid o robar esfera)
-      if (!shipGate && wantFoeInside && shipDist(pos, foeFac) < BASE_INNER_R + 70) {
+      if (!shipGate && wantFoeInside && shipDist(pos, foeFac) < BASE_INNER_R + 90) {
         const nav = steerShipNav(pos.x, pos.z, foeFac, "enter");
         if (nav) {
           dir.set(nav.x, 0, nav.z);

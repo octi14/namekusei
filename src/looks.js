@@ -1,3 +1,5 @@
+import shippedLooks from "./data/looks.json";
+
 const L = (body, skin, hair, hairC = 0x111111, kit = "gi", accent = 0x1565c0, extra = {}) => ({
   body, skin, hair, hairC, kit, accent, ...extra,
 });
@@ -28,9 +30,9 @@ export const LOOK = {
   Yajirobee: L(0xef6c00, 0xf3d5c0, "bald", 0x111, "brute", 0xbf360c, { pants: 0x6d4c41, boots: 0x3e2723 }),
   Kami: L(0x2e7d32, 0x66bb6a, "piccolo", 0x1b5e20, "namek", 0xffc107, { cape: 0xfafafa, sash: 0xffc107 }),
   Nappa: L(0x37474f, 0xf3d5c0, "bald", 0x111, "brute", 0xffffff, { suit: 0x455a64, boots: 0xffffff }),
-  Raditz: L(0x0d47a1, 0xf3d5c0, "goku", 0x1a1208, "armor", 0xffffff, { suit: 0x1565c0, scouter: 0xd32f2f, boots: 0xffffff }),
+  Raditz: L(0x0d47a1, 0xf3d5c0, "raditz", 0x1a1208, "armor", 0xffffff, { suit: 0x1565c0, scouter: 0xd32f2f, boots: 0xffffff }),
   Saibaman: L(0x558b2f, 0x7cb342, "bald", 0x33691e, "brute", 0x1b5e20),
-  Trunks: L(0x1565c0, 0xf3d5c0, "goku", 0x7e57c2, "armor", 0xffffff, { suit: 0x1565c0, boots: 0xffffff }),
+  Trunks: L(0x1565c0, 0xf3d5c0, "trunks", 0x7e57c2, "armor", 0xffffff, { suit: 0x1565c0, boots: 0xffffff }),
   "Mr. Satan": L(0xc62828, 0xf3d5c0, "bald", 0x111, "gi", 0xc62828, { pants: 0x212121, sash: 0xffeb3b, boots: 0x212121 }),
   Cell: L(0x33691e, 0x9ccc65, "frieza", 0x1b5e20, "frost", 0x7cb342, { boots: 0x1b5e20 }),
   "Nº16": L(0x455a64, 0xb0bec5, "bald", 0x111, "brute", 0x1b5e20, { boots: 0x37474f }),
@@ -45,13 +47,39 @@ const CELL_JR_TINT = [0x9ccc65, 0x66bb6a, 0xaed581, 0x7cb342, 0xc5e1a5, 0x81c784
 
 const SOLDIER_BODY = [0x546e7a, 0x607d8b, 0x455a64, 0x78909c, 0x37474f];
 
+const LOOK_MAP_KEY = "namekusei.lookMap";
+
+export function loadSavedLook(id) {
+  if (!id) return {};
+  try {
+    const map = { ...shippedLooks, ...JSON.parse(localStorage.getItem(LOOK_MAP_KEY) || "{}") };
+    const a = shippedLooks[id] && typeof shippedLooks[id] === "object" ? shippedLooks[id] : {};
+    const b = map[id] && typeof map[id] === "object" ? map[id] : {};
+    return { ...a, ...b };
+  } catch {
+    return shippedLooks[id] && typeof shippedLooks[id] === "object" ? shippedLooks[id] : {};
+  }
+}
+
+export function saveLook(id, look) {
+  if (!id || !look) return;
+  try {
+    const map = JSON.parse(localStorage.getItem(LOOK_MAP_KEY) || "{}");
+    const { who, ...rest } = look;
+    map[id] = rest;
+    localStorage.setItem(LOOK_MAP_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
+
 export function lookFor(nombre, faccion, id, mapId = "namek") {
   if (nombre.startsWith("Cell Jr.")) {
     const n = parseInt(String(id).split("-")[1], 10) || 0;
     const tint = CELL_JR_TINT[n % CELL_JR_TINT.length];
     return { ...LOOK["Cell Jr."], who: "celljr", skin: tint, body: tint, accent: tint };
   }
-  if (LOOK[nombre]) return { ...LOOK[nombre], who: nombre };
+  if (LOOK[nombre]) return { ...LOOK[nombre], ...loadSavedLook(nombre), who: nombre };
   if (mapId === "earth" || mapId === "cell") {
     const n = parseInt(String(id).split("-")[1], 10) || 0;
     if (faccion === "f" && mapId === "earth") {
@@ -63,6 +91,7 @@ export function lookFor(nombre, faccion, id, mapId = "namek") {
         hairC: 0x1a1208,
         kit: "armor",
         accent: 0xffffff,
+        trim: 0xffffff,
         suit: n % 3 === 0 ? 0x0d47a1 : 0x1565c0,
         scouter: 0xd32f2f,
         boots: 0xffffff,

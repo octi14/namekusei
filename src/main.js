@@ -18,8 +18,17 @@ import { setAudioListener, playSfx, stopSfxLoop, atPos } from "./sfx.js";
 import { powerStyle } from "./powers.js";
 import { preloadGoku } from "./gokuRig.js";
 import { toggleCharEditor, charEditorOpen, setCharEditor } from "./charEditor.js";
+import { toggleAnimEditor, animEditorOpen, setAnimEditor } from "./animEditor.js";
 
 loadSettings();
+
+addEventListener("nk-char-saved", (e) => {
+  if (!worldReady) return;
+  const who = e.detail?.preset;
+  for (const p of people) {
+    if (!who || p.nombre === who) p.rebuildBody();
+  }
+});
 
 const canvas = document.getElementById("c");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -395,11 +404,22 @@ addEventListener("keydown", (e) => {
   if (e.code === "F2") {
     e.preventDefault();
     if (document.pointerLockElement) document.exitPointerLock();
+    if (animEditorOpen()) setAnimEditor(false);
     toggleCharEditor();
     return;
   }
-  if (charEditorOpen()) {
-    if (e.code === "Escape") setCharEditor(false);
+  if (e.code === "F3") {
+    e.preventDefault();
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (charEditorOpen()) setCharEditor(false);
+    toggleAnimEditor();
+    return;
+  }
+  if (charEditorOpen() || animEditorOpen()) {
+    if (e.code === "Escape") {
+      setCharEditor(false);
+      setAnimEditor(false);
+    }
     return;
   }
   if (!worldReady) return;
