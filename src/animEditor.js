@@ -5,6 +5,14 @@ import { loadClips, saveClips, evalClip, applyEval, BONES, defaultClips, copyCli
 import { flushPack } from "./pack.js";
 
 const SKIP = new Set(["Gokú", "Vegeta"]);
+const PRESET_LABEL = {
+  namek: "★ Genérico namekiano",
+  terrícola: "★ Genérico terrícola",
+  soldado: "★ Genérico soldado Freezer",
+  saiyajin: "★ Genérico saiyajin",
+  Saibaman: "★ Saibaman (plantilla)",
+  "Cell Jr.": "★ Cell Jr. (plantilla)",
+};
 const POSES = [
   ["rest", "Reposo"],
   ["idle", "Idle"],
@@ -49,7 +57,11 @@ let _w = 0;
 let _h = 0;
 
 function names() {
-  return Object.keys(LOOK).filter((n) => !SKIP.has(n));
+  const all = Object.keys(LOOK).filter((n) => !SKIP.has(n));
+  const gens = ["namek", "terrícola", "soldado", "saiyajin", "Saibaman", "Cell Jr."];
+  const head = gens.filter((n) => all.includes(n));
+  const rest = all.filter((n) => !head.includes(n)).sort((a, b) => a.localeCompare(b, "es"));
+  return [...head, ...rest];
 }
 
 function cur() {
@@ -157,7 +169,7 @@ function fillCopy() {
   sel.innerHTML = `<option value="*">Todos los demás</option>`;
   for (const n of names()) {
     if (n === presetName) continue;
-    sel.appendChild(Object.assign(document.createElement("option"), { value: n, textContent: n }));
+    sel.appendChild(Object.assign(document.createElement("option"), { value: n, textContent: PRESET_LABEL[n] || n }));
   }
   if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
 }
@@ -258,7 +270,7 @@ function ensureDom() {
   `;
   document.body.appendChild(root);
   const pre = root.querySelector("#ae-preset");
-  for (const n of names()) pre.appendChild(Object.assign(document.createElement("option"), { value: n, textContent: n }));
+  for (const n of names()) pre.appendChild(Object.assign(document.createElement("option"), { value: n, textContent: PRESET_LABEL[n] || n }));
   const ps = root.querySelector("#ae-pose");
   for (const [v, lab] of POSES) ps.appendChild(Object.assign(document.createElement("option"), { value: v, textContent: lab }));
   const bones = root.querySelector("#ae-bones");

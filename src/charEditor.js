@@ -224,9 +224,21 @@ let lastHitLocal = null;
 let moldTouched = new Set();
 const _rc = new THREE.Raycaster();
 const SKIP_LOOK = new Set(["Gokú", "Vegeta"]);
+const PRESET_LABEL = {
+  namek: "★ Genérico namekiano",
+  terrícola: "★ Genérico terrícola",
+  soldado: "★ Genérico soldado Freezer",
+  saiyajin: "★ Genérico saiyajin",
+  Saibaman: "★ Saibaman (plantilla)",
+  "Cell Jr.": "★ Cell Jr. (plantilla)",
+};
 
 function lookNames() {
-  return Object.keys(LOOK).filter((n) => !SKIP_LOOK.has(n));
+  const all = Object.keys(LOOK).filter((n) => !SKIP_LOOK.has(n));
+  const gens = ["namek", "terrícola", "soldado", "saiyajin", "Saibaman", "Cell Jr."];
+  const head = gens.filter((n) => all.includes(n));
+  const rest = all.filter((n) => !head.includes(n)).sort((a, b) => a.localeCompare(b, "es"));
+  return [...head, ...rest];
 }
 const _m = new THREE.Vector2();
 const _p = new THREE.Vector3();
@@ -381,7 +393,7 @@ function ensureDom() {
   for (const name of lookNames()) {
     const o = document.createElement("option");
     o.value = name;
-    o.textContent = name;
+    o.textContent = PRESET_LABEL[name] || name;
     preset.appendChild(o);
   }
   const kit = root.querySelector("#ce-kit");

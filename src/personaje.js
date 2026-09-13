@@ -5,7 +5,7 @@ import { spawnPos, clampMap, resolveObstacles, inOwnBase, surfaceHeight, isWater
 import { resolveShipCollisions } from "./bases.js";
 import { log, logKill } from "./log.js";
 import { makeBody, sculptAltura } from "./body.js";
-import { lookFor } from "./looks.js";
+import { lookFor, lookTemplateId } from "./looks.js";
 import { makeRiggedBody, gokuReady, CHAR_RIG } from "./gokuRig.js";
 import { footstep, playSfx, atPos, stopSfxLoop } from "./sfx.js";
 import { spawnSpeedStreak, spawnImpactRing } from "./powers.js";
@@ -88,8 +88,10 @@ export class Personaje {
     };
 
     const mixamo = CHAR_RIG[def.nombre];
-    const h = mixamo && gokuReady() ? this.s.altura * 1.21 : sculptAltura(def.nombre, this.s.altura);
-    this.mesh = mixamo && gokuReady() ? makeRiggedBody(h, def.look, mixamo) : makeBody(h, { ...def.look, who: def.look?.who || def.nombre });
+    const lookWho = def.look?.who || lookTemplateId(def.nombre) || def.nombre;
+    this.lookWho = lookWho;
+    const h = mixamo && gokuReady() ? this.s.altura * 1.21 : sculptAltura(lookWho, this.s.altura);
+    this.mesh = mixamo && gokuReady() ? makeRiggedBody(h, def.look, mixamo) : makeBody(h, { ...def.look, who: lookWho });
     this.mesh.rotation.order = "YXZ";
     this.height = 1.55 * h;
     const p = spawnPos(def.faccion, indexInTeam, teamCount);
@@ -278,10 +280,11 @@ export class Personaje {
   }
 
   refreshAnims() {
-    this._anims = loadClips(this.nombre);
+    const who = this.lookWho || this.nombre;
+    this._anims = loadClips(who);
     this._animCustom = {};
     for (const n of ["walk", "run", "hover", "fly", "charge", "idle", "swim", "swimIdle", "punch", "punchTwo", "punchKick", "elbow", "blast", "blastTwo", "crouch"]) {
-      this._animCustom[n] = clipIsCustom(this.nombre, n);
+      this._animCustom[n] = clipIsCustom(who, n);
     }
   }
 
@@ -353,6 +356,7 @@ export class Personaje {
   rebuildBody() {
     if (CHAR_RIG[this.nombre] && gokuReady()) return;
     const look = lookFor(this.nombre, this.faccion, this.id);
+    this.lookWho = look.who || lookTemplateId(this.nombre) || this.nombre;
     this.lookHairC = look.hairC ?? this.lookHairC;
     const extras = [
       this.ballMark, this.nameLabel, this.kiAura, this.kiHalo, this.ssjGlow, this.ssjHalo,
@@ -366,8 +370,8 @@ export class Personaje {
     this.mesh.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
     });
-    const h = sculptAltura(this.nombre, this.s.altura);
-    this.mesh = makeBody(h, { ...look, who: look.who || this.nombre });
+    const h = sculptAltura(this.lookWho, this.s.altura);
+    this.mesh = makeBody(h, { ...look, who: this.lookWho });
     this.mesh.rotation.order = "YXZ";
     this.mesh.position.copy(pos);
     this.mesh.quaternion.copy(quat);

@@ -41,6 +41,19 @@ export const LOOK = {
   "Nº19": L(0xc62828, 0xffcdd2, "bald", 0x111, "brute", 0xb71c1c),
   "Dr. Gero": L(0x546e7a, 0xbcaaa4, "helm", 0x37474f, "soldier", 0x90a4ae, { helm: 0x455a64 }),
   "Cell Jr.": L(0x558b2f, 0xaed581, "frieza", 0x33691e, "frost", 0x8bc34a, { boots: 0x33691e }),
+  // Guerreros genéricos (editables en F2 / anim editor)
+  namek: L(0x43a047, 0x66bb6a, "nail", 0x1b5e20, "namek", 0xffc107, {
+    cape: 0xfffde7, sash: 0xffc107, pants: 0x2e7d32,
+  }),
+  terrícola: L(0xef6c00, 0xf3d5c0, "goku", 0x1a1208, "gi", 0x1565c0, {
+    pants: 0x1565c0, sash: 0xffeb3b, boots: 0x0d47a1, undershirt: 0x5d4037, wrist: 0x1565c0, sleeves: 0xef6c00,
+  }),
+  soldado: L(0x546e7a, 0xb0bec5, "helm", 0x263238, "soldier", 0x90a4ae, {
+    helm: 0x37474f, suit: 0x546e7a, boots: 0x37474f,
+  }),
+  saiyajin: L(0x1565c0, 0xf3d5c0, "goku", 0x1a1208, "armor", 0xffffff, {
+    suit: 0x1565c0, trim: 0xffffff, scouter: 0xd32f2f, boots: 0xffffff, pads: 0xf5f5f5,
+  }),
 };
 
 const CELL_JR_TINT = [0x9ccc65, 0x66bb6a, 0xaed581, 0x7cb342, 0xc5e1a5, 0x81c784, 0xdce775, 0x4db6ac, 0xba68c8, 0xff8a65];
@@ -53,6 +66,23 @@ try {
   localStorage.removeItem(LOOK_MAP_KEY);
 } catch {
   /* ignore */
+}
+
+/** Id de plantilla (sculpt / look / anim) para un nombre en juego. */
+export function lookTemplateId(nombre, faccion = "z", mapId = "namek") {
+  if (!nombre) return null;
+  if (LOOK[nombre]) return nombre;
+  if (nombre.startsWith("Cell Jr.")) return "Cell Jr.";
+  if (nombre.startsWith("Saibaman")) return "Saibaman";
+  if (nombre.startsWith("Guerrero namekiano")) return "namek";
+  if (nombre.startsWith("Guerrero terrícola")) return "terrícola";
+  if (nombre.startsWith("Soldado saiyajin")) return "saiyajin";
+  if (nombre.startsWith("Soldado de Freezer")) return "soldado";
+  if (mapId === "earth" || mapId === "cell") {
+    if (faccion === "f" && mapId === "earth") return "saiyajin";
+    return "terrícola";
+  }
+  return faccion === "z" ? "namek" : "soldado";
 }
 
 export function loadSavedLook(id) {
@@ -70,59 +100,42 @@ export function saveLook(id, look) {
 }
 
 export function lookFor(nombre, faccion, id, mapId = "namek") {
-  if (nombre.startsWith("Cell Jr.")) {
-    const n = parseInt(String(id).split("-")[1], 10) || 0;
-    const tint = CELL_JR_TINT[n % CELL_JR_TINT.length];
-    return { ...LOOK["Cell Jr."], who: "celljr", skin: tint, body: tint, accent: tint };
-  }
-  if (LOOK[nombre]) return { ...LOOK[nombre], ...loadSavedLook(nombre), who: nombre };
-  if (mapId === "earth" || mapId === "cell") {
-    const n = parseInt(String(id).split("-")[1], 10) || 0;
-    if (faccion === "f" && mapId === "earth") {
-      return {
-        who: "saiyajin",
-        body: 0x1565c0,
-        skin: 0xf3d5c0,
-        hair: n % 2 ? "vegeta" : "goku",
-        hairC: 0x1a1208,
-        kit: "armor",
-        accent: 0xffffff,
-        trim: 0xffffff,
-        suit: n % 3 === 0 ? 0x0d47a1 : 0x1565c0,
-        scouter: 0xd32f2f,
-        boots: 0xffffff,
-      };
-    }
-    return {
-      who: "terrícola",
-      body: n % 2 ? 0x1565c0 : 0xef6c00,
-      skin: 0xf3d5c0,
-      hair: n % 3 === 0 ? "bald" : "goku",
-      hairC: 0x1a1208,
-      kit: "gi",
-      accent: 0x1565c0,
-      pants: 0x1565c0,
-      sash: 0xffeb3b,
-      boots: 0x0d47a1,
-    };
-  }
-  if (faccion === "z") {
-    return {
-      who: "namek",
-      body: 0x43a047,
-      skin: 0x66bb6a,
-      hair: "nail",
-      hairC: 0x1b5e20,
-      kit: "namek",
-      accent: 0xffc107,
-      cape: 0xfffde7,
-      sash: 0xffc107,
-    };
-  }
+  const tid = lookTemplateId(nombre, faccion, mapId);
   const n = parseInt(String(id).split("-")[1], 10) || 0;
+
+  if (tid === "Cell Jr.") {
+    const tint = CELL_JR_TINT[n % CELL_JR_TINT.length];
+    return {
+      ...LOOK["Cell Jr."],
+      ...loadSavedLook("Cell Jr."),
+      who: "Cell Jr.",
+      skin: tint,
+      body: tint,
+      accent: tint,
+    };
+  }
+
+  if (tid && LOOK[tid]) {
+    const saved = loadSavedLook(tid);
+    const base = { ...LOOK[tid], ...saved, who: tid };
+    if (tid === "soldado" && saved.body == null) {
+      base.body = SOLDIER_BODY[n % SOLDIER_BODY.length];
+      base.suit = base.body;
+    } else if (tid === "terrícola" && saved.body == null) {
+      base.body = n % 2 ? 0x1565c0 : 0xef6c00;
+      base.sleeves = base.body;
+      if (saved.hair == null) base.hair = n % 3 === 0 ? "bald" : "goku";
+    } else if (tid === "saiyajin" && saved.suit == null) {
+      if (saved.hair == null) base.hair = n % 2 ? "vegeta" : "goku";
+      base.suit = n % 3 === 0 ? 0x0d47a1 : 0x1565c0;
+      base.body = base.suit;
+    }
+    return base;
+  }
+
   return {
-    who: "soldado",
-    body: SOLDIER_BODY[n % SOLDIER_BODY.length],
+    who: tid || "soldado",
+    body: 0x546e7a,
     skin: 0xb0bec5,
     hair: "helm",
     hairC: 0x263238,
