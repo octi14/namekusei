@@ -48,11 +48,19 @@ const CELL_JR_TINT = [0x9ccc65, 0x66bb6a, 0xaed581, 0x7cb342, 0xc5e1a5, 0x81c784
 const SOLDIER_BODY = [0x546e7a, 0x607d8b, 0x455a64, 0x78909c, 0x37474f];
 
 const LOOK_MAP_KEY = "namekusei.lookMap";
+/** Overlay de sesión; fuente de verdad: data/looks.json */
+let _lookRuntime = null;
+
+try {
+  localStorage.removeItem(LOOK_MAP_KEY);
+} catch {
+  /* ignore */
+}
 
 export function loadSavedLook(id) {
   if (!id) return {};
   try {
-    const map = { ...shippedLooks, ...JSON.parse(localStorage.getItem(LOOK_MAP_KEY) || "{}") };
+    const map = { ...shippedLooks, ...(_lookRuntime || {}) };
     const a = shippedLooks[id] && typeof shippedLooks[id] === "object" ? shippedLooks[id] : {};
     const b = map[id] && typeof map[id] === "object" ? map[id] : {};
     return { ...a, ...b };
@@ -64,10 +72,15 @@ export function loadSavedLook(id) {
 export function saveLook(id, look) {
   if (!id || !look) return;
   try {
-    const map = JSON.parse(localStorage.getItem(LOOK_MAP_KEY) || "{}");
+    const map = { ...shippedLooks, ...(_lookRuntime || {}) };
     const { who, ...rest } = look;
     map[id] = rest;
-    localStorage.setItem(LOOK_MAP_KEY, JSON.stringify(map));
+    _lookRuntime = map;
+    try {
+      localStorage.removeItem(LOOK_MAP_KEY);
+    } catch {
+      /* ignore */
+    }
     if (import.meta.env.DEV) {
       fetch("/__namekusei-pack", {
         method: "POST",

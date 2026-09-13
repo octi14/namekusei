@@ -1,15 +1,18 @@
 import shippedAnims from "./data/anims.json";
 
 const KEY = "namekusei.anims";
+/** Overlay de sesión; fuente de verdad: data/anims.json */
+let _animRuntime = null;
+
+try {
+  localStorage.removeItem(KEY);
+} catch {
+  /* ignore */
+}
 
 function storedAnims() {
-  let local = {};
-  try {
-    local = JSON.parse(localStorage.getItem(KEY) || "{}") || {};
-  } catch {
-    /* ignore */
-  }
   const out = { ...shippedAnims };
+  const local = _animRuntime || {};
   for (const who of Object.keys(local)) {
     out[who] = { ...(out[who] || {}), ...local[who] };
   }
@@ -236,9 +239,14 @@ export function loadClips(who) {
 export function saveClips(who, clips) {
   if (!who) return;
   try {
-    const all = JSON.parse(localStorage.getItem(KEY) || "{}");
+    const all = { ...(_animRuntime || {}) };
     all[who] = clips;
-    localStorage.setItem(KEY, JSON.stringify(all));
+    _animRuntime = all;
+    try {
+      localStorage.removeItem(KEY);
+    } catch {
+      /* ignore */
+    }
     shipPack();
   } catch {
     /* ignore */
@@ -252,9 +260,7 @@ function shipPack() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        anims: JSON.parse(localStorage.getItem(KEY) || "{}"),
-        looks: JSON.parse(localStorage.getItem("namekusei.lookMap") || "{}"),
-        sculpts: JSON.parse(localStorage.getItem("namekusei.sculptMap") || "{}"),
+        anims: storedAnims(),
       }),
     }).catch(() => {});
   } catch {

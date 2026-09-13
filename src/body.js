@@ -243,6 +243,15 @@ export const SCULPT_SELECTS = {
 
 const SCULPT_MAP_KEY = "namekusei.sculptMap";
 const SCULPT_KEY_OLD = "namekusei.sculpt";
+/** Overlay de sesión tras Guardar; la fuente de verdad es data/sculpts.json */
+let _sculptRuntime = null;
+
+try {
+  localStorage.removeItem(SCULPT_MAP_KEY);
+  localStorage.removeItem(SCULPT_KEY_OLD);
+} catch {
+  /* ignore */
+}
 
 function migrateSculpt(j) {
   if (!j || typeof j !== "object") return {};
@@ -284,32 +293,18 @@ function migrateSculpt(j) {
 }
 
 function readSculptMap() {
-  try {
-    const shipped = shippedSculpts && typeof shippedSculpts === "object" ? shippedSculpts : {};
-    const raw = localStorage.getItem(SCULPT_MAP_KEY);
-    if (raw) {
-      const j = JSON.parse(raw);
-      const local = j && typeof j === "object" ? j : {};
-      return { ...shipped, ...local };
-    }
-    if (Object.keys(shipped).length) return { ...shipped };
-    // migrar guardado global viejo → solo Gokú (ya no aplica a todos)
-    const old = localStorage.getItem(SCULPT_KEY_OLD);
-    if (old) {
-      const sculpt = migrateSculpt(JSON.parse(old));
-      const map = { Gokú: sculpt };
-      localStorage.setItem(SCULPT_MAP_KEY, JSON.stringify(map));
-      localStorage.removeItem(SCULPT_KEY_OLD);
-      return map;
-    }
-  } catch {
-    /* ignore */
-  }
-  return {};
+  const shipped = shippedSculpts && typeof shippedSculpts === "object" ? shippedSculpts : {};
+  return { ...shipped, ...(_sculptRuntime || {}) };
 }
 
 function writeSculptMap(map) {
-  localStorage.setItem(SCULPT_MAP_KEY, JSON.stringify(map));
+  _sculptRuntime = map;
+  try {
+    localStorage.removeItem(SCULPT_MAP_KEY);
+    localStorage.removeItem(SCULPT_KEY_OLD);
+  } catch {
+    /* ignore */
+  }
   if (import.meta.env.DEV) {
     fetch("/__namekusei-pack", {
       method: "POST",
@@ -347,8 +342,13 @@ export function saveSculpt(id, sculpt) {
 
 export function clearSavedSculpt(id) {
   if (!id) {
-    localStorage.removeItem(SCULPT_MAP_KEY);
-    localStorage.removeItem(SCULPT_KEY_OLD);
+    _sculptRuntime = {};
+    try {
+      localStorage.removeItem(SCULPT_MAP_KEY);
+      localStorage.removeItem(SCULPT_KEY_OLD);
+    } catch {
+      /* ignore */
+    }
     return;
   }
   const map = readSculptMap();

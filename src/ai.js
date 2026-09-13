@@ -10,6 +10,10 @@ function seed(p) {
   return Math.abs(h % 1000) / 1000;
 }
 
+function random(a, b) {
+  return a + Math.random() * (b - a);
+}
+
 /** Rol fijo por unidad: más decididos sin narrativa. */
 function aiRole(p) {
   const a = seed(p);
@@ -972,28 +976,32 @@ export function aiTick(p, people, balls, combat, match, dt) {
       p.aiHideZ = spot.z;
       p.aiFight = 0;
       p.aiFoe = null;
+      // 4.2-6.2 segundos
       commitMode(p, "hide", 4.2 + (1 - agg) * 2.2);
     } else if (pick === "snipe") {
       p.aiFoe = snipeFoe || p.aiFoe || enemy;
       const nest = pickNest(p, p.aiFoe);
       p.aiNestX = nest.x;
       p.aiNestZ = nest.z;
-      commitMode(p, "snipe", 7 + seed(p) * 4);
+      // 10-14 segundos
+      commitMode(p, "snipe", 10 + seed(p) * 4);
     } else if (pick === "fight" && enemy) {
       p.aiFoe = enemy;
       p.aiFight = 5 + agg * 2.8 + Math.max(0, mood.front) * 2;
-      commitMode(p, "fight", 8 + agg * 3);
-    } else if (pick === "deliver") commitMode(p, "deliver", 99);
+      commitMode(p, "fight", random(15, 22) + agg * 3);
+    } else if (pick === "deliver") commitMode(p, "deliver", random(60, 100));
     else if (pick === "help") commitMode(p, "help", 10 + seed(p) * 3);
     else if (pick === "ball") commitMode(p, "ball", 14 + seed(p) * 4);
     else if (pick === "raid") {
       p.aiRaid = Math.max(p.aiRaid || 0, 12);
-      commitMode(p, "raid", 14);
+      // 14 segundos
+      commitMode(p, "raid", 30);
     } else if (pick === "charge") {
       p.aiChargeTo = band.hi;
-      commitMode(p, "charge", 8 + seed(p) * 3);
+
+      commitMode(p, "charge", random(8, 12) + seed(p) * 3);
     } else if (p.aiMode === "wander" && p.aiWanderX != null && Math.hypot((p.aiWanderX || 0) - p.pos().x, (p.aiWanderZ || 0) - p.pos().z) > 22) {
-      commitMode(p, "wander", 12);
+      commitMode(p, "wander", random(12, 18));
     } else {
       p.aiWanderPhase = (p.aiWanderPhase || 0) + 1;
       const wt =
