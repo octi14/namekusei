@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { makeBody, DEFAULT_SCULPT, SCULPT_SELECTS, saveSculpt, loadSavedSculpt, clearSavedSculpt, captureMolds } from "./body.js";
 import { LOOK, saveLook, loadSavedLook } from "./looks.js";
+import { flushPack } from "./pack.js";
 
 const EDITOR_KEY = "namekusei.charEditor";
 const LOOK_COLORS = [
@@ -8,8 +9,9 @@ const LOOK_COLORS = [
   ["hairC", "Pelo", (l) => l.hairC ?? 0x1a1208],
   ["body", "Gi / túnica", (l) => l.body],
   ["undershirt", "Interior", (l) => l.undershirt ?? 0x5d4037],
-  ["sleeves", "Mangas", (l) => l.sleeves ?? l.body],
-  ["pants", "Pantalón", (l) => l.pants ?? l.accent ?? l.body],
+  ["sleeves", "Brazos", (l) => l.sleeves ?? l.suit ?? l.body],
+  ["forearms", "Antebrazos", (l) => l.forearms ?? l.sleeves ?? l.suit ?? l.body],
+  ["pants", "Piernas", (l) => l.pants ?? l.suit ?? l.accent ?? l.body],
   ["sash", "Fajín", (l) => l.sash ?? l.accent ?? 0x0d47a1],
   ["wrist", "Muñequeras", (l) => l.wrist ?? l.accent ?? 0x1565c0],
   ["boots", "Botas", (l) => l.boots ?? 0x0d47a1],
@@ -104,11 +106,22 @@ const SLIDERS = [
   ["beltR", "Cinturón radio", 0.1, 0.25, 0.005],
   ["beltThick", "Cinturón grosor", 0.01, 0.06, 0.001],
   ["showBelt", "Cinturón on", 0, 1, 1],
+  ["showSash", "Fajín on", 0, 1, 1],
+  ["showSashTail", "Listón fajín", 0, 1, 1],
+  ["showLapels", "Solapas gi", 0, 1, 1],
+  ["sashY", "Fajín Y", -0.2, 0.2, 0.005],
   ["capeScale", "Capa escala", 0.5, 1.6, 0.05],
   ["capeThick", "Capa grosor", 0.4, 2, 0.05],
   ["capeX", "Capa X", -0.2, 0.2, 0.005],
   ["capeY", "Capa Y", -0.25, 0.25, 0.005],
   ["capeZ", "Capa Z", -0.22, 0.22, 0.005],
+  ["plateX", "Placa armadura X", -0.25, 0.25, 0.005],
+  ["plateY", "Placa armadura Y", -0.3, 0.3, 0.005],
+  ["plateZ", "Placa armadura Z", -0.25, 0.25, 0.005],
+  ["showUnder", "Interior on", 0, 1, 1],
+  ["underX", "Interior X", -0.25, 0.25, 0.005],
+  ["underY", "Interior Y", -0.4, 0.4, 0.005],
+  ["underZ", "Interior Z", -0.25, 0.25, 0.005],
   null,
   "Cabeza / cara",
   ["neckR", "Cuello radio", 0.03, 0.1, 0.001],
@@ -229,12 +242,13 @@ function dropSizeMolds(key) {
   const molds = sculpt.molds;
   if (!molds) return;
   const pats = [];
-  if (/^(torso|hips|chest|pec|waist|belt|cape)/.test(key)) {
-    pats.push(/^(torso|chest|pec|hips|belt|cloth_shirt|undershirt|armor|cape|frost)/);
+    if (/^(torso|hips|chest|pec|waist|belt|cape|plate|under)/.test(key)) {
+    pats.push(/^(torso|chest|pec|hips|belt|cloth_shirt|undershirt|armor|cape|frost|plate)/);
   }
   if (/arm|shoulder|hand|finger/i.test(key)) pats.push(/arm|band_/);
   if (/thigh|shin|hipX|hipY|foot|boot/i.test(key)) pats.push(/thigh|shin|boot|^hips/);
-  if (/head|eye|ear|jaw|nose|hair|neck/i.test(key)) pats.push(/head|jaw|eye|ear|nose|mouth|hair|neck/);
+  if (/hair/i.test(key) && key !== "hairY") pats.push(/hair/);
+  else if (/head|eye|ear|jaw|nose|neck/i.test(key)) pats.push(/head|jaw|eye|ear|nose|mouth|neck/);
   if (!pats.length) return;
   for (const id of Object.keys(molds)) {
     if (pats.some((p) => p.test(id))) delete molds[id];
@@ -468,6 +482,11 @@ function ensureDom() {
     lab.innerHTML = `${label}<span class="v" data-k="${key}"></span>
       <input type="range" data-sculpt="${key}" min="${min}" max="${max}" step="${step}" />`;
     box.appendChild(lab);
+    if (key === "underZ") {
+      const c = document.createElement("label");
+      c.innerHTML = `Interior color<input type="color" data-lookc="undershirt" />`;
+      box.appendChild(c);
+    }
   }
 
   preset.addEventListener("change", () => {
@@ -498,6 +517,11 @@ function ensureDom() {
   });
   box.addEventListener("input", (e) => {
     const el = e.target;
+    if (el.dataset.lookc) {
+      look[el.dataset.lookc] = parseHex(el.value);
+      dirty = true;
+      return;
+    }
     if (!el.dataset.sculpt) return;
     sculpt[el.dataset.sculpt] = +el.value;
     dropSizeMolds(el.dataset.sculpt);
@@ -751,8 +775,9 @@ function syncLookUi() {
   root.querySelector("#ce-hair").value = look.hair || "goku";
   root.querySelector("#ce-alt").value = altura;
   for (const [key, , get] of LOOK_COLORS) {
-    const el = root.querySelector(`input[data-lookc="${key}"]`);
-    if (el) el.value = hexInput(get(look));
+    root.querySelectorAll(`input[data-lookc="${key}"]`).forEach((el) => {
+      el.value = hexInput(get(look));
+    });
   }
 }
 
@@ -862,7 +887,7 @@ export function setCharEditor(on) {
   }
 }
 
-function persistEditor(fromBtn) {
+async function persistEditor(fromBtn) {
   if (!presetName) return;
   if (mesh && sculpt.molds) {
     sculpt.molds = { ...sculpt.molds, ...captureMolds(mesh, new Set(Object.keys(sculpt.molds))) };
@@ -873,6 +898,7 @@ function persistEditor(fromBtn) {
   saveSculpt(presetName, sculpt);
   saveLook(presetName, look);
   localStorage.setItem(EDITOR_KEY, JSON.stringify({ lastPreset: presetName, altura }));
+  const ok = await flushPack();
   if (root) {
     root.querySelector("#ce-json").value = JSON.stringify(
       {
@@ -884,7 +910,7 @@ function persistEditor(fromBtn) {
       null,
       2
     );
-    if (fromBtn) setStatus(`Guardado ✓ solo para ${presetName}`);
+    if (fromBtn) setStatus(ok === false ? `No se escribió src/data` : `Guardado ✓ en data/${presetName}`);
   }
   dispatchEvent(new CustomEvent("nk-char-saved", { detail: { preset: presetName } }));
 }

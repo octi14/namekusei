@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { makeBody, loadSavedSculpt, DEFAULT_SCULPT } from "./body.js";
 import { LOOK, loadSavedLook } from "./looks.js";
 import { loadClips, saveClips, evalClip, applyEval, BONES, defaultClips, copyClipsTo } from "./capsuleAnim.js";
+import { flushPack } from "./pack.js";
 
 const SKIP = new Set(["Gokú", "Vegeta"]);
 const POSES = [
@@ -61,8 +62,9 @@ function setSt(t) {
   if (el) el.textContent = t;
 }
 
-function persist() {
+async function persist() {
   saveClips(presetName, clips);
+  await flushPack();
   try {
     const j = JSON.parse(localStorage.getItem("namekusei.charEditor") || "{}");
     j.lastPreset = presetName;

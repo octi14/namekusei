@@ -4,7 +4,10 @@ import path from "path";
 const dest = path.resolve("src/data");
 
 export default {
-  server: { watch: { ignored: ["**/src/data/*.json"] } },
+  server: {
+    watch: { ignored: ["**/src/data/*.json"] },
+    headers: { "Cache-Control": "no-store" },
+  },
   plugins: [
     {
       name: "namekusei-pack",
@@ -17,7 +20,7 @@ export default {
             try {
               const j = JSON.parse(Buffer.concat(chunks).toString("utf8"));
               fs.mkdirSync(dest, { recursive: true });
-              const writeIfChanged = (name, obj) => {
+              const writeFile = (name, obj) => {
                 if (!obj || !Object.keys(obj).length) return;
                 const p = path.join(dest, name);
                 let prev = {};
@@ -26,13 +29,14 @@ export default {
                 } catch {
                   prev = {};
                 }
-                const next = JSON.stringify({ ...prev, ...obj });
+                const merged = { ...prev, ...obj };
+                const next = JSON.stringify(merged);
                 if (JSON.stringify(prev) === next) return;
                 fs.writeFileSync(p, next);
               };
-              writeIfChanged("anims.json", j.anims);
-              writeIfChanged("looks.json", j.looks);
-              writeIfChanged("sculpts.json", j.sculpts);
+              writeFile("anims.json", j.anims);
+              writeFile("looks.json", j.looks);
+              writeFile("sculpts.json", j.sculpts);
               res.statusCode = 200;
               res.end("ok");
             } catch (e) {
@@ -45,3 +49,4 @@ export default {
     },
   ],
 };
+

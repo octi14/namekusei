@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import shippedSculpts from "./data/sculpts.json";
+import { getSculptMap, setSculptMap } from "./pack.js";
 
 function surf(color, opts = {}) {
   const m = {
@@ -214,9 +214,20 @@ export const DEFAULT_SCULPT = {
   capeX: 0,
   capeY: 0,
   capeZ: 0,
+  plateX: 0,
+  plateY: 0,
+  plateZ: 0,
+  showUnder: 1,
+  underX: 0,
+  underY: 0,
+  underZ: 0,
   beltR: 0.155,
   beltThick: 0.034,
   showBelt: 1,
+  showSash: 1,
+  showSashTail: 1,
+  showLapels: 1,
+  sashY: 0,
   // antenas namek
   antLen: 0.22,
   antR: 0.014,
@@ -243,8 +254,6 @@ export const SCULPT_SELECTS = {
 
 const SCULPT_MAP_KEY = "namekusei.sculptMap";
 const SCULPT_KEY_OLD = "namekusei.sculpt";
-/** Overlay de sesión tras Guardar; la fuente de verdad es data/sculpts.json */
-let _sculptRuntime = null;
 
 try {
   localStorage.removeItem(SCULPT_MAP_KEY);
@@ -293,25 +302,11 @@ function migrateSculpt(j) {
 }
 
 function readSculptMap() {
-  const shipped = shippedSculpts && typeof shippedSculpts === "object" ? shippedSculpts : {};
-  return { ...shipped, ...(_sculptRuntime || {}) };
+  return getSculptMap();
 }
 
 function writeSculptMap(map) {
-  _sculptRuntime = map;
-  try {
-    localStorage.removeItem(SCULPT_MAP_KEY);
-    localStorage.removeItem(SCULPT_KEY_OLD);
-  } catch {
-    /* ignore */
-  }
-  if (import.meta.env.DEV) {
-    fetch("/__namekusei-pack", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sculpts: map }),
-    }).catch(() => {});
-  }
+  setSculptMap(map);
 }
 
 export function sculptIdFromLook(look = {}) {
@@ -342,13 +337,7 @@ export function saveSculpt(id, sculpt) {
 
 export function clearSavedSculpt(id) {
   if (!id) {
-    _sculptRuntime = {};
-    try {
-      localStorage.removeItem(SCULPT_MAP_KEY);
-      localStorage.removeItem(SCULPT_KEY_OLD);
-    } catch {
-      /* ignore */
-    }
+    setSculptMap({});
     return;
   }
   const map = readSculptMap();
@@ -818,45 +807,33 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
     }
     if (t === "piccolo" || t === "turban" || look.turban) {
       const cloth = surf(look.turbanC ?? look.cape ?? 0xf5f5f5, { roughness: 0.88 });
-      const wrap = new THREE.Mesh(
-        latheProfile(
-          [
-            [0.01 * s, 0.2 * s],
-            [0.12 * s, 0.18 * s],
-            [0.17 * s, 0.12 * s],
-            [0.185 * s, 0.04 * s],
-            [0.17 * s, -0.02 * s],
-            [0.12 * s, -0.07 * s],
-            [0.02 * s, -0.08 * s],
-          ],
-          20
-        ),
-        cloth
+      const wrap = loftMesh(
+        [0.05, 0.14, 0.175, 0.19, 0.18, 0.14, 0.06].map((r) => r * s),
+        0.3 * s,
+        cloth,
+        { radial: 20, sz: 1.06 }
       );
-      wrap.position.y = 0.05 * s;
+      wrap.position.y = 0.06 * s;
       wrap.userData.moldId = "turban";
       wrap.userData.moldFamily = "cloth";
       hairRoot.add(wrap);
-      const fold = new THREE.Mesh(
-        latheProfile(
-          [
-            [0.14 * s, 0.08 * s],
-            [0.19 * s, 0.05 * s],
-            [0.18 * s, 0.0],
-            [0.12 * s, -0.03 * s],
-          ],
-          16
-        ),
-        cloth
+      const fold = loftMesh(
+        [0.08, 0.11, 0.1, 0.07].map((r) => r * s),
+        0.1 * s,
+        cloth,
+        { radial: 14, sx: 1.15, sz: 0.85 }
       );
-      fold.position.set(0.02 * s, 0.07 * s, 0);
-      fold.rotation.z = 0.12;
+      fold.position.set(0.04 * s, 0.08 * s, 0);
       fold.userData.moldId = "turban_fold";
       fold.userData.moldFamily = "cloth";
       hairRoot.add(fold);
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.162 * s, 0.032 * s, 10, 24), cloth);
-      band.rotation.x = Math.PI / 2;
-      band.position.y = 0.03 * s;
+      const band = loftMesh(
+        [0.16, 0.175, 0.17, 0.155].map((r) => r * s),
+        0.07 * s,
+        cloth,
+        { radial: 20 }
+      );
+      band.position.y = 0.02 * s;
       band.userData.moldId = "turban_band";
       band.userData.moldFamily = "cloth";
       hairRoot.add(band);
@@ -1145,6 +1122,7 @@ export function makeBody(altura, look, sculpt = {}) {
   const sashHex = look.sash ?? look.accent ?? 0x0d47a1;
   const sleeveHex = look.sleeves ?? (kit === "armor" || kit === "soldier" ? look.suit ?? shirtHex : shirtHex);
   const suitHex = look.suit ?? shirtHex;
+  const forearmHex = look.forearms ?? sleeveHex;
   const underHex = look.undershirt ?? 0x5d4037;
   const wristHex = look.wrist ?? look.accent ?? sashHex;
   const capeHex = look.cape ?? 0xfafafa;
@@ -1154,6 +1132,7 @@ export function makeBody(altura, look, sculpt = {}) {
   const pantsM = surf(pantsHex, { roughness: 0.84 });
   const sashM = surf(sashHex, { roughness: 0.62 });
   const sleeveM = surf(sleeveHex, { roughness: kit === "armor" || kit === "soldier" ? 0.5 : 0.82 });
+  const forearmM = surf(forearmHex, { roughness: kit === "armor" || kit === "soldier" ? 0.5 : 0.82 });
   const suitM = surf(suitHex, { roughness: 0.48, metalness: 0.08 });
   const plateM = surf(plateHex, { roughness: 0.38, metalness: 0.22 });
   const padM = surf(padHex, { roughness: 0.4, metalness: 0.18 });
@@ -1234,21 +1213,30 @@ export function makeBody(altura, look, sculpt = {}) {
   torsoG.add(chest);
   addPecs(torsoG, s, waistY, shirtLayer || torsoC, sc, brute, ty);
 
-  if (kit === "gi" || kit === "namek") {
+  if ((kit === "gi" || kit === "namek") && sc.showSash > 0.5) {
+    const sashY = (sc.sashY || 0) * s;
     const sash = new THREE.Mesh(
       new THREE.TorusGeometry(sc.beltR * s * 1.08, sc.beltThick * s * 2.4, 10, 24),
       sashM
     );
     sash.rotation.x = Math.PI / 2;
-    sash.position.y = 0.7 * s - waistY + ty;
+    sash.position.y = sashY;
     sash.userData.moldId = "sash";
     sash.userData.moldFamily = "cloth";
     torsoG.add(sash);
     const knot = new THREE.Mesh(new THREE.BoxGeometry(0.08 * s, 0.07 * s, 0.05 * s), sashM);
-    knot.position.set(0, 0.68 * s - waistY + ty, 0.16 * s);
+    knot.position.set(0, sashY, 0.16 * s);
     knot.userData.moldId = "sash_knot";
     knot.userData.moldFamily = "cloth";
     torsoG.add(knot);
+    if (sc.showSashTail > 0.5) {
+      const tail = new THREE.Mesh(new THREE.BoxGeometry(0.055 * s, 0.26 * s, 0.02 * s), sashM);
+      tail.position.set(0.02 * s, sashY - 0.14 * s, 0.15 * s);
+      tail.rotation.z = 0.08;
+      tail.userData.moldId = "sash_tail";
+      tail.userData.moldFamily = "cloth";
+      torsoG.add(tail);
+    }
   } else if (sc.showBelt > 0.5) {
     const belt = new THREE.Mesh(
       new THREE.TorusGeometry(sc.beltR * s, sc.beltThick * s, 10, 24),
@@ -1266,7 +1254,7 @@ export function makeBody(altura, look, sculpt = {}) {
       new THREE.SphereGeometry(0.185 * s, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.55),
       plateM
     );
-    plate.position.y = 1.02 * s - waistY + ty;
+    plate.position.set((sc.plateX || 0) * s, 1.02 * s - waistY + ty + (sc.plateY || 0) * s, (sc.plateZ || 0) * s);
     plate.rotation.x = 0.15;
     plate.userData.moldId = "armor_plate";
     plate.userData.moldFamily = "cloth";
@@ -1292,15 +1280,21 @@ export function makeBody(altura, look, sculpt = {}) {
     gem.userData.moldFamily = "cloth";
     torsoG.add(gem);
   }
-  if (kit === "gi") {
+  if (kit === "gi" && sc.showUnder > 0.5) {
     const undershirt = new THREE.Mesh(
       new THREE.CylinderGeometry(0.12 * s, 0.135 * s, 0.28 * s, 14),
       underM
     );
-    undershirt.position.y = 0.92 * s - waistY + ty;
+    undershirt.position.set(
+      (sc.underX || 0) * s,
+      0.92 * s - waistY + ty + (sc.underY || 0) * s,
+      (sc.underZ || 0) * s
+    );
     undershirt.userData.moldId = "undershirt";
     undershirt.userData.moldFamily = "cloth";
     torsoG.add(undershirt);
+  }
+  if (kit === "gi" && sc.showLapels > 0.5) {
     for (const side of [-1, 1]) {
       const lapel = new THREE.Mesh(new THREE.BoxGeometry(0.07 * s, 0.34 * s, 0.03 * s), shirtM);
       lapel.position.set(side * 0.07 * s, 0.98 * s - waistY + ty, 0.14 * s);
@@ -1401,7 +1395,7 @@ export function makeBody(altura, look, sculpt = {}) {
     sleeveMat: gi || armored || kit === "brute" ? sleeveM : null,
     sleeveLen: gi ? 0.5 : kit === "brute" ? 0.62 : 0.92,
     sleeveLower: false,
-    foreClothMat: armored ? suitM : null,
+    foreClothMat: armored ? forearmM : null,
     clothFit: sc.clothFit,
   };
   const legBase = {
@@ -1420,8 +1414,8 @@ export function makeBody(altura, look, sculpt = {}) {
     footPitch: sc.footPitch,
     bootCuff: sc.bootCuff,
     showBoots: sc.showBoots,
-    pantsMat: layered ? (armored ? suitM : pantsM) : null,
-    shinClothMat: layered ? (armored ? suitM : pantsM) : null,
+    pantsMat: layered ? pantsM : null,
+    shinClothMat: layered ? pantsM : null,
     clothFit: sc.clothFit,
   };
   const armL = makeArm(

@@ -267,15 +267,17 @@ function applyLoco(p, dir, ctx, dt) {
   const insideShip = dOwn < BASE_INNER_R - 0.2 || dFoe < BASE_INNER_R - 0.2;
   const atShip = !!(insideShip || (ctx.shipGate && inCorridor));
 
+  const threatNear = !!(ctx.fighting || (ctx.enemyDist != null && ctx.enemyDist < 52));
   const needKi = body.ki < ctx.band.lo || ((p.aiChargeTo || 0) > 0 && body.ki < p.aiChargeTo);
-  if (ctx.chargingHard && body.dry && body.grounded) p.aiCharge = true;
-  else if (needKi && !ctx.carrying && !ctx.fighting && body.dry && body.grounded && ctx.mode !== "deliver") p.aiCharge = true;
+  if (ctx.chargingHard && body.dry && body.grounded && !threatNear) p.aiCharge = true;
+  else if (needKi && !ctx.carrying && !threatNear && body.dry && body.grounded && ctx.mode !== "deliver") p.aiCharge = true;
   else if (body.ki >= (p.aiChargeTo || ctx.band.hi)) p.aiCharge = false;
-  if (ctx.carrying || ctx.sniping || atShip) p.aiCharge = false;
+  if (ctx.carrying || ctx.sniping || atShip || threatNear) p.aiCharge = false;
   const charging = !!p.aiCharge && body.grounded && body.dry;
 
   const wet = body.overWater || body.swimming;
-  const canFlyKi = body.kiAbs > 8 && body.ki >= 0.16 && !charging && !atShip;
+  const flyKi = ctx.band.fly || 0.45;
+  const canFlyKi = body.kiAbs > 22 && body.ki >= flyKi && !charging && !atShip && !threatNear;
   const hunted = !!(ctx.carrying && ctx.enemyDist < 48);
     if (wet && !atShip) {
     p.aiWetT = (p.aiWetT || 0) - dt;
@@ -289,18 +291,32 @@ function applyLoco(p, dir, ctx, dt) {
   }
   const dive = p.aiWetPlan === "dive";
   const canFly = canFlyKi && !dive;
+  if ((p.aiGroundLock || 0) > 0) p.aiGroundLock -= dt;
   let wantFly = false;
-  if (canFly && (p.aiWetPlan === "air" || ctx.carrying || ctx.mode === "raid" || ctx.mode === "ball" || ctx.goalDist > 42))
+  const longHaul =
+    ctx.carrying ||
+    ctx.mode === "deliver" ||
+    ((ctx.mode === "ball" || ctx.mode === "raid") && ctx.goalDist > 95);
+  if (canFly && p.aiWetPlan === "air") wantFly = true;
+  else if (canFly && longHaul && (p.aiGroundLock || 0) <= 0) wantFly = true;
+  else if (
+    canFly &&
+    (p.aiGroundLock || 0) <= 0 &&
+    ctx.goalDist > 170 &&
+    ctx.mode !== "charge" &&
+    ctx.mode !== "wander"
+  )
     wantFly = true;
-  else if ((p.aiFlyHold || 0) > 0.4 && body.ki > 0.16 && !atShip && !dive) wantFly = true;
+  else if ((p.aiFlyHold || 0) > 0.4 && body.ki >= flyKi && !atShip && !dive && !threatNear && longHaul)
+    wantFly = true;
 
-  if (wantFly) p.aiFlyHold = Math.min(3.5, (p.aiFlyHold || 0) + dt);
-  else p.aiFlyHold = Math.max(0, (p.aiFlyHold || 0) - dt * 0.45);
+  if (wantFly) p.aiFlyHold = Math.min(2.2, (p.aiFlyHold || 0) + dt);
+  else p.aiFlyHold = Math.max(0, (p.aiFlyHold || 0) - dt * 0.9);
 
   if (atShip) {
     if (body.flyAlt > 0.1) aiVert(p, body, "descend");
     p.aiFlyHold = 0;
-  } else if (dive) {
+  } else if (dive || threatNear) {
     aiVert(p, body, "descend");
     p.aiFlyHold = 0;
   } else if (wantFly && (p.aiWetPlan === "air" || p.aiFlyHold > 0.18 || body.swimming)) {
@@ -309,6 +325,7 @@ function applyLoco(p, dir, ctx, dt) {
     else aiVert(p, body, "climb");
   } else if (body.flying && !wet) {
     aiVert(p, body, "descend");
+    if (body.flyAlt < 1.4) p.aiGroundLock = Math.max(p.aiGroundLock || 0, 8);
   } else if (body.flying && wet && p.aiWetPlan !== "air") {
     aiVert(p, body, "hold");
   }
@@ -488,22 +505,22 @@ function utilBest(p, ctx) {
   const sticky = (m) => {
     if (p.aiMode !== m) return 0;
     if (m === "wander") return 10;
-    if (m === "charge") return 16;
-    if (m === "fight") return 14;
+    if (m === "charge") return 13;
+    if (m === "fight") return 18;
     return 20;
   };
   const rows = [];
-  let fight = -60;
+  let fight = -40;
   if (enemy && (!critHp || enemyCarrier)) {
-    fight = (enemyCarrier ? 96 : 30) + Math.max(0, 48 - enemyDist) * 0.55 + sticky("fight");
+    fight = (enemyCarrier ? 80 : 30) + Math.max(0, 48 - enemyDist) * 0.55 + sticky("fight");
     if (enemyCarrier && enemyDist < 80) fight += 36;
-    if (enemyDist < 38 && mood.ki > 0.18) fight += 16 + agg * 8;
-    if (enemyDist < 22 && mood.ki > 0.12) fight += 14;
+    if (enemyDist < 50 && mood.ki > 0.12) fight += 22 + agg * 8;
+    if (enemyDist < 25 && mood.ki > 0.08) fight += 20;
     if (defend) {
-      fight += 42 + (enemyCarrier ? 22 : 10) + Math.max(0, 0.55 - agg) * 18;
+      fight += 40 + (enemyCarrier ? 22 : 10) + Math.max(0, 0.55 - agg) * 18;
       if (inHomeAir) fight += 16;
     }
-    if (role === "aggro") fight += 14;
+    if (role === "aggro") fight += 20;
     if (role === "guard" && (defend || inHomeAir)) fight += 16;
     if (lowHp && !enemyCarrier) fight -= 22;
   }
@@ -517,13 +534,14 @@ function utilBest(p, ctx) {
     if (role === "guard" && !defend) ballS -= 6;
   }
   rows.push(["ball", ballS]);
-  rows.push(["help", help ? 16 + sticky("help") + (role === "guard" ? 6 : 0) : -40]);
-  rows.push(["raid", loot.length && !lowHp && !defend && role !== "guard" ? 14 + sticky("raid") + (role === "aggro" ? 6 : 0) : -40]);
+  rows.push(["help", help ? 16 + sticky("help") + (role === "guard" ? 10 : 0) : -40]);
+  rows.push(["raid", loot.length && !lowHp && !defend && role !== "guard" ? 14 + sticky("raid") + (role === "aggro" ? 10 : 0) : -40]);
   let chargeS =
     needCharge && !(p.aiMode === "fight" && enemyDist < 28) && !defend
       ? 34 + (0.6 - mood.ki) * 36 + sticky("charge")
       : -22;
-  if (enemy && enemyDist < 34 && mood.ki > 0.1) chargeS -= 30;
+  if (enemy && enemyDist < 48) chargeS -= 42;
+  if (enemy && enemyDist < 34 && mood.ki > 0.08) chargeS -= 28;
   if (defend) chargeS -= 44;
   if (role === "aggro") chargeS -= 8;
   rows.push(["charge", chargeS]);
@@ -976,15 +994,15 @@ export function aiTick(p, people, balls, combat, match, dt) {
       p.aiHideZ = spot.z;
       p.aiFight = 0;
       p.aiFoe = null;
-      // 4.2-6.2 segundos
-      commitMode(p, "hide", 4.2 + (1 - agg) * 2.2);
+      // 20 segundos
+      commitMode(p, "hide", 20 + (1 - agg) * 2.2);
     } else if (pick === "snipe") {
       p.aiFoe = snipeFoe || p.aiFoe || enemy;
       const nest = pickNest(p, p.aiFoe);
       p.aiNestX = nest.x;
       p.aiNestZ = nest.z;
       // 10-14 segundos
-      commitMode(p, "snipe", 10 + seed(p) * 4);
+      commitMode(p, "snipe", 30 + seed(p) * 4);
     } else if (pick === "fight" && enemy) {
       p.aiFoe = enemy;
       p.aiFight = 5 + agg * 2.8 + Math.max(0, mood.front) * 2;
@@ -999,7 +1017,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
     } else if (pick === "charge") {
       p.aiChargeTo = band.hi;
 
-      commitMode(p, "charge", random(8, 12) + seed(p) * 3);
+      commitMode(p, "charge", random(20, 35) + seed(p) * 3);
     } else if (p.aiMode === "wander" && p.aiWanderX != null && Math.hypot((p.aiWanderX || 0) - p.pos().x, (p.aiWanderZ || 0) - p.pos().z) > 22) {
       commitMode(p, "wander", random(12, 18));
     } else {

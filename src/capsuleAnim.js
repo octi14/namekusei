@@ -1,8 +1,6 @@
-import shippedAnims from "./data/anims.json";
+import { getAnimMap, setAnimMap } from "./pack.js";
 
 const KEY = "namekusei.anims";
-/** Overlay de sesión; fuente de verdad: data/anims.json */
-let _animRuntime = null;
 
 try {
   localStorage.removeItem(KEY);
@@ -11,12 +9,7 @@ try {
 }
 
 function storedAnims() {
-  const out = { ...shippedAnims };
-  const local = _animRuntime || {};
-  for (const who of Object.keys(local)) {
-    out[who] = { ...(out[who] || {}), ...local[who] };
-  }
-  return out;
+  return getAnimMap();
 }
 
 export const BONES = [
@@ -238,34 +231,9 @@ export function loadClips(who) {
 
 export function saveClips(who, clips) {
   if (!who) return;
-  try {
-    const all = { ...(_animRuntime || {}) };
-    all[who] = clips;
-    _animRuntime = all;
-    try {
-      localStorage.removeItem(KEY);
-    } catch {
-      /* ignore */
-    }
-    shipPack();
-  } catch {
-    /* ignore */
-  }
-}
-
-function shipPack() {
-  if (!import.meta.env.DEV) return;
-  try {
-    fetch("/__namekusei-pack", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        anims: storedAnims(),
-      }),
-    }).catch(() => {});
-  } catch {
-    /* ignore */
-  }
+  const all = storedAnims();
+  all[who] = clips;
+  setAnimMap(all);
 }
 
 export function copyClipsTo(fromWho, toWho, names) {

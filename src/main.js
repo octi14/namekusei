@@ -17,9 +17,11 @@ import { renderHud } from "./ui.js";
 import { setAudioListener, playSfx, stopSfxLoop, atPos } from "./sfx.js";
 import { powerStyle } from "./powers.js";
 import { preloadGoku } from "./gokuRig.js";
+import { hydratePack } from "./pack.js";
 import { toggleCharEditor, charEditorOpen, setCharEditor } from "./charEditor.js";
 import { toggleAnimEditor, animEditorOpen, setAnimEditor } from "./animEditor.js";
 
+await hydratePack();
 loadSettings();
 
 addEventListener("nk-char-saved", (e) => {
