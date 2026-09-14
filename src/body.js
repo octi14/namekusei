@@ -133,6 +133,7 @@ export const DEFAULT_SCULPT = {
   torsoSx: 1.18,
   torsoChestSx: 1.18,
   torsoWaistSx: 1.18,
+  torsoSz: 1,
   hipsSx: 1.18,
   torsoLen: 0.55,
   torsoY: 0,
@@ -217,6 +218,9 @@ export const DEFAULT_SCULPT = {
   plateX: 0,
   plateY: 0,
   plateZ: 0,
+  plateSx: 1,
+  plateSy: 1,
+  plateSz: 1,
   showUnder: 1,
   underX: 0,
   underY: 0,
@@ -1182,7 +1186,7 @@ export function makeBody(altura, look, sculpt = {}) {
     mulProfile(PROF.torso, sc.torsoMul * s * bruteC),
     sc.torsoLen * s,
     torsoC,
-    { radial: 16, sx: torsoSxAt, sz: (v) => torsoSxAt(v) * 0.85 }
+    { radial: 16, sx: torsoSxAt, sz: (v) => torsoSxAt(v) * 0.85 * (sc.torsoSz ?? 1) }
   );
   torsoCore.position.y = 0.92 * s - waistY + ty;
   torsoCore.userData.moldId = "torso";
@@ -1194,7 +1198,7 @@ export function makeBody(altura, look, sculpt = {}) {
       mulProfile(PROF.torso, sc.torsoMul * s * bruteC * sc.clothFit),
       sc.torsoLen * s * (kit === "gi" ? 0.78 : 0.92),
       shirtLayer,
-      { radial: 16, sx: (v) => torsoSxAt(v) * 1.04, sz: (v) => torsoSxAt(v) * 0.9 }
+      { radial: 16, sx: (v) => torsoSxAt(v) * 1.04, sz: (v) => torsoSxAt(v) * 0.9 * (sc.torsoSz ?? 1) }
     );
     shirt.position.y = 0.9 * s - waistY + ty;
     shirt.userData.moldId = "cloth_shirt";
@@ -1255,6 +1259,7 @@ export function makeBody(altura, look, sculpt = {}) {
       plateM
     );
     plate.position.set((sc.plateX || 0) * s, 1.02 * s - waistY + ty + (sc.plateY || 0) * s, (sc.plateZ || 0) * s);
+    plate.scale.set(sc.plateSx ?? 1, sc.plateSy ?? 1, sc.plateSz ?? 1);
     plate.rotation.x = 0.15;
     plate.userData.moldId = "armor_plate";
     plate.userData.moldFamily = "cloth";
