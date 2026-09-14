@@ -3,6 +3,7 @@ import { BASE_Z, superRank, SUPER_KI, MELEE } from "./config.js";
 import { isWater, groundHeight } from "./world.js";
 import { BASE_INNER_R, steerShipNav, nearAnyShip, shipDist, inShipBase } from "./bases.js";
 import { powerStyle } from "./powers.js";
+import { aiTraceTick } from "./aiTrace.js";
 
 function seed(p) {
   let h = 0;
@@ -48,17 +49,37 @@ function ballByN(balls, n) {
   return balls.items.find((b) => b.n === n && !b.held) || null;
 }
 
-function claimBall(p, people, balls) {
-  const free = balls.items.filter((b) => !b.held && b.inBase !== p.faccion);
+function keepDry(x, z) {
+  if (!isWater(x, z)) return { x, z };
+  for (let i = 0; i < 14; i++) {
+    x *= 0.82;
+    z *= 0.82;
+    if (!isWater(x, z)) return { x, z };
+  }
+  return { x: 0, z: 0 };
+}
+
+function claimBall(p, people, balls, dt = 0.016) {
+  const free = balls.items.filter((b) => !b.held && b.inBase !== p.faccion && !isWater(b.mesh.position.x, b.mesh.position.z));
   if (!free.length) {
     p.aiBall = null;
     return null;
   }
   const cur = ballByN(balls, p.aiBall);
-  if (cur) {
-    p.aiLock = Math.max(p.aiLock || 0, 1);
-    return cur;
+  if (cur && !cur.held && cur.inBase !== p.faccion && !isWater(cur.mesh.position.x, cur.mesh.position.z)) {
+    const d = Math.hypot(cur.mesh.position.x - p.pos().x, cur.mesh.position.z - p.pos().z);
+    if (d < (p.aiBallBest || 1e9) - 3) {
+      p.aiBallBest = d;
+      p.aiBallStuck = 0;
+    } else p.aiBallStuck = (p.aiBallStuck || 0) + dt;
+    if ((p.aiBallStuck || 0) < 12) {
+      p.aiLock = Math.max(p.aiLock || 0, 1);
+      return cur;
+    }
   }
+  p.aiBall = null;
+  p.aiBallStuck = 0;
+  p.aiBallBest = 1e9;
 
   let best = null;
   let bestScore = Infinity;
@@ -80,6 +101,8 @@ function claimBall(p, people, balls) {
   if (!best) return null;
   p.aiBall = best.n;
   p.aiLock = 12 + seed(p) * 4;
+  p.aiBallBest = Math.hypot(best.mesh.position.x - p.pos().x, best.mesh.position.z - p.pos().z);
+  p.aiBallStuck = 0;
   return best;
 }
 
@@ -94,7 +117,7 @@ function pickFoe(p, people, maxD, homeZ) {
     const d = o.pos().distanceTo(p.pos());
     const dHome = homeZ != null ? Math.hypot(o.pos().x, o.pos().z - homeZ) : 1e9;
     const baseThreat = dHome < 110 || o.esfera != null;
-    const cap = sniping ? maxD : air ? maxD : Math.min(maxD, baseThreat || nearHome ? 88 : 42);
+    const cap = sniping ? maxD : air ? maxD : Math.min(maxD, baseThreat || nearHome ? 130 : 110);
     if (d > cap) continue;
     const s = d - (o.esfera != null ? 40 : 0) - (dHome < 90 ? 35 : 0) - ((o.flyAlt || 0) > 5 ? 12 : 0);
     if (s < bestS) {
@@ -282,7 +305,7 @@ function applyLoco(p, dir, ctx, dt) {
     if (wet && !atShip) {
     p.aiWetT = (p.aiWetT || 0) - dt;
     if ((p.aiWetT || 0) <= 0) {
-      p.aiWetPlan = hunted ? "dive" : canFlyKi ? "air" : "swim";
+      p.aiWetPlan = hunted ? "dive" : "swim";
       p.aiWetT = hunted ? 3.6 : 2.8;
     }
   } else {
@@ -352,6 +375,7 @@ function applyLoco(p, dir, ctx, dt) {
     canCharge: charging,
     stop: false,
     allowFight: !atShip,
+    wantFly: !!wantFly,
   };
 }
 
@@ -414,13 +438,13 @@ function sideWaypoint(p, gx, gz) {
   const pz = p.pos().z;
   const zDist = Math.abs(gz - pz);
   const far = Math.hypot(gx - px, gz - pz) > 70;
-  if (far && (Math.abs(px) < 140 || Math.abs(px - lane) > 120)) {
-    return { x: lane, z: pz + (gz - pz) * 0.5 };
+  if (far && Math.abs(px) < 90) {
+    return keepDry(lane, pz + Math.sign(gz - pz || 1) * Math.min(80, zDist * 0.4));
   }
-  if (zDist > 50 && Math.abs(gx) < 100) {
-    return { x: lane * 0.65 + gx * 0.2, z: gz };
+  if (zDist > 70 && Math.abs(gx) < 80 && Math.abs(px) > 220) {
+    return keepDry(Math.sign(px) * 140, gz);
   }
-  return { x: gx, z: gz };
+  return keepDry(gx, gz);
 }
 
 function rivalDist(p, people, x, z) {
@@ -910,7 +934,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
       (inHomeAir || baseDist < 300 || role === "guard" || (threat && threat.esfera != null && baseDist < 300))
     );
   const snipeFoe = sniper && kiFrac > 0.38 && !critHp && nSnipe < 2 ? pickSnipeFoe(p, people, powerStyle(p.nombre, p.faccion).range || 90) : null;
-  const foeRange = carrying ? 14 : p.aiMode === "fight" || defend ? 95 : inHomeAir ? 72 : 52;
+  const foeRange = carrying ? 18 : p.aiMode === "fight" || defend ? 130 : inHomeAir ? 95 : 100;
   let enemy = pickFoe(p, people, foeRange, homeZ) || (p.aiMode === "snipe" ? snipeFoe : null);
   if (threat && defend) {
     const td = threat.pos().distanceTo(p.pos());
@@ -939,7 +963,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
   const huntCarrier = !carrying && enemyCarrier;
 
   const helpCand = !carrying ? allyToHelp(p, people) : null;
-  const ballCand = !carrying ? claimBall(p, people, balls) : null;
+  const ballCand = !carrying ? claimBall(p, people, balls, dt) : null;
   const dry = !isWater(p.pos().x, p.pos().z);
   // Cargar hasta band.hi (sticky): no soltar a los 2s
   if (p.aiMode === "charge" && kiFrac < band.hi && dry && !carrying && !defend) {
@@ -1202,8 +1226,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
         const db = Math.hypot(b.mesh.position.x - p.pos().x, b.mesh.position.z - p.pos().z);
         return db < da ? b : a;
       });
-      const wp = sideWaypoint(p, p.aiRaidX || ensureLane(p), t.mesh.position.z);
-      const near = Math.hypot(t.mesh.position.x - p.pos().x, t.mesh.position.z - p.pos().z) < 55;
+      const wp = sideWaypoint(p, t.mesh.position.x, t.mesh.position.z);
+      const near = Math.hypot(t.mesh.position.x - p.pos().x, t.mesh.position.z - p.pos().z) < 70;
       if (near) dir.set(t.mesh.position.x - p.pos().x, 0, t.mesh.position.z - p.pos().z);
       else {
         const hs = hideSteer(p.pos().x, p.pos().z, wp.x, wp.z, enemy);
@@ -1214,12 +1238,15 @@ export function aiTick(p, people, balls, combat, match, dt) {
       const hs = hideSteer(p.pos().x, p.pos().z, wp.x, wp.z, enemy);
       dir.set(hs.x, 0, hs.z);
     } else if (p.aiMode === "ball" && ball) {
-      ensureLane(p);
       const bx = ball.mesh.position.x;
       const bz = ball.mesh.position.z;
-      const wp = sideWaypoint(p, bx, bz);
-      const hs = hideSteer(p.pos().x, p.pos().z, wp.x, wp.z, enemy);
-      dir.set(hs.x, 0, hs.z);
+      const dBall = Math.hypot(bx - p.pos().x, bz - p.pos().z);
+      if (dBall < 170 || Math.abs(bz - p.pos().z) < 95) dir.set(bx - p.pos().x, 0, bz - p.pos().z);
+      else {
+        const wp = sideWaypoint(p, bx, bz);
+        const hs = hideSteer(p.pos().x, p.pos().z, wp.x, wp.z, enemy);
+        dir.set(hs.x, 0, hs.z);
+      }
     } else if (p.aiMode === "charge") {
       dir.set(0, 0, 0);
       p.aiCharge = true;
@@ -1247,7 +1274,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
     const foeFac = own === "z" ? "f" : "z";
     const wantFoe =
       raiding ||
-      (ball && (ball.inBase === foeFac || shipDist(ball.mesh.position, foeFac) < BASE_INNER_R + 4));
+      (ball && (ball.inBase === foeFac || shipDist(ball.mesh.position, foeFac) < BASE_INNER_R + 8));
     let fac = null;
     let goal = null;
     if (!carrying && inShipBase(pos, own) && (p.aiLeaveBase || 0) > 0) {
@@ -1259,7 +1286,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
     } else if (carrying) {
       fac = own;
       goal = "deposit";
-    } else if (wantFoe && (inShipBase(pos, foeFac) || shipDist(pos, foeFac) < 110)) {
+    } else if (wantFoe && (inShipBase(pos, foeFac) || shipDist(pos, foeFac) < 160)) {
       fac = foeFac;
       goal = inShipBase(pos, foeFac) ? "enter" : "enter";
     }
@@ -1281,7 +1308,38 @@ export function aiTick(p, people, balls, combat, match, dt) {
     }
   }
 
-  const goalDist = Math.hypot(dir.x, dir.z) || 0.001;
+  {
+    const pos = p.pos();
+    if (!carrying && isWater(pos.x, pos.z)) {
+      const d = keepDry(pos.x, pos.z);
+      if (Math.hypot(d.x - pos.x, d.z - pos.z) > 4) dir.set(d.x - pos.x, 0, d.z - pos.z);
+    }
+  }
+
+  const pos = p.pos();
+  let aimX = pos.x;
+  let aimZ = pos.z;
+  if (carrying) {
+    aimX = 0;
+    aimZ = homeZ;
+  } else if (p.aiMode === "ball" && ball) {
+    aimX = ball.mesh.position.x;
+    aimZ = ball.mesh.position.z;
+  } else if (raiding && loot.length) {
+    const t = loot[0];
+    aimX = t.mesh.position.x;
+    aimZ = t.mesh.position.z;
+  } else if (fighting && foe) {
+    aimX = foe.pos().x;
+    aimZ = foe.pos().z;
+  } else if (p.aiMode === "help" && help) {
+    aimX = help.pos().x;
+    aimZ = help.pos().z;
+  } else if (p.aiWanderX != null) {
+    aimX = p.aiWanderX;
+    aimZ = p.aiWanderZ;
+  }
+  const goalDist = Math.hypot(aimX - pos.x, aimZ - pos.z);
   const chargingHard = p.aiMode === "charge" || ((p.aiChargeTo || 0) > 0 && kiFrac < p.aiChargeTo);
 
   const locoOut = applyLoco(
@@ -1311,6 +1369,26 @@ export function aiTick(p, people, balls, combat, match, dt) {
     if ((p.flyAlt || 0) > 0.08) p.descend();
     p.tryGrab(balls, dt, match);
     p.stickY();
+    aiTraceTick(p, match, {
+      mode: p.aiMode,
+      pick,
+      role,
+      loco: locoOut.loco,
+      charge: 0,
+      flyAlt: p.flyAlt || 0,
+      ki: kiFrac,
+      hp: mood.hp,
+      x: p.pos().x,
+      z: p.pos().z,
+      goalDist,
+      foe: foe?.nombre || "",
+      foeDist: foe ? enemyDist : "",
+      carry: carrying ? 1 : 0,
+      ball: ball ? ball.n : "",
+      ship: shipGate ? 1 : 0,
+      groundLock: p.aiGroundLock || 0,
+      notes: "grab",
+    }, dt);
     return;
   }
 
@@ -1334,4 +1412,31 @@ export function aiTick(p, people, balls, combat, match, dt) {
   p.tryDeposit(match, balls);
   if (locoOut.canCharge && !shipGate) p.charge(dt);
   p.stickY();
+
+  aiTraceTick(p, match, {
+    mode: p.aiMode,
+    pick,
+    role,
+    loco: locoOut.loco,
+    charge: locoOut.canCharge ? 1 : 0,
+    flyAlt: p.flyAlt || 0,
+    ki: kiFrac,
+    hp: mood.hp,
+    x: p.pos().x,
+    z: p.pos().z,
+    goalDist,
+    foe: foe?.nombre || "",
+    foeDist: foe ? enemyDist : "",
+    carry: carrying ? 1 : 0,
+    ball: ball ? ball.n : "",
+    ship: shipGate ? 1 : 0,
+    groundLock: p.aiGroundLock || 0,
+    notes: [
+      locoOut.wantFly ? "wantFly" : "",
+      fighting ? "fightAct" : "",
+      grabbing ? "grab" : "",
+    ]
+      .filter(Boolean)
+      .join(";"),
+  }, dt);
 }

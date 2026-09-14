@@ -27,6 +27,7 @@ const POSES = [
   ["swimIdle", "Nado idle"],
   ["swim", "Nadar"],
   ["crouch", "Agachar"],
+  ["crouchWalk", "Caminar agachado"],
   ["charge", "Cargar ki"],
   ["blast", "Lanzar ki"],
   ["blastTwo", "Ki a dos manos"],

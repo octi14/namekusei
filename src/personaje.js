@@ -283,9 +283,16 @@ export class Personaje {
     const who = this.lookWho || this.nombre;
     this._anims = loadClips(who);
     this._animCustom = {};
-    for (const n of ["walk", "run", "hover", "fly", "charge", "idle", "swim", "swimIdle", "punch", "punchTwo", "punchKick", "elbow", "blast", "blastTwo", "crouch"]) {
+    for (const n of ["walk", "run", "hover", "fly", "charge", "idle", "swim", "swimIdle", "punch", "punchTwo", "punchKick", "elbow", "blast", "blastTwo", "crouch", "crouchWalk"]) {
       this._animCustom[n] = clipIsCustom(who, n);
     }
+  }
+
+  /** ¿Está caminando agachado con clip propio? */
+  crouchWalking() {
+    if (!this._animCustom?.crouchWalk) return false;
+    if (this.flyAlt >= 0.4 || !this.didMove || (this._groundSpd || 0) <= 0.15) return false;
+    return Math.max(this._crouch || 0, this._duckAmt || 0) > 0.04;
   }
 
   /** Aplica un clip del editor. bones: lista o "arms". mirror: espeja L/R. */
@@ -766,7 +773,8 @@ export class Personaje {
     else if (!swimming && this.didMove && this.flyAlt < 0.2) {
       const useRun = (this._runT || 0) > 0.28 && this._animCustom?.run;
       const useWalk = this._animCustom?.walk && !useRun;
-      if (useRun) pitch = evalClip(this._anims.run, this._clipClock || 0).lay || 0;
+      if (this.crouchWalking()) pitch = evalClip(this._anims.crouchWalk, this._clipClock || 0).lay || 0;
+      else if (useRun) pitch = evalClip(this._anims.run, this._clipClock || 0).lay || 0;
       else if (useWalk) pitch = evalClip(this._anims.walk, this._clipClock || 0).lay || 0;
       else pitch = (this.rush || 0) > 0.82 ? 0.38 : 0.12;
     } else if (!tumbling && !shudder && !airHit && this.volando && this._animCustom?.fly && s > 0.04) {
@@ -1283,7 +1291,19 @@ export class Personaje {
       const squat = (o, v) => {
         o.rotation.x += (v - o.rotation.x) * g;
       };
-      if (!this.applyEditorClip("crouch", 0, g, null, false, c)) {
+      const crouchWalking = this.crouchWalking();
+      const crouchName = crouchWalking ? "crouchWalk" : "crouch";
+      // Caminar agachado pisa el ciclo de caminata: se aplica entero, sin mezclar.
+      const clipCrouch = this.applyEditorClip(
+        crouchName,
+        crouchWalking ? this._clipClock || 0 : 0,
+        crouchWalking ? 1 : g,
+        null,
+        false,
+        c
+      );
+      if (clipCrouch && crouchWalking) this._usedLocoClip = true;
+      if (!clipCrouch) {
         squat(legL, -1.05 * c);
         squat(legR, -1.05 * c);
         if (kneeL) squat(kneeL, 2.05 * c);
@@ -1295,12 +1315,11 @@ export class Personaje {
         squat(armL, 0.22 * c);
         squat(armR, 0.22 * c);
       }
-      const drop = (() => {
+      // Con clip propio el descenso ya está en _poseDrop (slider "Bajar torso").
+      const drop = clipCrouch ? 0 : (() => {
         const hy = hipY || this.height * 0.38;
-        const clip = this._animCustom?.crouch ? this._anims?.crouch : null;
-        const pose = clip ? evalClip(clip, 0) : null;
-        const hipA = Math.abs(pose?.legL?.[0] ?? 1.05) * c;
-        const knA = Math.abs(pose?.kneeL?.[0] ?? 2.05) * c;
+        const hipA = 1.05 * c;
+        const knA = 2.05 * c;
         const thighLen = hy * 0.5;
         const shinLen = hy * 0.5;
         const span = thighLen * Math.cos(hipA) + shinLen * Math.cos(hipA - knA);
@@ -1516,7 +1535,7 @@ export class Personaje {
     const punching = (this.posePunch || 0) > 0;
     const elbowDash = punching && this.airMelee === "elbow";
     if (charging || (punching && !elbowDash)) run = false;
-    let mul = this.flyAlt > 0.2 ? 1.28 : 0.39;
+    let mul = this.flyAlt > 0.2 ? 1.5 : 1;
     if (this.flyAlt > 0.2) {
       const kf = this.s.ki / Math.max(1, this.s.kiMax);
       if (kf < 0.02) mul *= 0.55;
@@ -1537,9 +1556,9 @@ export class Personaje {
     } else if (this.flyAlt > 0.2) {
       this._runT = Math.max(0, this._runT - dt / 0.18);
       if (run && this.s.ki > 0) {
-        mul *= 1.68;
-        this.s.ki = Math.max(0, this.s.ki - 4 * dt);
-      } else if (this.s.ki <= 0) mul *= 0.88;
+        mul *= 1.4; //multiplicador de velocidad de turbo en el aire
+        this.s.ki = Math.max(0, this.s.ki - 3 * dt);
+      } else if (this.s.ki <= 0) mul *= 0.8;
     } else {
       if (run && this.s.ki > 0) {
         this._runT = Math.min(1, this._runT + dt / 0.52);
@@ -1549,7 +1568,7 @@ export class Personaje {
       }
       if (this._runT > 0) {
         const t = this._runT * this._runT;
-        mul *= 1 + 3.35 * t;
+        mul *= 1 + 0.05 * t;
       } else {
         mul *= 0.9;
       }

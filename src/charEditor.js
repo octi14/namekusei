@@ -374,7 +374,7 @@ function ensureDom() {
         <div class="row">
           <label>Kit<select id="ce-kit"></select></label>
           <label>Pelo<select id="ce-hair"></select></label>
-          <label>Altura<input id="ce-alt" type="range" min="1.2" max="2.4" step="0.01" /></label>
+          <label>Altura<input id="ce-alt" type="range" min="0.4" max="2.4" step="0.01" /></label>
         </div>
         <div class="row" id="ce-look-colors"></div>
         <h2>Tipos</h2>
