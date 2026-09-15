@@ -5,6 +5,36 @@ import { BASE_INNER_R, steerShipNav, nearAnyShip, shipDist, inShipBase } from ".
 import { powerStyle } from "./powers.js";
 import { aiTraceTick } from "./aiTrace.js";
 
+/**
+ * ===========================================================================
+ * GUÍA DE AJUSTE DE LA IA — dónde tocar cada cosa
+ * ===========================================================================
+ * Ciclo de un tick (aiTick, al final del archivo):
+ *   1. tickStuck / pickUnstick   → detección de atascados y plan de escape.
+ *   2. temper + kiBand + aiRole  → humor, umbrales de ki y rol de la unidad.
+ *   3. utilBest                  → PUNTAJES: elige el modo (fight/ball/raid/
+ *                                  charge/help/deliver/wander).
+ *   4. commitMode                → DURACIONES: cuántos segundos dura el modo.
+ *   5. Bloque por modo           → rumbo (dir) y ataques del modo elegido.
+ *   6. applyLoco                 → volar / correr / cargar ki / aterrizar.
+ *   7. aiMove + tryGrab/Deposit  → se ejecuta el movimiento.
+ *
+ * Chuletario de perillas (todas comentadas en su sitio con "AJUSTE:"):
+ *   - Probabilidad de pegar melee / tirar ki / super  → bloque `fighting` en aiTick.
+ *   - Distancia a la que se planta a pelear (hold)    → bloque `fighting`.
+ *   - Cuántos segundos dura cada modo                 → llamadas a commitMode().
+ *   - Ganas de pelear vs cargar ki                    → utilBest().
+ *   - Cuándo vuela y cuándo aterriza                  → applyLoco().
+ *   - Cuánto ki reserva antes de gastar               → kiBand().
+ *   - Reparto de roles (guard/baller/aggro)           → aiRole().
+ *   - Rango en que ve enemigos                        → foeRange en aiTick.
+ *   - Agresividad individual                          → seed(p) (fijo por unidad).
+ *
+ * Nota: muchas probabilidades van multiplicadas por `dt * 60`, o sea que el
+ * número es "chance por frame a 60 fps" (0.004 * dt * 60 ≈ 0.24 por segundo).
+ * MELEE viene de config.js y escala globalmente las ganas de cuerpo a cuerpo.
+ */
+
 function seed(p) {
   let h = 0;
   for (const c of p.id) h = (h * 31 + c.charCodeAt(0)) | 0;
@@ -15,7 +45,14 @@ function random(a, b) {
   return a + Math.random() * (b - a);
 }
 
-/** Rol fijo por unidad: más decididos sin narrativa. */
+/**
+ * Rol fijo por unidad: más decididos sin narrativa.
+ * AJUSTE: los cortes reparten la población (0.34 → 34% guardias, 33% balleros,
+ * 33% agresivos). Subí el primer corte para más defensores, bajalo para menos.
+ * guard  = se queda cerca de casa y defiende.
+ * baller = prioriza esferas.
+ * aggro  = busca pelea y hace raids.
+ */
 function aiRole(p) {
   const a = seed(p);
   if (a < 0.34) return "guard";
@@ -23,6 +60,12 @@ function aiRole(p) {
   return "aggro";
 }
 
+/**
+ * Banda de ki por unidad (fracción de kiMax).
+ * AJUSTE: lo = por debajo de esto quiere recargar; hi = a esto deja de cargar;
+ * fly = mínimo para despegar. Bajá `lo` para que peleen con menos ki y pierdan
+ * menos tiempo cargando; bajá `fly` para que vuelen más seguido.
+ */
 function kiBand(p) {
   const a = seed(p);
   let h = 0;
@@ -35,6 +78,11 @@ function kiBand(p) {
   return { lo, hi, fly: Math.min(0.72, lo + 0.22) };
 }
 
+/**
+ * Humor: hp/ki normalizados y `front` (-1 acobardado … +1 crecido).
+ * AJUSTE: los pesos de `front` deciden cuánto pesan las rachas (heat), los
+ * kills/muertes (kd), la vida y el ki en la actitud general.
+ */
 function temper(p) {
   const hp = p.s.hp / p.s.hpMax;
   const ki = p.s.ki / p.s.kiMax;
@@ -59,6 +107,12 @@ function keepDry(x, z) {
   return { x: 0, z: 0 };
 }
 
+/**
+ * Elige/mantiene la esfera objetivo.
+ * AJUSTE: `aiBallStuck < 12` = segundos persiguiendo sin acercarse antes de
+ * cambiar de esfera. `rivals >= 3` = cuántos aliados ya van a la misma antes de
+ * descartarla; `rivals * 120` y `steal -55` son pesos del puntaje (menos = mejor).
+ */
 function claimBall(p, people, balls, dt = 0.016) {
   const free = balls.items.filter((b) => !b.held && b.inBase !== p.faccion && !isWater(b.mesh.position.x, b.mesh.position.z));
   if (!free.length) {
@@ -106,6 +160,12 @@ function claimBall(p, people, balls, dt = 0.016) {
   return best;
 }
 
+/**
+ * Enemigo más "apetecible" dentro de maxD.
+ * AJUSTE: `cap` recorta el rango real (130 si hay amenaza en casa, 110 normal);
+ * los restos del puntaje son bonus de prioridad: portador de esfera -40,
+ * metido en nuestra base -35, volando alto -12.
+ */
 function pickFoe(p, people, maxD, homeZ) {
   const sniping = p.aiMode === "snipe";
   const air = (p.flyAlt || 0) > 3.2;
@@ -281,6 +341,18 @@ function aiMove(p, dir, run, dt) {
   p.move(dir.clone().normalize(), !!run && !inWater, dt);
 }
 
+/**
+ * Locomoción: decide volar / correr / cargar ki / aterrizar.
+ * AJUSTE:
+ *   threatNear (enemyDist < 52) → con enemigo a esta distancia no carga ni vuela.
+ *   canFlyKi   (kiAbs > 22)     → ki absoluto mínimo para despegar.
+ *   longHaul   (goalDist > 95)  → a partir de qué viaje vale la pena volar.
+ *   goalDist > 170              → vuelo "libre" para trayectos muy largos.
+ *   aiGroundLock = 8            → segundos pegado al piso tras aterrizar (evita
+ *                                 el loop despegar/aterrizar).
+ *   aiFlyHold (tope 2.2)        → histéresis: cuánto insiste antes de despegar.
+ *   run / turbo                 → cuándo corre y cuándo usa turbo aéreo.
+ */
 function applyLoco(p, dir, ctx, dt) {
   const body = senseBody(p);
   const dOwn = shipDist({ x: body.x, z: body.z }, p.faccion);
@@ -506,6 +578,17 @@ function commitMode(p, mode, sec) {
   p.aiModeT = sec;
 }
 
+/**
+ * Elige el modo comparando puntajes (gana el más alto).
+ * AJUSTE: acá se decide "qué le da más ganas". Números clave:
+ *   sticky()        → inercia del modo actual (cuesta cambiar de idea).
+ *   fight           → base 30 (80 si el rival lleva esfera) + cercanía + rol.
+ *   ball            → base 56 menos distancia * 0.035.
+ *   help / raid     → base 16 / 14 (raid solo si hay botín y no está herido).
+ *   charge          → base 34 y castigos fuertes si hay enemigo cerca (-42/-28),
+ *                     bajalos si querés que carguen más; subilos para que peleen.
+ *   wander          → negativo: es el "no tengo nada mejor que hacer".
+ */
 function utilBest(p, ctx) {
   const {
     mood,
@@ -684,7 +767,13 @@ function allyToHelp(p, people) {
   return best;
 }
 
-/** Si el personaje casi no avanza en XZ (o flota en el mismo sitio), fuerza un plan simple unos segundos. */
+/**
+ * Si el personaje casi no avanza en XZ (o flota en el mismo sitio), fuerza un
+ * plan simple unos segundos.
+ * AJUSTE: mide cada 0.85 s; `lim` es el avance mínimo esperado en ese rato
+ * (5.5 volando, 9 junto a una nave, 3.2 en tierra). El contador `_stkT` dispara
+ * pickUnstick() cuando pasa de 2.0 s (ver aiTick).
+ */
 function tickStuck(p, dt) {
   const x = p.pos().x;
   const z = p.pos().z;
@@ -712,6 +801,8 @@ function tickStuck(p, dt) {
 function pickUnstick(p, balls) {
   const homeZ = p.faccion === "z" ? -BASE_Z : BASE_Z;
   const baseDist = Math.hypot(p.pos().x, p.pos().z - homeZ);
+  // AJUSTE: segundos que dura el plan de desatasco (5.5-8) antes de volver a
+  // pensar normal. aiBreak elige el tipo de escape: home/land/ball/leave.
   p.aiUnstick = 5.5 + seed(p) * 2.5;
   p.aiFight = 0;
   p.aiCharge = false;
@@ -841,6 +932,7 @@ function runUnstick(p, people, balls, combat, match, dt) {
 export function aiTick(p, people, balls, combat, match, dt) {
   if (p.controller !== "ia" || p.dead) return;
   tickStuck(p, dt);
+  // AJUSTE: 2.0 = segundos sin avanzar que se toleran antes de forzar desatasco.
   if ((p._stkT || 0) > 2.0 && (p.aiUnstick || 0) <= 0) pickUnstick(p, balls);
   if ((p.aiUnstick || 0) > 0) {
     runUnstick(p, people, balls, combat, match, dt);
@@ -894,10 +986,14 @@ export function aiTick(p, people, balls, combat, match, dt) {
 
   const loot = balls.items.filter((b) => !b.held && b.inBase && b.inBase !== p.faccion);
   if (carrying || !loot.length || lowHp) p.aiRaid = 0;
+  // AJUSTE raid (robar esferas de la base enemiga): 0.004 * dt * 60 ≈ 24% por
+  // segundo de intentarlo; `agg > 0.55` filtra quién se anima; `nRaid < 1` limita
+  // a un solo asaltante por equipo a la vez.
   else if (p.aiRaid <= 0 && (role === "aggro" || agg > 0.55) && !carrying && Math.random() < 0.004 * dt * 60) {
     let nRaid = 0;
     for (const o of people) if (o.faccion === p.faccion && (o.aiRaid || 0) > 0) nRaid++;
     if (nRaid < 1) {
+      // Segundos de ventana de raid.
       p.aiRaid = 16 + agg * 10;
       p.aiRaidX = (seed(p) > 0.5 ? 1 : -1) * (85 + agg * 90);
     }
@@ -934,6 +1030,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
       (inHomeAir || baseDist < 300 || role === "guard" || (threat && threat.esfera != null && baseDist < 300))
     );
   const snipeFoe = sniper && kiFrac > 0.38 && !critHp && nSnipe < 2 ? pickSnipeFoe(p, people, powerStyle(p.nombre, p.faccion).range || 90) : null;
+  // AJUSTE: hasta qué distancia "ve" enemigos según situación (18 si lleva
+  // esfera para que no se distraiga, 130 peleando o defendiendo).
   const foeRange = carrying ? 18 : p.aiMode === "fight" || defend ? 130 : inHomeAir ? 95 : 100;
   let enemy = pickFoe(p, people, foeRange, homeZ) || (p.aiMode === "snipe" ? snipeFoe : null);
   if (threat && defend) {
@@ -1027,21 +1125,22 @@ export function aiTick(p, people, balls, combat, match, dt) {
       p.aiNestZ = nest.z;
       // 10-14 segundos
       commitMode(p, "snipe", 30 + seed(p) * 4);
+      // AJUSTE DURACIONES: el 2º arg de commitMode son segundos comprometidos
+      // con ese modo (no lo reevalúa hasta que se agote, salvo `hard` de arriba).
     } else if (pick === "fight" && enemy) {
       p.aiFoe = enemy;
       p.aiFight = 5 + agg * 2.8 + Math.max(0, mood.front) * 2;
-      commitMode(p, "fight", random(15, 22) + agg * 3);
-    } else if (pick === "deliver") commitMode(p, "deliver", random(60, 100));
-    else if (pick === "help") commitMode(p, "help", 10 + seed(p) * 3);
-    else if (pick === "ball") commitMode(p, "ball", 14 + seed(p) * 4);
+      commitMode(p, "fight", random(15, 22) + agg * 3); // pelea 15-25 s
+    } else if (pick === "deliver") commitMode(p, "deliver", random(60, 100)); // llevar esfera
+    else if (pick === "help") commitMode(p, "help", 10 + seed(p) * 3); // escoltar
+    else if (pick === "ball") commitMode(p, "ball", 14 + seed(p) * 4); // buscar esfera
     else if (pick === "raid") {
       p.aiRaid = Math.max(p.aiRaid || 0, 12);
-      // 14 segundos
-      commitMode(p, "raid", 30);
+      commitMode(p, "raid", 30); // asalto a base enemiga
     } else if (pick === "charge") {
       p.aiChargeTo = band.hi;
 
-      commitMode(p, "charge", random(20, 35) + seed(p) * 3);
+      commitMode(p, "charge", random(20, 35) + seed(p) * 3); // cargar ki 20-38 s
     } else if (p.aiMode === "wander" && p.aiWanderX != null && Math.hypot((p.aiWanderX || 0) - p.pos().x, (p.aiWanderZ || 0) - p.pos().z) > 22) {
       commitMode(p, "wander", random(12, 18));
     } else {
@@ -1067,6 +1166,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
   const huntingCarrier = !carrying && !!(foe && foe.esfera != null);
   const fighting = !carrying && p.aiMode === "fight" && foe && (!critHp || huntingCarrier);
   if (p.canSsj) {
+    // AJUSTE: entra en SSJ peleando con ki > 42% y sale por debajo de 18%.
     const ratio = p.s.ki / p.s.kiMax;
     if (fighting && ratio > 0.42) p.setSsj(true);
     else if (ratio < 0.18) p.setSsj(false);
@@ -1148,17 +1248,22 @@ export function aiTick(p, people, balls, combat, match, dt) {
     }
     const dist = foe.pos().distanceTo(p.pos());
     const rng = powerStyle(p.nombre, p.faccion).range || 55;
+    // AJUSTE: con ki > 32% prefiere pelear a distancia (tirar ki) antes que entrar.
     const preferKi = !huntingCarrier && mood.ki > 0.32 && p.s.ki > 14 && (p.cooldown || 0) <= 0;
+    // AJUSTE `hold` = distancia a la que se planta (deja de acercarse).
+    // Con preferKi se queda lejos; en cuerpo a cuerpo 2.6 ≈ alcance del puño
+    // (el melee de combat.js llega a ~3). Subirlo hace que peguen al aire.
     const hold = preferKi
       ? Math.min(18, rng * (mood.front < 0 ? 0.34 : 0.24))
       : huntingCarrier
         ? 3.2
         : mood.ki < 0.2
-          ? 7.5
-          : 4.2;
+          ? 3.0
+          : 2.6;
     const inKiRange = dist < rng * 0.9 && dist > 2.4;
     const close = dist < 4.2;
     const wetFight = isWater(p.pos().x, p.pos().z);
+    // AJUSTE: chance por segundo de "fijar" al rival (lo encara y lo orbita).
     const lockChance = (0.014 + agg * 0.022 + Math.max(0, mood.front) * 0.025) * dt * 60;
     const locked = (p.lockFoe === foe && (p.lockT || 0) > 0) || (dist < rng * 0.88 && Math.random() < lockChance);
     if (locked) faceLock(p, foe, dt, 1.35 + agg * 0.8);
@@ -1171,12 +1276,15 @@ export function aiTick(p, people, balls, combat, match, dt) {
     let dy = lookYaw - p.yaw;
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
+    // AJUSTE: 0.55 rad (~31°) de tolerancia de encare para poder atacar.
     const facing = Math.abs(dy) < 0.55;
     if (dir.lengthSq() > 0.4) {
       dir.normalize();
     const side = seed(p) > 0.5 ? 1 : -1;
     const strafe = new THREE.Vector3(Math.cos(lookYaw) * side, 0, -Math.sin(lookYaw) * side);
+    // AJUSTE: mezcla de avance recto vs orbitar de costado (0 = va derecho).
     const mixS = wetFight ? 0.05 : locked ? 0.35 : 0.22;
+    // Retirada con poca vida (hp < 32% y sin envión); abajo, retirada por ki < 16%.
     if (mood.hp < 0.32 && mood.front < 0.1 && dist < 8 && !huntingCarrier) aiMove(p, dir.clone().multiplyScalar(-1), true, dt);
     else if (p.s.ki < p.s.kiMax * 0.16 && dist > 5 && !huntingCarrier) {
       if (dist < 12) aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, wetFight ? 0.12 : 0.5).normalize(), true, dt);
@@ -1194,6 +1302,9 @@ export function aiTick(p, people, balls, combat, match, dt) {
     } else if (locked && !wetFight) aiMove(p, strafe, false, dt);
     else if (wetFight && dist > 3) aiMove(p, dir, mood.ki > 0.2, dt);
     }
+    // AJUSTE: probabilidad por frame de tirar ki común. Cada factor multiplica:
+    // encare, actitud (front), cuánto ki tiene, si está fijado y la distancia.
+    // Subí el 0.07/0.12 para que disparen más seguido.
     const blastOdds =
       (facing ? 1 : 0.15) *
       (mood.front < 0 ? 0.12 : 0.07) *
@@ -1202,21 +1313,36 @@ export function aiTick(p, people, balls, combat, match, dt) {
       ((p.flyAlt || 0) > 2 ? 0.35 : dist > 22 ? 0.45 : 0.7);
     const rank = superRank(p.s.ki, p.s.kiMax, p.s.ataque);
     const canSuper = rank >= 1;
+    // AJUSTE: chance por frame de tirar el especial (necesita rank >= 1, ver
+    // SUPER_KI en config.js). Rango máximo del super: dist < 52.
     const superOdds = (0.048 + agg * 0.03 + (rank >= 2 ? 0.03 : 0) + (rank >= 3 ? 0.02 : 0)) * dt * 60;
     if (canSuper && inKiRange && facing && dist < 52 && (p.cooldown || 0) <= 0 && Math.random() < superOdds) {
       combat.blast(p, true, people, dist > 40);
     } else if (
       inKiRange &&
       facing &&
-      dist < 38 &&
+      dist < 38 && // AJUSTE: alcance del ki común
+
       p.s.ki >= p.s.kiMax * 0.18 &&
       (p.cooldown || 0) <= 0 &&
       Math.random() < blastOdds
     ) {
       combat.blast(p, false, people, dist > 48);
     }
-    const meleeOdds = close ? (mood.front > 0.2 ? 0.42 : 0.28) : dist < 5.5 ? 0.12 : 0;
-    if (dist < 5.5 && facing && Math.random() < meleeOdds * MELEE) combat.melee(p, people);
+    // AJUSTE MELEE. meleeRange: alcance real del puño en combat.js es ~2.75-3.05,
+    // más lejos es pegarle al aire. meleeOdds: chance por frame de tirar el golpe
+    // (0.42 crecido / 0.28 normal pegado, 0.16 al límite del alcance); se
+    // multiplica por MELEE de config.js, que es el dial global.
+    const meleeRange = 3.1;
+    const meleeOdds = dist < 2.6 ? (mood.front > 0.2 ? 0.42 : 0.28) : dist < meleeRange ? 0.16 : 0;
+    if (dist < meleeRange && facing && Math.random() < meleeOdds * MELEE) {
+      // Micro-paso hacia el rival al tirar el golpe, para no quedarse corto.
+      // AJUSTE: tope 9 de velocidad; 1.2 es la distancia que deja sin cerrar.
+      const stepV = Math.min(9, Math.max(0, dist - 1.2) * 7);
+      p.vx += Math.sin(lookYaw) * stepV;
+      p.vz += Math.cos(lookYaw) * stepV;
+      combat.melee(p, people);
+    }
   } else {
     if ((p.lockT || 0) > 0) p.lockT = Math.max(0, p.lockT - dt * 2.2);
     if (p.lockT <= 0) p.lockFoe = null;
@@ -1339,6 +1465,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
     aimX = p.aiWanderX;
     aimZ = p.aiWanderZ;
   }
+  // Distancia real al objetivo del modo actual: la usa applyLoco para decidir
+  // si vale la pena volar/correr. (aim* es el punto al que apunta cada modo.)
   const goalDist = Math.hypot(aimX - pos.x, aimZ - pos.z);
   const chargingHard = p.aiMode === "charge" || ((p.aiChargeTo || 0) > 0 && kiFrac < p.aiChargeTo);
 

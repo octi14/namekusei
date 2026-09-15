@@ -1529,13 +1529,20 @@ export class Personaje {
     this.stickY();
   }
 
+  /**
+   * Velocidad base: `s.velocidad` (m/s, por personaje en stats.js, quinto arg de g()).
+   * WALK SPEED BASE = s.velocidad * 0.9 (el `mul *= 0.9` de abajo, sin correr en tierra).
+   * RUN SPEED BASE  = s.velocidad * (1 + 0.05 * _runT²) (rampa de sprint en tierra).
+   * FLY SPEED BASE  = s.velocidad * 1.2 (mul inicial si flyAlt > 0.2; turbo aéreo *1.4).
+   */
   move(dir, run, dt) {
     if (this.dead || this.stun > 0 || (this.hitstop || 0) > 0) return;
     const charging = this._kiCharge || this._kiSlow || (this.superHold || 0) > 0.04;
     const punching = (this.posePunch || 0) > 0;
     const elbowDash = punching && this.airMelee === "elbow";
     if (charging || (punching && !elbowDash)) run = false;
-    let mul = this.flyAlt > 0.2 ? 1.5 : 1;
+    // FLY SPEED BASE: volando = s.velocidad * 1.2 (con turbo aéreo, *1.4 más abajo).
+    let mul = this.flyAlt > 0.2 ? 1.15 : 1;
     if (this.flyAlt > 0.2) {
       const kf = this.s.ki / Math.max(1, this.s.kiMax);
       if (kf < 0.02) mul *= 0.55;
@@ -1556,7 +1563,7 @@ export class Personaje {
     } else if (this.flyAlt > 0.2) {
       this._runT = Math.max(0, this._runT - dt / 0.18);
       if (run && this.s.ki > 0) {
-        mul *= 1.4; //multiplicador de velocidad de turbo en el aire
+        mul *= 1.3; //multiplicador de velocidad de turbo en el aire
         this.s.ki = Math.max(0, this.s.ki - 3 * dt);
       } else if (this.s.ki <= 0) mul *= 0.8;
     } else {
@@ -1568,9 +1575,9 @@ export class Personaje {
       }
       if (this._runT > 0) {
         const t = this._runT * this._runT;
-        mul *= 1 + 0.05 * t;
+        mul *= 1 + 0.1 * t; // RUN SPEED BASE: tope de sprint en tierra (+5% a _runT=1)
       } else {
-        mul *= 0.9;
+        mul *= 0.7; // WALK SPEED BASE: caminata en tierra = 90% de s.velocidad
       }
     }
     const spd = this.s.velocidad * mul * (this.esfera != null ? 0.55 : 1);

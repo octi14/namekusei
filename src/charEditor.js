@@ -12,6 +12,9 @@ const LOOK_COLORS = [
   ["sleeves", "Brazos", (l) => l.sleeves ?? l.suit ?? l.body],
   ["forearms", "Antebrazos", (l) => l.forearms ?? l.sleeves ?? l.suit ?? l.body],
   ["pants", "Piernas", (l) => l.pants ?? l.suit ?? l.accent ?? l.body],
+  ["thighs", "Muslos", (l) => l.thighs ?? l.pants ?? l.suit ?? l.accent ?? l.body],
+  ["shins", "Pantorrillas", (l) => l.shins ?? l.thighs ?? l.pants ?? l.suit ?? l.accent ?? l.body],
+  ["hipsColor", "Cadera", (l) => l.hipsColor ?? l.pants ?? l.suit ?? l.accent ?? l.body],
   ["sash", "Fajín", (l) => l.sash ?? l.accent ?? 0x0d47a1],
   ["wrist", "Muñequeras", (l) => l.wrist ?? l.accent ?? 0x1565c0],
   ["boots", "Botas", (l) => l.boots ?? 0x0d47a1],
@@ -84,6 +87,7 @@ const SLIDERS = [
   ["torsoWaistSx", "Abdomen ancho", 0.45, 2.4, 0.01],
   ["hipsSx", "Cadera ancho", 0.45, 2.4, 0.01],
   ["torsoSz", "Torso prof. Z", 0.5, 2, 0.01],
+  ["hipsSz", "Cadera prof. Z", 0.5, 2, 0.01],
   ["torsoLen", "Torso alto", 0.2, 1.05, 0.01],
   ["torsoY", "Torso Y", -0.25, 0.25, 0.005],
   ["hipsLen", "Cadera alto", 0.15, 0.4, 0.01],
@@ -126,6 +130,9 @@ const SLIDERS = [
   ["underX", "Interior X", -0.25, 0.25, 0.005],
   ["underY", "Interior Y", -0.4, 0.4, 0.005],
   ["underZ", "Interior Z", -0.25, 0.25, 0.005],
+  ["underSx", "Interior ancho", 0.3, 3, 0.01],
+  ["underSy", "Interior alto", 0.3, 3, 0.01],
+  ["underSz", "Interior prof. Z", 0.3, 3, 0.01],
   null,
   "Cabeza / cara",
   ["neckR", "Cuello radio", 0.03, 0.1, 0.001],
@@ -498,7 +505,7 @@ function ensureDom() {
     lab.innerHTML = `${label}<span class="v" data-k="${key}"></span>
       <input type="range" data-sculpt="${key}" min="${min}" max="${max}" step="${step}" />`;
     box.appendChild(lab);
-    if (key === "underZ") {
+    if (key === "underSz") {
       const c = document.createElement("label");
       c.innerHTML = `Interior color<input type="color" data-lookc="undershirt" />`;
       box.appendChild(c);

@@ -135,6 +135,7 @@ export const DEFAULT_SCULPT = {
   torsoWaistSx: 1.18,
   torsoSz: 1,
   hipsSx: 1.18,
+  hipsSz: 1,
   torsoLen: 0.55,
   torsoY: 0,
   hipsLen: 0.28,
@@ -225,6 +226,9 @@ export const DEFAULT_SCULPT = {
   underX: 0,
   underY: 0,
   underZ: 0,
+  underSx: 1,
+  underSy: 1,
+  underSz: 1,
   beltR: 0.155,
   beltThick: 0.034,
   showBelt: 1,
@@ -1127,6 +1131,9 @@ export function makeBody(altura, look, sculpt = {}) {
   const sleeveHex = look.sleeves ?? (kit === "armor" || kit === "soldier" ? look.suit ?? shirtHex : shirtHex);
   const suitHex = look.suit ?? shirtHex;
   const forearmHex = look.forearms ?? sleeveHex;
+  const thighHex = look.thighs ?? pantsHex;
+  const shinHex = look.shins ?? thighHex;
+  const hipsHex = look.hipsColor ?? (kit === "armor" || kit === "soldier" ? suitHex : pantsHex);
   const underHex = look.undershirt ?? 0x5d4037;
   const wristHex = look.wrist ?? look.accent ?? sashHex;
   const capeHex = look.cape ?? 0xfafafa;
@@ -1134,6 +1141,8 @@ export function makeBody(altura, look, sculpt = {}) {
   const padHex = look.pads ?? plateHex;
   const shirtM = surf(shirtHex, { roughness: 0.82 });
   const pantsM = surf(pantsHex, { roughness: 0.84 });
+  const thighM = surf(thighHex, { roughness: 0.84 });
+  const shinM = surf(shinHex, { roughness: 0.84 });
   const sashM = surf(sashHex, { roughness: 0.62 });
   const sleeveM = surf(sleeveHex, { roughness: kit === "armor" || kit === "soldier" ? 0.5 : 0.82 });
   const forearmM = surf(forearmHex, { roughness: kit === "armor" || kit === "soldier" ? 0.5 : 0.82 });
@@ -1150,7 +1159,7 @@ export function makeBody(altura, look, sculpt = {}) {
   });
   const torsoC = layered || kit === "frost" ? skin : shirtM;
   const limbC = layered || kit === "frost" ? skin : surf(new THREE.Color(shirtHex).multiplyScalar(0.78), { roughness: 0.88 });
-  const hipsMat = kit === "armor" || kit === "soldier" ? suitM : kit === "frost" ? torsoC : pantsM;
+  const hipsMat = kit === "frost" && look.hipsColor == null ? torsoC : surf(hipsHex, { roughness: kit === "armor" || kit === "soldier" ? 0.48 : 0.84 });
   const shirtLayer =
     kit === "armor" || kit === "soldier" ? suitM : kit === "brute" ? pantsM : kit === "namek" || kit === "gi" ? shirtM : null;
 
@@ -1168,7 +1177,7 @@ export function makeBody(altura, look, sculpt = {}) {
     mulProfile([0.9, 0.85, 0.8, 0.6, 0.3], sc.hipsMul * s * bruteT),
     sc.hipsLen * s,
     hipsMat,
-    { radial: 16, sx: sc.hipsSx, sz: sc.hipsSx * 0.83 }
+    { radial: 16, sx: sc.hipsSx, sz: sc.hipsSx * 0.83 * (sc.hipsSz ?? 1) }
   );
   hips.position.y = waistY;
   hips.userData.moldId = "hips";
@@ -1295,6 +1304,7 @@ export function makeBody(altura, look, sculpt = {}) {
       0.92 * s - waistY + ty + (sc.underY || 0) * s,
       (sc.underZ || 0) * s
     );
+    undershirt.scale.set(sc.underSx ?? 1, sc.underSy ?? 1, sc.underSz ?? 1);
     undershirt.userData.moldId = "undershirt";
     undershirt.userData.moldFamily = "cloth";
     torsoG.add(undershirt);
@@ -1419,8 +1429,8 @@ export function makeBody(altura, look, sculpt = {}) {
     footPitch: sc.footPitch,
     bootCuff: sc.bootCuff,
     showBoots: sc.showBoots,
-    pantsMat: layered ? pantsM : null,
-    shinClothMat: layered ? pantsM : null,
+    pantsMat: layered ? thighM : null,
+    shinClothMat: layered ? shinM : null,
     clothFit: sc.clothFit,
   };
   const armL = makeArm(

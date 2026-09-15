@@ -41,7 +41,10 @@ export class Combat {
   melee(at, all) {
     if (at.cooldown > 0 || at.dead || at.stun > 0 || (at.hitstop || 0) > 0) return;
     const now = performance.now() * 0.001;
-    if (!at.comboT || now - at.comboT > 1.05) at.combo = 0;
+    if (!at.comboT || now - at.comboT > 1.05) {
+      at.combo = 0;
+      at._comboHit = false;
+    }
     const step = at.combo % 3;
     at.combo = step + 1;
     at.comboT = now;
@@ -86,6 +89,19 @@ export class Combat {
     if (best) {
       const to = best.pos().clone().sub(origin);
       at.yaw = Math.atan2(to.x, to.z);
+      // Paso adelante: si el golpe anterior del combo conectó, cierra la distancia
+      // que abrió el knockback para que el combo entero pueda enganchar.
+      if (step > 0 && at._comboHit) {
+        const flat = to.clone().setY(0);
+        const gap = flat.length();
+        if (gap > 1.2) {
+          const dir = flat.normalize();
+          const closeV = Math.min(16, (gap - 1.1) * 12);
+          at.vx += dir.x * closeV;
+          at.vz += dir.z * closeV;
+          at.punchLunge = Math.max(at.punchLunge || 0, 0.3);
+        }
+      }
       // Giro parcial del torso hacia la víctima
       if (at.limbs?.torsoG) {
         const localAngle = Math.atan2(to.x, to.z) - at.yaw;
@@ -141,6 +157,7 @@ export class Combat {
       t.hitShakeX = f.x * (finisher ? 0.4 : 0.2);
       t.hitShakeZ = f.z * (finisher ? 0.4 : 0.2);
       t.hitShakeT = 0.18;
+      at._comboHit = true;
       this.hurt(t, dmg, false, at, at.pos(), finisher ? 22 : 8);
     }
   }
@@ -312,7 +329,8 @@ export class Combat {
       return;
     }
     const src = from || atk?.pos();
-    const kbForce = ki ? 20 : finisher ? 28 : 11;
+    // Los golpes intermedios del combo empujan poco: el remate es el que manda lejos.
+    const kbForce = ki ? 20 : finisher ? 22 : 5;
     if (src) {
       t.knock(src, kbForce);
       if (heavy && (t.flyAlt || 0) < 0.25 && !t.inSwim()) {
@@ -342,7 +360,7 @@ export class Combat {
       } else {
         t.airShudder = Math.max(t.airShudder || 0, 0.22 + kbForce * 0.012);
       }
-    } else if (kbForce >= 11 || ki) {
+    } else if (kbForce >= 5 || ki) {
       const foot = t.pos().clone();
       foot.y += 0.05;
       spawnImpactRing(this.scene, foot, this.fx, kbForce >= 22 || ki);
