@@ -55,8 +55,8 @@ function random(a, b) {
  */
 function aiRole(p) {
   const a = seed(p);
-  if (a < 0.34) return "guard";
-  if (a < 0.67) return "baller";
+  if (a < 0.25) return "guard";
+  if (a < 0.75) return "baller";
   return "aggro";
 }
 
