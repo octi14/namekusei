@@ -107,12 +107,14 @@ export class PlayerCamera {
       const head = p.limbs?.headG;
       if (head) {
         head.getWorldPosition(eye);
-        eye.y += 0.06;
+        eye.y += 0.08;
       } else {
         eye.copy(p.pos());
         eye.y += p.height * 0.84;
       }
-      eye.addScaledVector(aim, 0.18);
+      // Más adelante: en lean/punch/blast la cabeza se mete en el torso/pelo
+      const rigged = !!p.mesh?.userData?.gokuVis;
+      eye.addScaledVector(aim, rigged ? 0.58 : 0.48);
       const look = eye.clone().addScaledVector(aim, 8);
       this.camera.position.copy(eye);
       this.camera.lookAt(look);

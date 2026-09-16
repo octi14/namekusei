@@ -956,26 +956,33 @@ export class Personaje {
       return;
     }
     if (this.poseBlast > 0) {
-      const t = Math.min(1, this.poseBlast * 3);
       const two = this.poseBlastTwo;
       const left = two || this.poseBlastArm === "L";
       const right = two || this.poseBlastArm === "R";
-      const pk = Math.min(1, dt * 14);
       const clipName = two ? "blastTwo" : "blast";
-      if (!this.applyEditorClip(clipName, t / (this._anims?.[clipName]?.speed || 1), pk, null, !two && left)) {
-        lx(armR, right ? -1.65 * t : 0.12);
-        lx(armL, left ? -1.65 * t : 0.12);
-        lz(armR, right ? 0.35 * t : -0.08);
-        lz(armL, left ? -0.35 * t : 0.08);
-        if (elbowR) lx(elbowR, right ? -0.15 * t : -0.25);
-        if (elbowL) lx(elbowL, left ? -0.15 * t : -0.25);
-        lx(legL, 0.22);
-        lx(legR, 0.22);
-        if (kneeL) lx(kneeL, 0.18);
-        if (kneeR) lx(kneeR, 0.18);
-        lx(torsoG, 0.32 * t);
-        lx(headG, -0.18 * t);
+      const dur = this._blastDur || 0.4;
+      const elapsed = Math.max(0, dur - this.poseBlast);
+      if (this.mesh?.userData) {
+        if (left) this.mesh.userData.fistL = Math.max(this.mesh.userData.fistL || 0, 0.85);
+        if (right) this.mesh.userData.fistR = Math.max(this.mesh.userData.fistR || 0, 0.85);
       }
+      if (this.applyEditorClip(clipName, elapsed, 1, null, !two && left)) {
+        this.didMove = false;
+        return;
+      }
+      const t = Math.min(1, elapsed / Math.max(1e-4, dur));
+      lx(armR, right ? -1.65 * t : 0.12);
+      lx(armL, left ? -1.65 * t : 0.12);
+      lz(armR, right ? 0.35 * t : -0.08);
+      lz(armL, left ? -0.35 * t : 0.08);
+      if (elbowR) lx(elbowR, right ? -0.15 * t : -0.25);
+      if (elbowL) lx(elbowL, left ? -0.15 * t : -0.25);
+      lx(legL, 0.22);
+      lx(legR, 0.22);
+      if (kneeL) lx(kneeL, 0.18);
+      if (kneeR) lx(kneeR, 0.18);
+      lx(torsoG, 0.32 * t);
+      lx(headG, -0.18 * t);
       this.didMove = false;
       return;
     }

@@ -172,7 +172,10 @@ export class Combat {
     if (!superOn && at.s.ki < need) return false;
     at.s.ki -= superOn ? need * (0.38 + rank * 0.16) : need;
     at.cooldown = superOn ? 1.05 + rank * 0.18 : snipe ? 0.62 : 0.38;
-    at.poseBlast = superOn ? 0.48 + rank * 0.12 : snipe ? 0.42 : 0.32;
+    const blastClip = superOn ? "blastTwo" : "blast";
+    const blastDur = clipOnceDuration(at._anims?.[blastClip], superOn ? 0.55 : snipe ? 0.42 : 0.36);
+    at.poseBlast = blastDur;
+    at._blastDur = blastDur;
     at.poseBlastTwo = !!superOn;
     if (!superOn) at.poseBlastArm = at.poseBlastArm === "L" ? "R" : "L";
     {
