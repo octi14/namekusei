@@ -299,6 +299,7 @@ export class Personaje {
   applyEditorClip(name, phase, k, bones, mirror = false, scale = 1) {
     const oneshot = name === "punch" || name === "punchTwo" || name === "punchKick" || name === "elbow" || name === "blast" || name === "blastTwo";
     if (!oneshot && !this._animCustom?.[name]) return false;
+    if (oneshot && this.mesh?.userData?.syncRig && !this._animCustom?.[name]) return false;
     const clip = this._anims?.[name];
     if (!clip?.keys?.length) return false;
     const pose = evalClip(clip, phase, oneshot);
@@ -357,11 +358,19 @@ export class Personaje {
         if (L.legR) L.legR.position.y += (hy - d - L.legR.position.y) * k;
       }
     }
+    const mesh = this.mesh;
+    if (mesh) {
+      mesh.userData.fistL = THREE.MathUtils.lerp(mesh.userData.fistL || 0, (pose.fistL || 0) * scale, k);
+      mesh.userData.fistR = THREE.MathUtils.lerp(mesh.userData.fistR || 0, (pose.fistR || 0) * scale, k);
+    }
     return true;
   }
 
   rebuildBody() {
-    if (CHAR_RIG[this.nombre] && gokuReady()) return;
+    if (CHAR_RIG[this.nombre] && gokuReady()) {
+      this.refreshAnims();
+      return;
+    }
     const look = lookFor(this.nombre, this.faccion, this.id);
     this.lookWho = look.who || lookTemplateId(this.nombre) || this.nombre;
     this.lookHairC = look.hairC ?? this.lookHairC;
@@ -1534,6 +1543,10 @@ export class Personaje {
    * WALK SPEED BASE = s.velocidad * 0.9 (el `mul *= 0.9` de abajo, sin correr en tierra).
    * RUN SPEED BASE  = s.velocidad * (1 + 0.05 * _runT²) (rampa de sprint en tierra).
    * FLY SPEED BASE  = s.velocidad * 1.2 (mul inicial si flyAlt > 0.2; turbo aéreo *1.4).
+   * SWIM SPEED BASE = mul fijo 0.828 (más abajo, al entrar en agua).
+   *
+   * CON ESFERA: al final spd *= 0.55 — aplica a caminar, correr, volar y nadar
+   * por igual (único castigo de portar; no hay mul aparte por modo).
    */
   move(dir, run, dt) {
     if (this.dead || this.stun > 0 || (this.hitstop || 0) > 0) return;
@@ -1558,7 +1571,7 @@ export class Personaje {
     else if (punching) mul *= 0.16;
     if (this.inSwim()) {
       run = false;
-      mul = 0.828;
+      mul = 0.828; // SWIM SPEED BASE (antes del *0.55 si lleva esfera)
       this._runT = 0;
     } else if (this.flyAlt > 0.2) {
       this._runT = Math.max(0, this._runT - dt / 0.18);
@@ -1580,7 +1593,8 @@ export class Personaje {
         mul *= 0.7; // WALK SPEED BASE: caminata en tierra = 90% de s.velocidad
       }
     }
-    const spd = this.s.velocidad * mul * (this.esfera != null ? 0.55 : 1);
+    // BALL CARRY SPEED: 55% de la spd resultante (tierra / vuelo / nado).
+    const spd = this.s.velocidad * mul * (this.esfera != null ? 0.75 : 1);
     this._groundSpd = this.flyAlt > 0.2 || this.inSwim() ? 0 : spd;
     const wantX = dir.x * spd;
     const wantZ = dir.z * spd;

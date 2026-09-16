@@ -230,4 +230,40 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
     document.getElementById("tab-f").innerHTML = head + sort("f").map(row).join("");
   } else board.classList.remove("on");
   if (!tabOn && !match.finish) drawMinimap(p, people, balls);
+
+  // DEBUG IA (temporal): telemetría del personaje que estás observando
+  const dbg = document.getElementById("ai-dbg");
+  if (dbg) {
+    if (p.controller !== "ia" || p.dead) {
+      dbg.innerHTML = `<div class="h">AI DBG · ${p.nombre}</div><div>— humano / KO —</div>`;
+    } else {
+      const d = p.aiDbg || {};
+      const fac = p.faccion === "z" ? "z" : "f";
+      const bits = [
+        `role=${d.role || p.aiRole || "?"}`,
+        `mode=${d.mode || p.aiMode || "?"}`,
+        d.pick ? `pick=${d.pick}` : "",
+        d.loco ? `loco=${d.loco}` : "",
+        d.charge ? "charge" : "",
+        d.run ? "run" : "",
+        d.fly ? "wantFly" : "",
+        d.foe ? `foe=${d.foe} @${d.foeDist}` : "foe=—",
+        d.ball !== "" && d.ball != null ? `ball#${d.ball}` : "",
+        d.ship ? "ship" : "",
+        d.gLock ? `gLock=${d.gLock}` : "",
+        d.modeT != null ? `t=${d.modeT}s` : "",
+        d.wet ? `wet=${d.wet}` : "",
+        d.unstick ? `brk=${d.unstick}` : "",
+        d.join ? `join=${d.join}` : "",
+        d.carryStyle ? `carry=${d.carryStyle}` : "",
+        d.call ? `team=${d.call}` : "",
+        p.esfera != null ? `carry#${p.esfera}` : "",
+        `ki=${((p.s.ki / p.s.kiMax) * 100) | 0}%`,
+        `hp=${((p.s.hp / p.s.hpMax) * 100) | 0}%`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      dbg.innerHTML = `<div class="h">AI DBG · ${p.nombre}</div><div class="${fac} me">${bits}</div>`;
+    }
+  }
 }

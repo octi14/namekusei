@@ -30,7 +30,7 @@ export const BONES = [
 const LIMB = { armL: "armL", armR: "armR", elbowL: "elbowL", elbowR: "elbowR", wristL: "wristL", wristR: "wristR", legL: "legL", legR: "legR", kneeL: "kneeL", kneeR: "kneeR", torso: "torsoG", head: "headG" };
 
 function P(map, lay = 0, drop = 0) {
-  const pose = { lay, drop };
+  const pose = { lay, drop, fistL: 0, fistR: 0 };
   for (const [k] of BONES) pose[k] = map[k] ? map[k].slice() : [0, 0, 0];
   return pose;
 }
@@ -142,7 +142,12 @@ function lerp(a, b, t) {
 }
 
 function mixPose(a, b, t, swing) {
-  const o = { lay: lerp(a.lay || 0, b.lay || 0, t), drop: lerp(a.drop || 0, b.drop || 0, t) };
+  const o = {
+    lay: lerp(a.lay || 0, b.lay || 0, t),
+    drop: lerp(a.drop || 0, b.drop || 0, t),
+    fistL: lerp(a.fistL || 0, b.fistL || 0, t),
+    fistR: lerp(a.fistR || 0, b.fistR || 0, t),
+  };
   for (const [k] of BONES) {
     const pa = a[k] || [0, 0, 0];
     const pb = b[k] || [0, 0, 0];
@@ -207,6 +212,8 @@ export function applyEval(mesh, pose) {
   for (const [k, node] of Object.entries(LIMB)) set(L[node] || L[k], pose[k]);
   mesh.rotation.x = pose.lay || 0;
   const d = pose.drop || 0;
+  mesh.userData.fistL = pose.fistL || 0;
+  mesh.userData.fistR = pose.fistR || 0;
   const wy = L.waistY;
   const hy = L.hipY;
   if (wy != null) {
@@ -264,6 +271,8 @@ function clipSig(c) {
     }
     if (Math.abs(src.lay || 0) > 1e-4) pose.lay = Math.round(src.lay * 1000) / 1000;
     if (Math.abs(src.drop || 0) > 1e-4) pose.drop = Math.round(src.drop * 1000) / 1000;
+    if (Math.abs(src.fistL || 0) > 1e-4) pose.fistL = Math.round(src.fistL * 1000) / 1000;
+    if (Math.abs(src.fistR || 0) > 1e-4) pose.fistR = Math.round(src.fistR * 1000) / 1000;
     return { u: Math.round((k.u || 0) * 1000) / 1000, pose };
   });
   return JSON.stringify({

@@ -2,9 +2,10 @@ import * as THREE from "three";
 import { makeBody, loadSavedSculpt, DEFAULT_SCULPT } from "./body.js";
 import { LOOK, loadSavedLook } from "./looks.js";
 import { loadClips, saveClips, evalClip, applyEval, BONES, defaultClips, copyClipsTo } from "./capsuleAnim.js";
+import { makeRiggedBody, preloadGoku, CHAR_RIG } from "./gokuRig.js";
 import { flushPack } from "./pack.js";
 
-const SKIP = new Set(["Gokú", "Vegeta"]);
+const SKIP = new Set();
 const PRESET_LABEL = {
   namek: "★ Genérico namekiano",
   terrícola: "★ Genérico terrícola",
@@ -12,6 +13,10 @@ const PRESET_LABEL = {
   saiyajin: "★ Genérico saiyajin",
   Saibaman: "★ Saibaman (plantilla)",
   "Cell Jr.": "★ Cell Jr. (plantilla)",
+  Gokú: "Gokú (3D)",
+  Vegeta: "Vegeta (3D)",
+  "Nº19": "Nº19 (3D)",
+  "Dr. Gero": "Dr. Gero (3D)",
 };
 const POSES = [
   ["rest", "Reposo"],
@@ -60,9 +65,10 @@ let _h = 0;
 function names() {
   const all = Object.keys(LOOK).filter((n) => !SKIP.has(n));
   const gens = ["namek", "terrícola", "soldado", "saiyajin", "Saibaman", "Cell Jr."];
+  const rigs = ["Gokú", "Vegeta", "Nº19", "Dr. Gero"].filter((n) => all.includes(n));
   const head = gens.filter((n) => all.includes(n));
-  const rest = all.filter((n) => !head.includes(n)).sort((a, b) => a.localeCompare(b, "es"));
-  return [...head, ...rest];
+  const rest = all.filter((n) => !head.includes(n) && !rigs.includes(n)).sort((a, b) => a.localeCompare(b, "es"));
+  return [...head, ...rigs, ...rest];
 }
 
 function cur() {
@@ -89,17 +95,26 @@ async function persist() {
   setSt(`Guardado ${presetName} · ${poseName}`);
 }
 
-function rebuild() {
+async function rebuild() {
   if (!scene) return;
-  if (mesh) {
-    scene.remove(mesh);
-    mesh.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
+  const prev = mesh;
+  if (prev) {
+    scene.remove(prev);
+    prev.traverse((o) => {
+      if (!o.isMesh || o.isSkinnedMesh || o.userData?.gokuVis) return;
+      if (o.userData?.capsuleMesh && o.geometry) o.geometry.dispose();
     });
   }
   const look = { ...LOOK[presetName], ...loadSavedLook(presetName), who: presetName };
   const sculpt = { ...DEFAULT_SCULPT, ...loadSavedSculpt(presetName) };
-  mesh = makeBody(1.85, look, sculpt);
+  const rid = CHAR_RIG[presetName];
+  if (rid) {
+    await preloadGoku();
+    mesh = makeRiggedBody(1.85, look, rid);
+    mesh.userData.rigSnap = true;
+  } else {
+    mesh = makeBody(1.85, look, sculpt);
+  }
   scene.add(mesh);
 }
 
@@ -157,11 +172,32 @@ function syncUi() {
   root.querySelector("#ae-rzn").value = (+rot[2]).toFixed(3);
   root.querySelector("#ae-drop").value = key?.pose?.drop ?? 0;
   root.querySelector("#ae-dropn").value = (+(key?.pose?.drop ?? 0)).toFixed(3);
+  root.querySelector("#ae-fistL").value = key?.pose?.fistL ?? 0;
+  root.querySelector("#ae-fistLn").value = (+(key?.pose?.fistL ?? 0)).toFixed(2);
+  root.querySelector("#ae-fistR").value = key?.pose?.fistR ?? 0;
+  root.querySelector("#ae-fistRn").value = (+(key?.pose?.fistR ?? 0)).toFixed(2);
   root.querySelector("#ae-ku").value = key?.u ?? 0;
   root.querySelector("#ae-kun").textContent = (key?.u ?? 0).toFixed(2);
   root.querySelector("#ae-fi").textContent = `${frame + 1}/${c.keys.length}`;
   fillCopy();
+  fillSamePoseCopy();
   drawTl();
+}
+
+function poseLabel(id) {
+  return POSES.find(([v]) => v === id)?.[1] || id;
+}
+
+function fillSamePoseCopy() {
+  const sel = root.querySelector("#ae-same-copy");
+  if (!sel) return;
+  const keep = sel.value;
+  sel.innerHTML = "";
+  for (const [v, lab] of POSES) {
+    if (v === poseName) continue;
+    sel.appendChild(Object.assign(document.createElement("option"), { value: v, textContent: lab }));
+  }
+  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
 }
 
 function fillCopy() {
@@ -259,8 +295,15 @@ function ensureDom() {
         </div>
         <div class="row">
           <label>Bajar torso<input id="ae-dropn" type="number" min="0" max="0.55" step="0.001" inputmode="decimal" /><input id="ae-drop" type="range" min="0" max="0.55" step="0.005" /></label>
+          <label>Puño L<input id="ae-fistLn" type="number" min="0" max="1" step="0.01" inputmode="decimal" /><input id="ae-fistL" type="range" min="0" max="1" step="0.01" /></label>
+          <label>Puño R<input id="ae-fistRn" type="number" min="0" max="1" step="0.01" inputmode="decimal" /><input id="ae-fistR" type="range" min="0" max="1" step="0.01" /></label>
         </div>
-        <h2>Copiar</h2>
+        <h2>Mismo personaje</h2>
+        <div class="row">
+          <label>A animación<select id="ae-same-copy"></select></label>
+          <button type="button" id="ae-same-copy-btn">Copiar aquí</button>
+        </div>
+        <h2>Otros personajes</h2>
         <div class="row">
           <label>Destino<select id="ae-copy"></select></label>
           <button type="button" id="ae-copy-one">Esta anim</button>
@@ -296,9 +339,10 @@ function ensureDom() {
     presetName = pre.value;
     clips = loadClips(presetName);
     frame = 0;
-    rebuild();
-    syncUi();
-    setSt(`Editando: ${presetName}`);
+    rebuild().then(() => {
+      syncUi();
+      setSt(`Editando: ${presetName}`);
+    });
   });
   ps.addEventListener("change", () => {
     poseName = ps.value;
@@ -361,6 +405,24 @@ function ensureDom() {
     key.pose.drop = v;
     root.querySelector("#ae-drop").value = v;
   });
+  for (const side of ["L", "R"]) {
+    const k = `fist${side}`;
+    root.querySelector(`#ae-fist${side}`).addEventListener("input", (e) => {
+      playing = false;
+      const key = cur().keys[frame];
+      if (!key?.pose) return;
+      key.pose[k] = +e.target.value;
+      root.querySelector(`#ae-fist${side}n`).value = key.pose[k].toFixed(2);
+    });
+    root.querySelector(`#ae-fist${side}n`).addEventListener("change", (e) => {
+      playing = false;
+      const v = clampN(e.target, 0, 1);
+      const key = cur().keys[frame];
+      if (!key?.pose) return;
+      key.pose[k] = v;
+      root.querySelector(`#ae-fist${side}`).value = v;
+    });
+  }
   root.querySelector("#ae-tl").addEventListener("click", (e) => {
     const r = e.currentTarget.getBoundingClientRect();
     const u = Math.min(0.99, Math.max(0, (e.clientX - r.left) / r.width));
@@ -422,6 +484,12 @@ function ensureDom() {
   };
   root.querySelector("#ae-copy-one").addEventListener("click", () => copy(false));
   root.querySelector("#ae-copy-all").addEventListener("click", () => copy(true));
+  root.querySelector("#ae-same-copy-btn").addEventListener("click", () => {
+    const dest = root.querySelector("#ae-same-copy").value;
+    if (!dest || dest === poseName) return;
+    clips[dest] = JSON.parse(JSON.stringify(cur()));
+    setSt(`${poseLabel(poseName)} → ${poseLabel(dest)} · ${presetName}`);
+  });
   canvas.addEventListener("pointerdown", (e) => {
     drag = true;
     lastX = e.clientX;
@@ -492,6 +560,7 @@ function tick(now) {
     const key = c.keys[frame];
     if (key) applyEval(mesh, evalClip({ ...c, keys: [{ u: 0, pose: key.pose }, { u: 1, pose: key.pose }] }, 0));
   }
+  mesh?.userData?.syncRig?.();
   camera.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, 1.05 + Math.sin(pitch) * dist * 0.65, Math.cos(yaw) * Math.cos(pitch) * dist);
   camera.lookAt(0, 1, 0);
   renderer.render(scene, camera);
@@ -508,9 +577,11 @@ export function setAnimEditor(on) {
   if (open) {
     loadWho();
     ensureScene();
-    rebuild();
-    syncUi();
-    setSt(`Editando: ${presetName}`);
+    rebuild().then(() => {
+      if (!open) return;
+      syncUi();
+      setSt(`Editando: ${presetName}`);
+    });
     cancelAnimationFrame(raf);
     tick();
   } else {

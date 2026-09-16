@@ -140,6 +140,18 @@
         background: #0006; padding: 8px 10px; max-width: 280px;
       }
       #panel-keys.hidden { display: none; }
+      #ai-dbg {
+        position: absolute; left: 14px; top: 86px; max-width: min(42vw, 280px);
+        max-height: 42vh; overflow: auto; pointer-events: none; z-index: 5;
+        font: 11px/1.35 ui-monospace, Consolas, monospace;
+        color: #e8f5e9; background: #000a; border: 1px solid #4caf5044;
+        padding: 6px 8px; border-radius: 4px; white-space: pre;
+        text-shadow: 0 1px 2px #000;
+      }
+      #ai-dbg .h { color: #81c784; margin-bottom: 4px; }
+      #ai-dbg .z { color: #ffab40; }
+      #ai-dbg .f { color: #4fc3f7; }
+      #ai-dbg .me { background: #fff1; }
       #minimap {
         position: absolute; right: 12px; bottom: 14px;
         width: 300px; height: 300px; border-radius: 8px;
@@ -518,6 +530,7 @@
         <div id="log-scroll"><ul id="log-list"></ul></div>
       </div>
       <canvas id="minimap" width="300" height="300"></canvas>
+      <div id="ai-dbg"></div>
       <div id="panel-keys">
         <kbd>WASD</kbd> mover · <kbd>Shift</kbd> correr / turbo<br />
         <kbd>Espacio</kbd> salto · 2× volar · <kbd>C</kbd> bajar / agachar · <kbd>V</kbd> cámara · <kbd>H</kbd> ayudas<br />
@@ -567,12 +580,12 @@
     </div>
     <div id="boot">
       <div class="boot-inner">
-        <h1>NAMEKUSEI</h1>
-        <p class="tagline">Elige campo y ajusta la partida</p>
+        <!-- <h1>NAMEKUSEI</h1> -->
+        <p class="tagline">Seleccionar escenario</p>
         <div class="maps">
           <button type="button" data-map="namek"><span class="map-kicker">PLANETA</span>NAMEK<small>Z vs Freezer</small></button>
-          <button type="button" data-map="earth"><span class="map-kicker">SAGA</span>TIERRA<small>Z vs Saiyajin</small></button>
-          <button type="button" data-map="cell"><span class="map-kicker">SAGA</span>CELL<small>Z vs Cell</small></button>
+          <button type="button" data-map="earth"><span class="map-kicker">SAGA SAIYAN</span>TIERRA<small>Z vs Saiyajin</small></button>
+          <button type="button" data-map="cell"><span class="map-kicker">SAGA CELL</span>ISLAS<small>Z vs Cell</small></button>
         </div>
         <div class="hero-row">
           <label>Jugar como <select id="opt-hero"></select></label>

@@ -167,6 +167,12 @@ export const DEFAULT_SCULPT = {
   headSy: 1,
   headSz: 1,
   jaw: 0, // 0–1 mandíbula extra
+  jawX: 0,
+  jawY: 0,
+  jawZ: 0,
+  jawSx: 1,
+  jawSy: 1,
+  jawSz: 1,
   // orejas
   earType: "round", // none | round | pointed | wide
   earR: 0.035,
@@ -188,10 +194,18 @@ export const DEFAULT_SCULPT = {
   eyeSx: 1,
   eyeSy: 0.85,
   brow: 0, // 0–1 cejas
+  browX: 0, // separación extra (espejada)
   browY: 0.035,
+  browZ: 0,
   browTilt: -0.25,
   mouth: 0, // 0–1 boca
+  mouthX: 0,
+  mouthY: 0,
+  mouthZ: 0,
   nose: 0,
+  noseX: 0,
+  noseY: 0,
+  noseZ: 0,
   noseType: "none", // none | bulb | hook | flat | ridge | namek
   thirdEye: 0, // 0 off, 1 on
   // manos / pies
@@ -222,6 +236,9 @@ export const DEFAULT_SCULPT = {
   plateSx: 1,
   plateSy: 1,
   plateSz: 1,
+  padY: 0,
+  frostLineY: 0,
+  frostGemY: 0,
   showUnder: 1,
   underX: 0,
   underY: 0,
@@ -231,6 +248,7 @@ export const DEFAULT_SCULPT = {
   underSz: 1,
   beltR: 0.155,
   beltThick: 0.034,
+  beltY: 0,
   showBelt: 1,
   showSash: 1,
   showSashTail: 1,
@@ -907,14 +925,16 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
   if (sc.eyeType === "none") {
     /* skip */
   } else {
-    const eyeM = surf(0x212121, { roughness: 0.4 });
-    const whiteM = surf(0xfafafa, { roughness: 0.45 });
+    const eyeM = surf(look.iris ?? 0x212121, { roughness: 0.4 });
+    const whiteM = surf(look.eyeWhite ?? 0xfafafa, { roughness: 0.45 });
     const narrow = sc.eyeType === "narrow";
     const wide = sc.eyeType === "wide";
     const dot = sc.eyeType === "dot";
     const wR = (dot ? sc.eyeWhiteR * 0.45 : sc.eyeWhiteR) * (wide ? 1.25 : narrow ? 0.75 : 1);
     const iR = (dot ? sc.eyeIrisR * 0.7 : sc.eyeIrisR) * (wide ? 1.2 : narrow ? 0.7 : 1);
-    const sy = narrow ? 0.45 : wide ? 1.05 : sc.eyeSy;
+    // El tipo de ojo escala el slider, no lo reemplaza (si no, "Ojo Y" no hacía
+    // nada en narrow/wide). Los factores mantienen el look previo con eyeSy 0.85.
+    const sy = sc.eyeSy * (narrow ? 0.53 : wide ? 1.24 : 1);
     const hk = (sc.headR || 0.16) / 0.16;
     const hsx = sc.headSx || 1;
     const hsy = sc.headSy || 1;
@@ -936,7 +956,8 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
         (sc.irisY ?? sc.eyeY) * s * hsy * hk,
         (sc.irisZ ?? sc.eyeZ + 0.025) * s * hsz * hk
       );
-      if (narrow) e.scale.set(1.2, 0.5, 1);
+      if (narrow) e.scale.set(1.2 * (sc.eyeSx || 1), (sc.eyeSy / 0.85) * 0.5, 1);
+      e.rotation.z = side * (sc.eyeTilt || 0); // "Ojo inclin." también en tipo dot
       e.userData.moldId = `eye_${sideK}_i`;
       e.userData.moldFamily = "eye";
       headG.add(e);
@@ -947,19 +968,20 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     for (const side of [-1, 1]) {
       const b = new THREE.Mesh(new THREE.BoxGeometry(0.05 * s * sc.brow, 0.012 * s, 0.02 * s), browM);
       b.position.set(
-        side * sc.eyeSep * s,
+        side * (sc.eyeSep + (sc.browX || 0)) * s,
         sc.eyeY * s + (sc.browY ?? 0.035) * s,
-        sc.eyeZ * s - 0.01 * s
+        sc.eyeZ * s - 0.01 * s + (sc.browZ || 0) * s
       );
       b.rotation.z = side * (sc.browTilt ?? -0.25);
       headG.add(b);
     }
   }
   if (sc.noseType && sc.noseType !== "none") {
-    const skinN = surf(look.skin, { roughness: 0.7 });
+    const skinN = surf(look.noseC ?? look.skin, { roughness: 0.7 });
     const n = Math.max(0.2, sc.nose || 0.45);
-    const ny = sc.eyeY * s - 0.02 * s;
-    const nz = sc.eyeZ * s + 0.02 * s;
+    const nx = (sc.noseX || 0) * s;
+    const ny = sc.eyeY * s - 0.02 * s + (sc.noseY || 0) * s;
+    const nz = sc.eyeZ * s + 0.02 * s + (sc.noseZ || 0) * s;
     let nose;
     if (sc.noseType === "hook") {
       nose = new THREE.Mesh(new THREE.SphereGeometry(0.016 * s * n, 10, 8), skinN);
@@ -976,12 +998,12 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     } else if (sc.noseType === "namek") {
       const gN = new THREE.Group();
       for (const side of [-1, 1]) {
-        const slit = new THREE.Mesh(new THREE.SphereGeometry(0.007 * s * n, 8, 6), surf(0x2e7d32, { roughness: 0.5 }));
+        const slit = new THREE.Mesh(new THREE.SphereGeometry(0.007 * s * n, 8, 6), skinN);
         slit.position.set(side * 0.012 * s, 0, 0.006 * s);
         slit.scale.set(0.7, 1.4, 0.6);
         gN.add(slit);
       }
-      gN.position.set(0, ny, nz);
+      gN.position.set(nx, ny, nz);
       gN.userData.moldId = "nose";
       gN.userData.moldFamily = "face";
       headG.add(gN);
@@ -991,6 +1013,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
       nose.position.set(0, ny, nz);
     }
     if (nose) {
+      nose.position.x += nx;
       nose.userData.moldId = "nose";
       nose.userData.moldFamily = "face";
       headG.add(nose);
@@ -998,9 +1021,13 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
   } else if (sc.nose > 0.05) {
     const nose = new THREE.Mesh(
       new THREE.SphereGeometry(0.018 * s * sc.nose, 10, 8),
-      surf(look.skin, { roughness: 0.7 })
+      surf(look.noseC ?? look.skin, { roughness: 0.7 })
     );
-    nose.position.set(0, sc.eyeY * s - 0.02 * s, sc.eyeZ * s + 0.02 * s);
+    nose.position.set(
+      (sc.noseX || 0) * s,
+      sc.eyeY * s - 0.02 * s + (sc.noseY || 0) * s,
+      sc.eyeZ * s + 0.02 * s + (sc.noseZ || 0) * s
+    );
     nose.scale.set(0.7, 1, 1.1);
     nose.userData.moldId = "nose";
     nose.userData.moldFamily = "face";
@@ -1011,7 +1038,11 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
       new THREE.BoxGeometry(0.045 * s * sc.mouth, 0.01 * s, 0.012 * s),
       surf(0x5d4037, { roughness: 0.6 })
     );
-    mouth.position.set(0, sc.eyeY * s - 0.05 * s, sc.eyeZ * s + 0.01 * s);
+    mouth.position.set(
+      (sc.mouthX || 0) * s,
+      sc.eyeY * s - 0.05 * s + (sc.mouthY || 0) * s,
+      sc.eyeZ * s + 0.01 * s + (sc.mouthZ || 0) * s
+    );
     mouth.userData.moldId = "mouth";
     mouth.userData.moldFamily = "face";
     headG.add(mouth);
@@ -1026,8 +1057,8 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     }
   }
   if (look.thirdEye || sc.thirdEye > 0.5) {
-    const whiteM = surf(0xfafafa, { roughness: 0.45 });
-    const eyeM = surf(0x212121, { roughness: 0.4 });
+    const whiteM = surf(look.eyeWhite ?? 0xfafafa, { roughness: 0.45 });
+    const eyeM = surf(look.iris ?? 0x212121, { roughness: 0.4 });
     const w3 = new THREE.Mesh(new THREE.SphereGeometry(0.026 * s, 12, 10), whiteM);
     w3.position.set(0, 0.075 * s, 0.125 * s);
     w3.scale.set(0.85, 0.75, 0.55);
@@ -1256,7 +1287,7 @@ export function makeBody(altura, look, sculpt = {}) {
       kit === "armor" || kit === "soldier" ? plateM : accent
     );
     belt.rotation.x = Math.PI / 2;
-    belt.position.y = 0.72 * s - waistY + ty;
+    belt.position.y = 0.72 * s - waistY + ty + (sc.beltY || 0) * s;
     belt.userData.moldId = "belt";
     belt.userData.moldFamily = "cloth";
     torsoG.add(belt);
@@ -1275,7 +1306,7 @@ export function makeBody(altura, look, sculpt = {}) {
     torsoG.add(plate);
     for (const side of [-1, 1]) {
       const pad = new THREE.Mesh(new THREE.SphereGeometry(0.09 * s, 14, 12), padM);
-      pad.position.set(side * 0.22 * s, 1.18 * s - waistY + ty, 0);
+      pad.position.set(side * 0.22 * s, 1.18 * s - waistY + ty + (sc.padY || 0) * s, 0);
       pad.scale.set(1.15, 0.75, 1.05);
       pad.userData.moldId = `armor_pad_${side > 0 ? "R" : "L"}`;
       pad.userData.moldFamily = "cloth";
@@ -1284,12 +1315,12 @@ export function makeBody(altura, look, sculpt = {}) {
   }
   if (kit === "frost") {
     const line = new THREE.Mesh(new THREE.BoxGeometry(0.06 * s, 0.38 * s, 0.04 * s, 1, 2, 1), accent);
-    line.position.set(0, 0.98 * s - waistY + ty, 0.16 * s);
+    line.position.set(0, 0.98 * s - waistY + ty + (sc.frostLineY || 0) * s, 0.16 * s);
     line.userData.moldId = "frost_line";
     line.userData.moldFamily = "cloth";
     torsoG.add(line);
     const gem = new THREE.Mesh(new THREE.SphereGeometry(0.045 * s, 12, 10), accent);
-    gem.position.set(0, 1.12 * s - waistY + ty, 0.17 * s);
+    gem.position.set(0, 1.12 * s - waistY + ty + (sc.frostGemY || 0) * s, 0.17 * s);
     gem.userData.moldId = "frost_gem";
     gem.userData.moldFamily = "cloth";
     torsoG.add(gem);
@@ -1380,8 +1411,12 @@ export function makeBody(altura, look, sculpt = {}) {
   headG.add(head);
   if (sc.jaw > 0.05) {
     const jaw = new THREE.Mesh(new THREE.SphereGeometry(sc.headR * 0.72 * s * sc.jaw, 14, 12), skin);
-    jaw.position.y = -sc.headR * 0.55 * s;
-    jaw.scale.set(1.15, 0.55, 1.05);
+    jaw.position.set(
+      (sc.jawX || 0) * s,
+      -sc.headR * 0.55 * s + (sc.jawY || 0) * s,
+      (sc.jawZ || 0) * s
+    );
+    jaw.scale.set(1.15 * (sc.jawSx ?? 1), 0.55 * (sc.jawSy ?? 1), 1.05 * (sc.jawSz ?? 1));
     jaw.userData.moldId = "jaw";
     jaw.userData.moldFamily = "head";
     headG.add(jaw);

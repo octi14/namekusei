@@ -7,6 +7,9 @@ const EDITOR_KEY = "namekusei.charEditor";
 const LOOK_COLORS = [
   ["skin", "Piel", (l) => l.skin],
   ["hairC", "Pelo", (l) => l.hairC ?? 0x1a1208],
+  ["iris", "Iris", (l) => l.iris ?? 0x212121],
+  ["eyeWhite", "Blanco ojo", (l) => l.eyeWhite ?? 0xfafafa],
+  ["noseC", "Nariz", (l) => l.noseC ?? l.skin],
   ["body", "Gi / túnica", (l) => l.body],
   ["undershirt", "Interior", (l) => l.undershirt ?? 0x5d4037],
   ["sleeves", "Brazos", (l) => l.sleeves ?? l.suit ?? l.body],
@@ -77,7 +80,7 @@ const SLIDERS = [
   ["thighSx", "Muslo ancho", 0.5, 2.2, 0.01],
   ["shinSx", "Pantorrilla ancho", 0.5, 2.2, 0.01],
   ["hipX", "Cadera sep.", 0.05, 0.2, 0.005],
-  ["hipY", "Pierna Y", 0.32, 0.88, 0.005],
+  ["hipY", "Pierna Y", 0.32, 1.05, 0.005],
   ["thighY", "Muslo Y", -0.18, 0.18, 0.005],
   null,
   "Torso",
@@ -91,7 +94,7 @@ const SLIDERS = [
   ["torsoLen", "Torso alto", 0.2, 1.05, 0.01],
   ["torsoY", "Torso Y", -0.25, 0.25, 0.005],
   ["hipsLen", "Cadera alto", 0.15, 0.4, 0.01],
-  ["waistYMul", "Cintura Y", 0.5, 0.75, 0.005],
+  ["waistYMul", "Cintura Y", 0.3, 1.05, 0.005],
   ["chestR", "Pecho radio", 0.04, 0.28, 0.005],
   ["chestSx", "Pecho X", 0.4, 2.4, 0.01],
   ["chestSy", "Pecho Y", 0.4, 2.4, 0.01],
@@ -110,11 +113,14 @@ const SLIDERS = [
   ["pecSz", "Pectoral Z esc.", 0.5, 1.8, 0.01],
   ["beltR", "Cinturón radio", 0.1, 0.25, 0.005],
   ["beltThick", "Cinturón grosor", 0.01, 0.06, 0.001],
+  ["beltY", "Cinturón placa Y", -0.35, 0.35, 0.005],
   ["showBelt", "Cinturón on", 0, 1, 1],
   ["showSash", "Fajín on", 0, 1, 1],
   ["showSashTail", "Listón fajín", 0, 1, 1],
   ["showLapels", "Solapas gi", 0, 1, 1],
   ["sashY", "Fajín Y", -0.2, 0.2, 0.005],
+  ["frostLineY", "Frost línea Y", -0.35, 0.35, 0.005],
+  ["frostGemY", "Frost gema Y", -0.35, 0.35, 0.005],
   ["capeScale", "Capa escala", 0.5, 1.6, 0.05],
   ["capeThick", "Capa grosor", 0.4, 2, 0.05],
   ["capeX", "Capa X", -0.2, 0.2, 0.005],
@@ -126,6 +132,7 @@ const SLIDERS = [
   ["plateSx", "Placa ancho X", 0.5, 2, 0.01],
   ["plateSy", "Placa alto Y", 0.5, 2, 0.01],
   ["plateSz", "Placa prof. Z", 0.5, 2, 0.01],
+  ["padY", "Hombreras Y", -0.4, 0.4, 0.005],
   ["showUnder", "Interior on", 0, 1, 1],
   ["underX", "Interior X", -0.25, 0.25, 0.005],
   ["underY", "Interior Y", -0.4, 0.4, 0.005],
@@ -139,17 +146,23 @@ const SLIDERS = [
   ["neckLen", "Cuello largo", 0.05, 0.18, 0.005],
   ["neckY", "Cuello Y", -0.2, 0.25, 0.005],
   ["headR", "Cabeza radio", 0.1, 0.22, 0.005],
-  ["headSx", "Cabeza X", 0.7, 1.4, 0.01],
-  ["headSy", "Cabeza Y", 0.7, 1.4, 0.01],
-  ["headSz", "Cabeza Z", 0.7, 1.4, 0.01],
+  ["headSx", "Cabeza X", 0.5, 1.4, 0.01],
+  ["headSy", "Cabeza Y", 0.5, 1.4, 0.01],
+  ["headSz", "Cabeza Z", 0.5, 1.4, 0.01],
   ["jaw", "Mandíbula", 0, 1, 0.05],
+  ["jawX", "Mandíbula X", -0.12, 0.12, 0.002],
+  ["jawY", "Mandíbula Y", -0.15, 0.15, 0.002],
+  ["jawZ", "Mandíbula Z", -0.12, 0.12, 0.002],
+  ["jawSx", "Mandíbula ancho", 0.3, 2.2, 0.01],
+  ["jawSy", "Mandíbula alto", 0.3, 2.2, 0.01],
+  ["jawSz", "Mandíbula prof. Z", 0.3, 2.2, 0.01],
   ["earR", "Oreja radio", 0.015, 0.07, 0.001],
   ["earX", "Oreja sep.", 0.1, 0.22, 0.005],
   ["earSx", "Oreja X", 0.3, 1.2, 0.05],
   ["earSy", "Oreja Y", 0.5, 1.5, 0.05],
   ["earSz", "Oreja Z", 0.4, 1.5, 0.05],
-  ["eyeSep", "Ojos sep.", 0.03, 0.09, 0.001],
-  ["irisSep", "Iris sep.", 0.02, 0.1, 0.001],
+  ["eyeSep", "Ojos sep.", 0.02, 0.13, 0.001],
+  ["irisSep", "Iris sep.", 0.02, 0.13, 0.001],
   ["irisY", "Iris Y", -0.04, 0.1, 0.001],
   ["irisZ", "Iris Z", 0.08, 0.22, 0.001],
   ["eyeTilt", "Blanco inclin.", -0.85, 0.85, 0.01],
@@ -157,13 +170,21 @@ const SLIDERS = [
   ["eyeZ", "Ojos Z", 0.08, 0.18, 0.005],
   ["eyeWhiteR", "Blanco ojo", 0.015, 0.05, 0.001],
   ["eyeIrisR", "Iris", 0.008, 0.03, 0.001],
-  ["eyeSx", "Ojo X", 0.5, 1.5, 0.05],
+  ["eyeSx", "Ojo X", 0.5, 2, 0.05],
   ["eyeSy", "Ojo Y", 0.3, 1.3, 0.05],
   ["brow", "Cejas", 0, 1, 0.05],
+  ["browX", "Ceja X", -0.08, 0.12, 0.002],
   ["browY", "Ceja Y", -0.04, 0.12, 0.002],
+  ["browZ", "Ceja Z", -0.08, 0.1, 0.002],
   ["browTilt", "Ceja inclin.", -1.2, 1.2, 0.02],
   ["nose", "Nariz", 0, 1, 0.05],
+  ["noseX", "Nariz X", -0.1, 0.1, 0.002],
+  ["noseY", "Nariz Y", -0.1, 0.1, 0.002],
+  ["noseZ", "Nariz Z", -0.1, 0.1, 0.002],
   ["mouth", "Boca", 0, 1, 0.05],
+  ["mouthX", "Boca X", -0.1, 0.1, 0.002],
+  ["mouthY", "Boca Y", -0.12, 0.1, 0.002],
+  ["mouthZ", "Boca Z", -0.1, 0.1, 0.002],
   ["thirdEye", "3er ojo", 0, 1, 1],
   ["antLen", "Antena largo", 0.08, 0.35, 0.01],
   ["antR", "Antena radio", 0.006, 0.03, 0.001],
@@ -234,7 +255,7 @@ let brushStr = 0.04;
 let lastHitLocal = null;
 let moldTouched = new Set();
 const _rc = new THREE.Raycaster();
-const SKIP_LOOK = new Set(["Gokú", "Vegeta"]);
+const SKIP_LOOK = new Set(["Gokú", "Vegeta", "Nº19", "Dr. Gero"]);
 const PRESET_LABEL = {
   namek: "★ Genérico namekiano",
   terrícola: "★ Genérico terrícola",
@@ -265,13 +286,13 @@ function dropSizeMolds(key) {
   const molds = sculpt.molds;
   if (!molds) return;
   const pats = [];
-    if (/^(torso|hips|chest|pec|waist|belt|cape|plate|under)/.test(key)) {
+    if (/^(torso|hips|chest|pec|waist|belt|cape|plate|under|pad|frost|sash)/.test(key)) {
     pats.push(/^(torso|chest|pec|hips|belt|cloth_shirt|undershirt|armor|cape|frost|plate)/);
   }
   if (/arm|shoulder|hand|finger/i.test(key)) pats.push(/arm|band_/);
   if (/thigh|shin|hipX|hipY|foot|boot/i.test(key)) pats.push(/thigh|shin|boot|^hips/);
   if (/hair/i.test(key) && key !== "hairY") pats.push(/hair/);
-  else if (/head|eye|ear|jaw|nose|neck/i.test(key)) pats.push(/head|jaw|eye|ear|nose|mouth|neck/);
+  else if (/head|eye|ear|jaw|nose|mouth|brow|neck/i.test(key)) pats.push(/head|jaw|eye|ear|nose|mouth|neck/);
   if (!pats.length) return;
   for (const id of Object.keys(molds)) {
     if (pats.some((p) => p.test(id))) delete molds[id];
