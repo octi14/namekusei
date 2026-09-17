@@ -129,7 +129,8 @@ function setLocal(bone, hang, x, y, z, hangW = 1, snap = false) {
   }
   if (!bone.userData._smQ) bone.userData._smQ = bone.quaternion.clone();
   else {
-    bone.userData._smQ.slerp(bone.quaternion, 0.58);
+    // Antes 0.58: el GLB iba atrasado vs la cápsula (punch/walk se veían desfasados)
+    bone.userData._smQ.slerp(bone.quaternion, 0.88);
     bone.quaternion.copy(bone.userData._smQ);
   }
 }

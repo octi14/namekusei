@@ -237,8 +237,26 @@ export const DEFAULT_SCULPT = {
   plateSy: 1,
   plateSz: 1,
   padY: 0,
+  frostLineX: 0,
   frostLineY: 0,
+  frostLineZ: 0,
+  frostLineSx: 1,
+  frostLineSy: 1,
+  frostLineSz: 1,
+  frostGemX: 0,
   frostGemY: 0,
+  frostGemZ: 0,
+  frostGemSx: 1,
+  frostGemSy: 1,
+  frostGemSz: 1,
+  // gema frontal (pelo frieza / horns)
+  showFaceGem: 1,
+  faceGemX: 0,
+  faceGemY: 0,
+  faceGemZ: 0,
+  faceGemSx: 1,
+  faceGemSy: 1,
+  faceGemSz: 1,
   showUnder: 1,
   underX: 0,
   underY: 0,
@@ -905,19 +923,26 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
       horn.rotation.z = side * 0.55;
       tagHair(horn, `horn_${side > 0 ? "R" : "L"}`);
     }
-    const gem = new THREE.Mesh(
-      new THREE.SphereGeometry(0.04 * s, 16, 14),
-      surf(look.accent ?? 0xab47bc, {
-        roughness: 0.25,
-        metalness: 0.35,
-        emissive: 0x4a148c,
-        emissiveIntensity: 0.35,
-      })
-    );
-    gem.position.set(0, 0.02 * s, 0.15 * s);
-    gem.userData.moldId = "gem";
-    gem.userData.moldFamily = "face";
-    headG.add(gem);
+    if ((sc.showFaceGem ?? 1) > 0.5) {
+      const gem = new THREE.Mesh(
+        new THREE.SphereGeometry(0.04 * s, 16, 14),
+        surf(look.accent ?? 0xab47bc, {
+          roughness: 0.25,
+          metalness: 0.35,
+          emissive: 0x4a148c,
+          emissiveIntensity: 0.35,
+        })
+      );
+      gem.position.set(
+        (0 + (sc.faceGemX || 0)) * s,
+        (0.02 + (sc.faceGemY || 0)) * s,
+        (0.15 + (sc.faceGemZ || 0)) * s
+      );
+      gem.scale.set(sc.faceGemSx ?? 1, sc.faceGemSy ?? 1, sc.faceGemSz ?? 1);
+      gem.userData.moldId = "gem";
+      gem.userData.moldFamily = "face";
+      headG.add(gem);
+    }
   }
 }
 
@@ -1315,12 +1340,22 @@ export function makeBody(altura, look, sculpt = {}) {
   }
   if (kit === "frost") {
     const line = new THREE.Mesh(new THREE.BoxGeometry(0.06 * s, 0.38 * s, 0.04 * s, 1, 2, 1), accent);
-    line.position.set(0, 0.98 * s - waistY + ty + (sc.frostLineY || 0) * s, 0.16 * s);
+    line.position.set(
+      (sc.frostLineX || 0) * s,
+      0.98 * s - waistY + ty + (sc.frostLineY || 0) * s,
+      0.16 * s + (sc.frostLineZ || 0) * s
+    );
+    line.scale.set(sc.frostLineSx ?? 1, sc.frostLineSy ?? 1, sc.frostLineSz ?? 1);
     line.userData.moldId = "frost_line";
     line.userData.moldFamily = "cloth";
     torsoG.add(line);
     const gem = new THREE.Mesh(new THREE.SphereGeometry(0.045 * s, 12, 10), accent);
-    gem.position.set(0, 1.12 * s - waistY + ty + (sc.frostGemY || 0) * s, 0.17 * s);
+    gem.position.set(
+      (sc.frostGemX || 0) * s,
+      1.12 * s - waistY + ty + (sc.frostGemY || 0) * s,
+      0.17 * s + (sc.frostGemZ || 0) * s
+    );
+    gem.scale.set(sc.frostGemSx ?? 1, sc.frostGemSy ?? 1, sc.frostGemSz ?? 1);
     gem.userData.moldId = "frost_gem";
     gem.userData.moldFamily = "cloth";
     torsoG.add(gem);

@@ -833,10 +833,24 @@ export class Personaje {
     else if (!swimming && this.didMove && this.flyAlt < 0.2) {
       const useRun = (this._runT || 0) > 0.28 && this._animCustom?.run;
       const useWalk = this._animCustom?.walk && !useRun;
-      if (this.crouchWalking()) pitch = evalClip(this._anims.crouchWalk, this._clipClock || 0).lay || 0;
-      else if (useRun) pitch = evalClip(this._anims.run, this._clipClock || 0).lay || 0;
-      else if (useWalk) pitch = evalClip(this._anims.walk, this._clipClock || 0).lay || 0;
-      else pitch = (this.rush || 0) > 0.82 ? 0.38 : 0.12;
+      const crouchW = this.crouchWalking();
+      if (crouchW || useRun || useWalk) {
+        const sprint = (this._runT || 0) > 0.28 || (this.rush || 0) > 0.4;
+        const hard = (this._runT || 0) > 0.72 || (this.rush || 0) > 0.82;
+        const v = this._groundSpd || 0;
+        const stride = hard ? 1.72 : sprint ? 1.35 : 1.05;
+        const hz = THREE.MathUtils.clamp(
+          v / (2 * stride),
+          hard ? 2.35 : sprint ? 1.7 : 1.15,
+          hard ? 3.9 : sprint ? 3.05 : 2.15
+        );
+        const clipName = crouchW ? "crouchWalk" : useRun ? "run" : "walk";
+        const clipSpd = Math.max(0.15, this._anims?.[clipName]?.speed || 1);
+        // Ciclo del clip a la frecuencia del stride (no a speed fijo del JSON)
+        this._clipClock = (this._clipClock || 0) + dt * (hz / clipSpd);
+        this._locoHz = hz;
+        pitch = evalClip(this._anims[clipName], this._clipClock).lay || 0;
+      } else pitch = (this.rush || 0) > 0.82 ? 0.38 : 0.12;
     } else if (!tumbling && !shudder && !airHit && this.volando && this._animCustom?.fly && s > 0.04) {
       pitch = evalClip(this._anims.fly, this.animT).lay ?? 1.52 * s;
     } else if (!tumbling && !shudder && !airHit && this.volando && this._animCustom?.hover && s <= 0.04) {
@@ -1264,10 +1278,14 @@ export class Personaje {
         hard ? 3.9 : sprint ? 3.05 : 2.15
       );
       const clipName = wantRun ? "run" : "walk";
-      const usedClip = this.applyEditorClip(clipName, (this._clipClock = (this._clipClock || 0) + dt), locoK);
+      // Si crouchWalk manda, no pisar con walk/run (el clock ya está en ese ciclo)
+      const skipLoco = this.crouchWalking();
+      const usedClip =
+        !skipLoco && this.applyEditorClip(clipName, this._clipClock || 0, Math.min(1, locoK * 1.25));
       if (usedClip) this._usedLocoClip = true;
-      else {
-        this.animT += dt * hz * Math.PI * 2 * (hard || sprint ? 0.85 : 0.765) * (this.mesh.userData.syncRig ? (hard || sprint ? 0.72 : 0.5) : 1);
+      else if (!skipLoco) {
+        const hz2 = this._locoHz || hz;
+        this.animT += dt * hz2 * Math.PI * 2 * (hard || sprint ? 0.85 : 0.765) * (this.mesh.userData.syncRig ? (hard || sprint ? 0.72 : 0.5) : 1);
       }
       const stance = hard ? 0.4 : sprint ? 0.46 : 0.55;
       const hip = (ph) => {
