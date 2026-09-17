@@ -15,6 +15,17 @@ function fwd(yaw) {
   return new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
 }
 
+function guarding(t, from, ki) {
+  if (!t._blocking || t.dead || (t.stun || 0) > 0) return false;
+  if (ki && (t.flyAlt || 0) < 0.28 && !t.volando) return false;
+  if (!from) return true;
+  const dx = from.x - t.pos().x;
+  const dz = from.z - t.pos().z;
+  const len = Math.hypot(dx, dz) || 1;
+  const face = Math.sin(t.yaw) * (dx / len) + Math.cos(t.yaw) * (dz / len);
+  return face > 0.12;
+}
+
 export class Combat {
   constructor(scene, balls, cam, match) {
     this.scene = scene;
@@ -39,7 +50,7 @@ export class Combat {
   }
 
   melee(at, all) {
-    if (at.cooldown > 0 || at.dead || at.stun > 0 || (at.hitstop || 0) > 0) return;
+    if (at.cooldown > 0 || at.dead || at.stun > 0 || (at.hitstop || 0) > 0 || at._blocking) return;
     const now = performance.now() * 0.001;
     if (!at.comboT || now - at.comboT > 1.05) {
       at.combo = 0;
@@ -108,10 +119,18 @@ export class Combat {
         at.limbs.torsoG.rotation.y = THREE.MathUtils.clamp(localAngle, -0.45, 0.45);
       }
     }
-    const f = fwd(at.yaw);
     const finisher = step === 2;
     spawnMeleeArc(this.scene, origin.clone().setY(origin.y + at.height * (finisher ? 0.42 : 0.62)), at.yaw, this.fx);
-      const reach = at.airMelee === "elbow" ? 3.45 : finisher ? 3.05 : 2.75;
+    const reach = at.airMelee === "elbow" ? 3.45 : finisher ? 3.05 : 2.75;
+    at._meleePend = { t: Math.max(0.12, clipDur * 0.38), finisher, reach };
+  }
+
+  resolveMeleeHits(at, all, pend) {
+    if (at.dead || (at.stun || 0) > 0) return;
+    const origin = at.pos();
+    const f = fwd(at.yaw);
+    const finisher = pend.finisher;
+    const reach = pend.reach;
     for (const t of all) {
       if (t.faccion === at.faccion || t === at || t.dead) continue;
       const d = t.pos().clone().sub(origin);
@@ -123,7 +142,6 @@ export class Combat {
         if (dist > 1.2 && facing < 0.12) continue;
         if (dist <= 1.2 && facing < -0.35) continue;
       }
-      // Parry: si la víctima está atacando justo ahora (ventana ~0.15s), contraataca
       if ((t.posePunch || 0) > 0.19 && (t.posePunch || 0) < 0.34) {
         const parryDmg = Math.max(1, Math.round((t.s.ataque * 140) / (8 + at.s.defensa)));
         const pH = at.pos().clone(); pH.y += at.height * 0.7;
@@ -138,7 +156,11 @@ export class Combat {
         if (at.s.hp <= 0) { this.match.noteKill(t, at); t.st.k++; at.st.d++; at.die(this.balls, t, false); }
         continue;
       }
-      let dmg = Math.max(1, Math.round((at.s.ataque * (finisher ? 160 : 100)) / (8 + t.s.defensa)));
+      const dmg = Math.max(1, Math.round((at.s.ataque * (finisher ? 160 : 100)) / (8 + t.s.defensa)));
+      if (guarding(t, origin, false)) {
+        this.blockedHit(t, dmg, false, at, origin, f);
+        continue;
+      }
       const hitP = t.pos().clone();
       hitP.y += t.height * 0.7;
       spawnHit(this.scene, hitP, this.fx, f, finisher);
@@ -148,17 +170,45 @@ export class Combat {
         playSfx("bodyGetsHit", hx, hy, hz, 0.38);
       }
       this.jolt(hitP, finisher ? 0.42 : 0.22);
-      at.hitstop = Math.max(at.hitstop || 0, finisher ? 0.14 : 0.08);
-      t.hitstop = Math.max(t.hitstop || 0, finisher ? 0.14 : 0.08);
-      // Inclinación: atacante lunge adelante, víctima recoil atrás
+      at.hitstop = Math.max(at.hitstop || 0, finisher ? 0.28 : 0.08);
+      t.hitstop = Math.max(t.hitstop || 0, finisher ? 0.32 : 0.1);
       at.punchLunge = Math.max(at.punchLunge || 0, finisher ? 0.35 : 0.22);
       t.hitRecoil = Math.max(t.hitRecoil || 0, finisher ? 0.38 : 0.25);
-      // Sacudida: desplazar mesh de víctima en dirección del golpe
       t.hitShakeX = f.x * (finisher ? 0.4 : 0.2);
       t.hitShakeZ = f.z * (finisher ? 0.4 : 0.2);
       t.hitShakeT = 0.18;
       at._comboHit = true;
       this.hurt(t, dmg, false, at, at.pos(), finisher ? 22 : 8);
+    }
+  }
+
+  blockedHit(t, dmg, ki, atk, from, dir) {
+    const chip = ki ? Math.max(1, Math.round(dmg * 0.22)) : Math.max(1, Math.round(dmg * 0.08));
+    t.poseBlock = 0.42;
+    t.hitstop = Math.max(t.hitstop || 0, 0.1);
+    if (atk) {
+      atk.hitstop = Math.max(atk.hitstop || 0, 0.08);
+      atk._comboHit = false;
+    }
+    const f = dir || (from ? t.pos().clone().sub(from).setY(0).normalize() : fwd(t.yaw));
+    const hitP = t.pos().clone();
+    hitP.y += t.height * 0.72;
+    spawnHit(this.scene, hitP, this.fx, f, false);
+    {
+      const [hx, hy, hz] = atPos(t);
+      playSfx("bodyHit", hx, hy, hz, 0.32);
+    }
+    this.jolt(hitP, 0.12);
+    if (from) t.knock(from, ki ? 7 : 3.5);
+    t.s.hp -= chip;
+    this.float(t, chip, ki, atk, false);
+    if (t.s.hp <= 0) {
+      if (atk) {
+        this.match.noteKill(atk, t);
+        atk.st.k++;
+      }
+      t.st.d++;
+      t.die(this.balls, atk, ki);
     }
   }
 
@@ -270,7 +320,8 @@ export class Combat {
       if (d > s.aoeR) continue;
       const fall = 1 - d / s.aoeR;
       const dmg = Math.max(1, Math.round(s.dmg * (0.4 + 0.6 * fall)));
-      this.hurt(t, dmg, true, s.atk, pos);
+      if (guarding(t, pos, true)) this.blockedHit(t, dmg, true, s.atk, pos);
+      else this.hurt(t, dmg, true, s.atk, pos);
     }
   }
 
@@ -302,6 +353,11 @@ export class Combat {
     const heavy = !!(ki || finisher || dmg >= 40);
     this.float(t, dmg, ki, atk, heavy);
     const now = performance.now() * 0.001;
+    if (atk && !ki) {
+      if (!atk.hitComboT || now - atk.hitComboT > 1.05) atk.hitCombo = 0;
+      atk.hitCombo = (atk.hitCombo || 0) + 1;
+      atk.hitComboT = now;
+    }
     if (atk) {
       atk.st.dmg += dmg;
       t.hitBy = (t.hitBy || []).filter((h) => now - h.t < 8);
@@ -320,6 +376,8 @@ export class Combat {
       t.st.d++;
       t.aiHeat = (t.aiHeat || 0) - 1.15;
       t.hitBy = [];
+      const src = from || atk?.pos();
+      if (src) t.knock(src, ki ? 16 : 12);
       t.die(this.balls, atk, ki);
       if (atk) {
         atk.aiHeat = (atk.aiHeat || 0) + 0.95;
@@ -397,6 +455,19 @@ export class Combat {
   }
 
   tick(dt, people) {
+    for (const p of people) {
+      if (!p._meleePend) continue;
+      if (p.dead || (p.stun || 0) > 0) {
+        p._meleePend = null;
+        continue;
+      }
+      p._meleePend.t -= dt;
+      if (p._meleePend.t <= 0) {
+        const pend = p._meleePend;
+        p._meleePend = null;
+        this.resolveMeleeHits(p, people, pend);
+      }
+    }
     for (let i = this.shots.length - 1; i >= 0; i--) {
       const s = this.shots[i];
       s.life -= dt;
@@ -471,7 +542,8 @@ export class Combat {
             return s.mesh.position.distanceTo(aim) < s.hitR;
           });
           if (t) {
-            this.hurt(t, s.dmg, true, s.atk, s.mesh.position);
+            if (guarding(t, s.mesh.position, true)) this.blockedHit(t, s.dmg, true, s.atk, s.mesh.position);
+            else this.hurt(t, s.dmg, true, s.atk, s.mesh.position);
             spawnBurst(this.scene, s.mesh.position, s.color, this.fx);
             this.jolt(s.mesh.position, 0.2);
             const hp = s.mesh.position;

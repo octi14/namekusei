@@ -34,6 +34,7 @@ const POSES = [
   ["crouch", "Agachar"],
   ["crouchWalk", "Caminar agachado"],
   ["charge", "Cargar ki"],
+  ["block", "Bloquear"],
   ["blast", "Lanzar ki"],
   ["blastTwo", "Ki a dos manos"],
 ];

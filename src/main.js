@@ -551,6 +551,7 @@ function loop(now) {
         if (player.flyAlt > 0.2 || player.inSwim()) player.descend();
         else player.duckHold();
       }
+      player.guard(keys.has("ControlLeft") || keys.has("ControlRight") || keys.has("KeyX"), dt);
       if (keys.has("KeyF")) {
         if (player.superHold !== -99) {
           if (!player._sfxSuper) {

@@ -283,7 +283,7 @@ export class Personaje {
     const who = this.lookWho || this.nombre;
     this._anims = loadClips(who);
     this._animCustom = {};
-    for (const n of ["walk", "run", "hover", "fly", "charge", "idle", "swim", "swimIdle", "punch", "punchTwo", "punchKick", "elbow", "blast", "blastTwo", "crouch", "crouchWalk"]) {
+    for (const n of ["walk", "run", "hover", "fly", "charge", "idle", "swim", "swimIdle", "punch", "punchTwo", "punchKick", "elbow", "blast", "blastTwo", "crouch", "crouchWalk", "block"]) {
       this._animCustom[n] = clipIsCustom(who, n);
     }
   }
@@ -466,26 +466,76 @@ export class Personaje {
       this.deadT -= dt;
       this.volando = false;
       this.swim = 0;
-      if (this.flyAlt > 0.04) {
-        this.vy = Math.max(-24, (this.vy || 0) - 32 * dt);
+      this.flyBlend = THREE.MathUtils.damp(this.flyBlend || 0, 0, 8, dt);
+      const falling = this.flyAlt > 0.04;
+      if (falling) {
+        const prevAlt = this.flyAlt;
+        const prevVy = this.vy || 0;
+        this.vy = Math.max(-52, (this.vy || 0) - 58 * dt);
         this.flyAlt = Math.max(0, this.flyAlt + this.vy * dt);
+        if (this.flyAlt <= 0.04 && prevAlt > 0.35 && prevVy < -8 && this._scene) {
+          const foot = this.pos().clone();
+          foot.y = surfaceHeight(foot.x, foot.z) + 0.05;
+          spawnImpactRing(this._scene, foot, this._fxScratch, prevVy < -16);
+        }
       } else {
         this.flyAlt = 0;
         this.vy = 0;
       }
-      this.vx *= Math.exp(-8 * dt);
-      this.vz *= Math.exp(-8 * dt);
+      const deadDrag = falling ? 0.85 : 11;
+      this.vx *= Math.exp(-deadDrag * dt);
+      this.vz *= Math.exp(-deadDrag * dt);
       this.mesh.position.x += this.vx * dt;
       this.mesh.position.z += this.vz * dt;
-      this.mesh.rotation.x = Math.min(1.22, this.mesh.rotation.x + dt * 5);
+      this.mesh.rotation.x = THREE.MathUtils.damp(this.mesh.rotation.x, falling ? 1.12 : 1.22, 5.2, dt);
+      this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, falling ? 0.28 : 0.1, 4.2, dt);
+      const lim = this.limbs;
+      if (lim?.armL) {
+        const e = Math.min(1, dt * 5.5);
+        const lx = (o, t) => {
+          if (o) o.rotation.x += (t - o.rotation.x) * e;
+        };
+        const lz = (o, t) => {
+          if (o) o.rotation.z += (t - o.rotation.z) * e;
+        };
+        lx(lim.armL, 0.92);
+        lx(lim.armR, 0.82);
+        lz(lim.armL, 0.48);
+        lz(lim.armR, -0.48);
+        lx(lim.legL, 0.28);
+        lx(lim.legR, 0.18);
+        lx(lim.kneeL, 0.78);
+        lx(lim.kneeR, 0.7);
+        lx(lim.elbowL, -0.72);
+        lx(lim.elbowR, -0.68);
+        lx(lim.torsoG, 0.12);
+        lx(lim.headG, 0.32);
+      }
+      this.mesh.userData.syncRig?.();
       clampMap(this.mesh.position);
       resolveObstacles(this.mesh.position, this.flyAlt || 0);
       resolveShipCollisions(this);
       this.stickY();
+      for (let i = this._fxScratch.length - 1; i >= 0; i--) {
+        const f = this._fxScratch[i];
+        f.t -= dt;
+        if (f.v.lengthSq()) f.mesh.position.addScaledVector(f.v, dt);
+        if (f.grow) f.mesh.scale.addScalar(f.grow * dt);
+        if (f.mesh.material?.opacity != null) f.mesh.material.opacity = Math.max(0, f.t * 4);
+        if (f.t <= 0) {
+          this._scene?.remove(f.mesh);
+          this._fxScratch.splice(i, 1);
+        }
+      }
       if (this.teamRing) this.teamRing.visible = false;
       if (this.deadT <= 0) this.respawn();
       return;
     }
+    if (!this._guarded) {
+      this._blockHold = 0;
+      this._blocking = false;
+    }
+    this._guarded = false;
     this.aliveFor = (this.aliveFor || 0) + dt;
     if ((this.hitFlash || 0) > 0) {
       this.hitFlash = Math.max(0, this.hitFlash - dt);
@@ -647,7 +697,7 @@ export class Personaje {
     } else if (this.kiBubble) this.kiBubble.visible = false;
     if ((this.hitstop || 0) <= 0) {
       if (!this.didMove) {
-        const damp = Math.exp(-(this.inSwim() ? 2.8 : this.flyAlt > 0.2 ? 3.6 : 9.5) * dt);
+        const damp = Math.exp(-(this.inSwim() ? 2.6 : this.flyAlt > 0.2 ? 1.8 : 11) * dt);
         this._mvx = (this._mvx || 0) * damp;
         this._mvz = (this._mvz || 0) * damp;
         if (Math.hypot(this._mvx, this._mvz) > 0.12) {
@@ -660,8 +710,9 @@ export class Personaje {
       }
       this.mesh.position.x += this.vx * dt;
       this.mesh.position.z += this.vz * dt;
-      this.vx *= Math.exp(-5 * dt);
-      this.vz *= Math.exp(-5 * dt);
+      const kbDrag = this.inSwim() ? 3.4 : this.flyAlt > 0.2 ? 1.2 : 9.8;
+      this.vx *= Math.exp(-kbDrag * dt);
+      this.vz *= Math.exp(-kbDrag * dt);
     }
     if (Math.abs(this.vx) < 0.05) this.vx = 0;
     if (Math.abs(this.vz) < 0.05) this.vz = 0;
@@ -809,6 +860,7 @@ export class Personaje {
       1,
       dt * (4.15 + (1 - s) * 4.6) * ((this._poseRec || 0) > 0 && this.posePunch <= 0 ? 0.38 : 1)
     );
+    const locoK = Math.min(1, dt / 0.16) * ((this._poseRec || 0) > 0 && this.posePunch <= 0 ? 0.38 : 1);
     const charging = this._kiCharge || (this.superHold || 0) > 0.04;
     if (!charging && waistY != null) {
       const e = Math.min(1, dt * 10);
@@ -838,6 +890,23 @@ export class Personaje {
       if (kneeR) lx(kneeR, tumble ? 0.75 : 0.35);
       if (elbowL) lx(elbowL, tumble ? -0.85 : -0.5);
       if (elbowR) lx(elbowR, tumble ? -0.9 : -0.5);
+      this.didMove = false;
+      return;
+    }
+    this.poseBlock = Math.max(0, (this.poseBlock || 0) - dt);
+    if ((this._blocking || this.poseBlock > 0.02) && this.posePunch <= 0) {
+      const bk = Math.min(1, dt * 11);
+      this.animT += dt * 1.2;
+      if (!this.applyEditorClip("block", this.animT, bk)) {
+        lx(armL, -0.72);
+        lx(armR, -0.68);
+        lz(armL, 0.48);
+        lz(armR, -0.48);
+        if (elbowL) lx(elbowL, -1.32);
+        if (elbowR) lx(elbowR, -1.28);
+        lx(torsoG, 0.1);
+        lx(headG, 0.08);
+      }
       this.didMove = false;
       return;
     }
@@ -1085,7 +1154,7 @@ export class Personaje {
       this.animT += dt * 1.35;
       const w = Math.sin(this.animT);
       const w2 = Math.sin(this.animT * 0.55);
-      if (!this.applyEditorClip("swimIdle", this.animT, k)) {
+      if (!this.applyEditorClip("swimIdle", this.animT, locoK)) {
         lx(armL, -0.55 + w * 0.32);
         lx(armR, -0.55 - w * 0.32);
         lz(armL, 0.78 + w2 * 0.08);
@@ -1105,7 +1174,7 @@ export class Personaje {
       this.animT += dt * (4.59 + (this.rush || 0) * 1.53);
       const t = this.animT;
       const spd = this._anims?.swim?.speed || 1;
-      if (!this.applyEditorClip("swim", t / (Math.PI * 2) / spd, k)) {
+      if (!this.applyEditorClip("swim", t / (Math.PI * 2) / spd, locoK)) {
       // brazada estilo crol: jalón abajo + recuperación alta
       const stroke = (ph) => {
         const u = ((ph / (Math.PI * 2)) % 1 + 1) % 1;
@@ -1138,14 +1207,14 @@ export class Personaje {
       this.animT += dt * (2.2 + (this.rush || 0) * 3.5);
       const w = Math.sin(this.animT);
       const boost = Math.min(1, (this.rush || 0));
-      const ak = Math.min(1, dt * 8);
+      const ak = locoK;
       const ax = (o, t) => {
         o.rotation.x += (t - o.rotation.x) * ak;
       };
       const az = (o, t) => {
         o.rotation.z += (t - o.rotation.z) * ak;
       };
-      if (!this.applyEditorClip("fly", this.animT, ak)) {
+      if (!this.applyEditorClip("fly", this.animT, locoK)) {
         lx(torsoG, 0.1 * s);
         lx(headG, -1.42 * s + w * 0.04 * boost);
         ax(armR, -2.85 * s + w * 0.08 * boost);
@@ -1167,7 +1236,7 @@ export class Personaje {
       this.animT += dt * 1.45;
       const w = Math.sin(this.animT);
       const w2 = Math.sin(this.animT * 0.7);
-      if (!this.applyEditorClip("hover", this.animT, k)) {
+      if (!this.applyEditorClip("hover", this.animT, locoK)) {
         lx(armL, 0.72 + w * 0.14);
         lx(armR, 0.85 - w * 0.14);
         lz(armL, -0.92 + w2 * 0.06);
@@ -1195,8 +1264,7 @@ export class Personaje {
         hard ? 3.9 : sprint ? 3.05 : 2.15
       );
       const clipName = wantRun ? "run" : "walk";
-      const recK = (this._poseRec || 0) > 0 ? Math.min(1, dt * 3.1) : 1;
-      const usedClip = this.applyEditorClip(clipName, (this._clipClock = (this._clipClock || 0) + dt), recK);
+      const usedClip = this.applyEditorClip(clipName, (this._clipClock = (this._clipClock || 0) + dt), locoK);
       if (usedClip) this._usedLocoClip = true;
       else {
         this.animT += dt * hz * Math.PI * 2 * (hard || sprint ? 0.85 : 0.765) * (this.mesh.userData.syncRig ? (hard || sprint ? 0.72 : 0.5) : 1);
@@ -1225,7 +1293,7 @@ export class Personaje {
       };
       const p = usedClip ? (this._clipClock || 0) * (this._anims?.[clipName]?.speed || 1) * Math.PI * 2 : this.animT;
       const q = p + Math.PI;
-      const g = Math.min(1, dt * 8.2);
+      const g = locoK;
       const sx = (o, val) => {
         o.rotation.x += (val - o.rotation.x) * g;
       };
@@ -1266,7 +1334,7 @@ export class Personaje {
       this._strideBob = THREE.MathUtils.damp(this._strideBob || 0, 0, 12, dt);
       this.animT += dt * 1.1;
       const breath = Math.sin(this.animT) * 0.035;
-      if (!this.applyEditorClip("idle", this.animT, k)) {
+      if (!this.applyEditorClip("idle", this.animT, locoK)) {
         lx(armL, 0.04 + breath);
         lx(armR, 0.04 - breath * 0.8);
         lz(armL, 0.06);
@@ -1450,7 +1518,7 @@ export class Personaje {
       }
     }
     if (this._hop) {
-      this.vy -= 26 * dt;
+      this.vy -= 34 * dt;
       this._crouch = 0;
     } else if (lift > 0 && !this._launched && this.flyAlt < 0.28) {
       this._crouch = Math.min(1, (this._crouch || 0) + dt / 0.14);
@@ -1531,6 +1599,25 @@ export class Personaje {
 
   duckHold() {
     this._duck = true;
+  }
+
+  guard(on, dt) {
+    if (
+      !on ||
+      this.dead ||
+      (this.stun || 0) > 0 ||
+      (this.posePunch || 0) > 0 ||
+      this._kiCharge ||
+      (this.superHold || 0) > 0.04
+    ) {
+      this._blockHold = 0;
+      this._blocking = false;
+      return;
+    }
+    this._blockHold = (this._blockHold || 0) + dt;
+    this._blocking = this._blockHold >= 0.08;
+    this._guarded = true;
+    if (this._blocking) this.poseBlock = Math.max(this.poseBlock || 0, 0.14);
   }
 
   setFly(on) {
@@ -1661,7 +1748,8 @@ export class Personaje {
     this._launched = false;
     this._hop = false;
     this._wantJump = false;
-    this.vy = Math.min(this.vy || 0, -2);
+    this.flyBlend = 0;
+    this.vy = (this.flyAlt || 0) > 0.04 ? Math.min(this.vy || 0, -10) : 0;
     const n = this.esfera;
     if (n != null) {
       const a = Math.random() * Math.PI * 2;
@@ -1674,8 +1762,6 @@ export class Personaje {
     for (const k of ["ataque", "defensa", "velocidad", "kiMax"]) {
       this.s[k] = Math.max(this.orig[k] * STAT_FLOOR, this.s[k] * DEATH_MULT);
     }
-    this.vx *= 0.3;
-    this.vz *= 0.3;
   }
 
   respawn() {
@@ -1687,6 +1773,8 @@ export class Personaje {
     if (this.hitGlow) this.hitGlow.visible = false;
     this._resetBodyEmissive();
     this.mesh.rotation.x = 0;
+    this.mesh.rotation.z = 0;
+    this.flyBlend = 0;
     this.s.hp = this.s.hpMax;
     this.s.ki = this.s.kiMax;
     const p = spawnPos(this.faccion, 0, 1);

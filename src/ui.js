@@ -140,6 +140,24 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
   document.getElementById("pl-atk").textContent = p.s.ataque.toFixed(0);
   document.getElementById("pl-vel").textContent = p.s.velocidad.toFixed(0);
   document.getElementById("pl-rng").textContent = String(powerStyle(p.nombre, p.faccion).range || 50);
+  const comboEl = document.getElementById("combo");
+  const comboNow = performance.now() * 0.001;
+  const hits = p.hitCombo || 0;
+  const comboOn = !p.dead && hits >= 2 && comboNow - (p.hitComboT || 0) < 1.05;
+  if (comboOn) {
+    const n = String(hits);
+    if (comboEl.dataset.n !== n) {
+      comboEl.dataset.n = n;
+      comboEl.innerHTML = `<b>${n}</b><span>HIT</span>`;
+      comboEl.className = `on${hits >= 5 ? " big" : ""}`;
+      void comboEl.offsetWidth;
+      comboEl.classList.add("pop");
+    }
+  } else {
+    comboEl.className = "";
+    comboEl.dataset.n = "";
+    comboEl.innerHTML = "";
+  }
   const v = logVersion();
   if (v !== lastLog) {
     lastLog = v;

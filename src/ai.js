@@ -1785,7 +1785,21 @@ export function aiTick(p, people, balls, combat, match, dt) {
     // multiplica por MELEE de config.js, que es el dial global.
     const meleeRange = 3.1;
     const meleeOdds = dist < 2.6 ? (mood.front > 0.2 ? 0.42 : 0.28) : dist < meleeRange ? 0.16 : 0;
-    if (dist < meleeRange && facing && Math.random() < meleeOdds * MELEE) {
+    const foeSwing = foe && (foe.posePunch || 0) > 0.05 && dist < 4.6 && facing;
+    let kiIn = false;
+    if ((p.flyAlt || 0) > 0.28 || p.volando) {
+      for (const s of combat.shots) {
+        if (s.faccion === p.faccion) continue;
+        if (s.mesh.position.distanceTo(p.pos()) < 16) {
+          kiIn = true;
+          break;
+        }
+      }
+    }
+    if (foeSwing || kiIn) p._aiGuard = 0.32;
+    else p._aiGuard = Math.max(0, (p._aiGuard || 0) - dt);
+    p.guard((p._aiGuard || 0) > 0, dt);
+    if (!p._blocking && dist < meleeRange && facing && Math.random() < meleeOdds * MELEE) {
       // Micro-paso hacia el rival al tirar el golpe, para no quedarse corto.
       // AJUSTE: tope 9 de velocidad; 1.2 es la distancia que deja sin cerrar.
       const stepV = Math.min(9, Math.max(0, dist - 1.2) * 7);
