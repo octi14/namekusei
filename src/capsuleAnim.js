@@ -12,6 +12,27 @@ function storedAnims() {
   return getAnimMap();
 }
 
+function packKey(who) {
+  if (!who) return who;
+  const all = storedAnims();
+  if (all[who]) return who;
+  const low = String(who).toLowerCase();
+  return Object.keys(all).find((k) => k.toLowerCase() === low) || who;
+}
+
+export function resolveAnimWho(...ids) {
+  const seen = [];
+  for (const id of ids) {
+    const k = packKey(id);
+    if (!k || seen.includes(k)) continue;
+    seen.push(k);
+  }
+  for (const k of seen) {
+    if (clipIsCustom(k, "walk") || clipIsCustom(k, "run")) return k;
+  }
+  return seen[0] || ids.find(Boolean) || "";
+}
+
 export const BONES = [
   ["armL", "Brazo I"],
   ["armR", "Brazo D"],
@@ -233,7 +254,7 @@ export function applyEval(mesh, pose) {
 export function loadClips(who) {
   const base = defaultClips();
   try {
-    const saved = storedAnims()[who];
+    const saved = storedAnims()[packKey(who)];
     if (!saved) return base;
     for (const k of Object.keys(base)) {
       if (saved[k]?.keys) base[k] = saved[k];
@@ -287,18 +308,23 @@ function clipSig(c) {
   });
 }
 
+export function clipIsCustomClip(data, name) {
+  if (!data?.keys?.length || !name) return false;
+  const now = clipSig(defaultClips()[name]);
+  if (!now) return true;
+  const got = clipSig(data);
+  if (got === now) return false;
+  if (name === "punch" && got === clipSig(clip(1.2, [
+    { u: 0, pose: P({ armL: [0.35, 0, 0.25], armR: [0, 0, -0.1], elbowL: [-0.7, 0, 0], elbowR: [-0.2, 0, 0] }) },
+    { u: 0.5, pose: P({ armL: [0.35, 0, 0.25], armR: [-1.15, 0, -0.1], elbowL: [-0.7, 0, 0], elbowR: [0, 0, 0] }) },
+  ]))) return false;
+  return true;
+}
+
 export function clipIsCustom(who, name) {
   try {
-    const saved = storedAnims()[who]?.[name];
-    if (!saved?.keys) return false;
-    const now = clipSig(defaultClips()[name]);
-    const got = clipSig(saved);
-    if (got === now) return false;
-    if (name === "punch" && got === clipSig(clip(1.2, [
-      { u: 0, pose: P({ armL: [0.35, 0, 0.25], armR: [0, 0, -0.1], elbowL: [-0.7, 0, 0], elbowR: [-0.2, 0, 0] }) },
-      { u: 0.5, pose: P({ armL: [0.35, 0, 0.25], armR: [-1.15, 0, -0.1], elbowL: [-0.7, 0, 0], elbowR: [0, 0, 0] }) },
-    ]))) return false;
-    return true;
+    const saved = storedAnims()[packKey(who)]?.[name];
+    return clipIsCustomClip(saved, name);
   } catch {
     return false;
   }

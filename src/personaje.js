@@ -9,7 +9,7 @@ import { lookFor, lookTemplateId } from "./looks.js";
 import { makeRiggedBody, gokuReady, CHAR_RIG } from "./gokuRig.js";
 import { footstep, playSfx, atPos, stopSfxLoop } from "./sfx.js";
 import { spawnSpeedStreak, spawnImpactRing } from "./powers.js";
-import { loadClips, evalClip, clipIsCustom } from "./capsuleAnim.js";
+import { loadClips, evalClip, clipIsCustomClip, resolveAnimWho } from "./capsuleAnim.js";
 
 const _c = new THREE.Vector3();
 let _trailTex;
@@ -280,11 +280,11 @@ export class Personaje {
   }
 
   refreshAnims() {
-    const who = this.lookWho || this.nombre;
+    const who = resolveAnimWho(this.nombre, this.lookWho);
     this._anims = loadClips(who);
     this._animCustom = {};
     for (const n of ["walk", "run", "hover", "fly", "charge", "idle", "swim", "swimIdle", "punch", "punchTwo", "punchKick", "elbow", "blast", "blastTwo", "crouch", "crouchWalk", "block"]) {
-      this._animCustom[n] = clipIsCustom(who, n);
+      this._animCustom[n] = clipIsCustomClip(this._anims[n], n);
     }
   }
 
@@ -298,10 +298,11 @@ export class Personaje {
   /** Aplica un clip del editor. bones: lista o "arms". mirror: espeja L/R. */
   applyEditorClip(name, phase, k, bones, mirror = false, scale = 1) {
     const oneshot = name === "punch" || name === "punchTwo" || name === "punchKick" || name === "elbow" || name === "blast" || name === "blastTwo";
-    if (!oneshot && !this._animCustom?.[name]) return false;
-    if (oneshot && this.mesh?.userData?.syncRig && !this._animCustom?.[name]) return false;
     const clip = this._anims?.[name];
     if (!clip?.keys?.length) return false;
+    const custom = clipIsCustomClip(clip, name);
+    if (!oneshot && !custom) return false;
+    if (oneshot && this.mesh?.userData?.syncRig && !custom) return false;
     const pose = evalClip(clip, phase, oneshot);
     if (mirror) {
       const swap = (a, b) => {
@@ -340,9 +341,12 @@ export class Personaje {
       const o = node[id];
       const r = pose[id];
       if (!o || !r) continue;
-      o.rotation.x += (r[0] * scale - o.rotation.x) * k;
-      o.rotation.y += (r[1] * scale - o.rotation.y) * k;
-      o.rotation.z += (r[2] * scale - o.rotation.z) * k;
+      if (k >= 0.999) o.rotation.set(r[0] * scale, r[1] * scale, r[2] * scale);
+      else {
+        o.rotation.x += (r[0] * scale - o.rotation.x) * k;
+        o.rotation.y += (r[1] * scale - o.rotation.y) * k;
+        o.rotation.z += (r[2] * scale - o.rotation.z) * k;
+      }
     }
     if (bones !== "arms") {
       const d = (pose.drop || 0) * scale;
@@ -778,7 +782,12 @@ export class Personaje {
 
   animate(dt) {
     const { armL, armR, legL, legR, kneeL, kneeR, elbowL, elbowR, torsoG, hips, waistY, hipY, headG } = this.limbs;
+    if (headG) {
+      headG.rotation.y -= this._lookY || 0;
+      headG.rotation.x -= this._lookX || 0;
+    }
     this._usedLocoClip = false;
+    this._clipStepped = false;
     this._poseDrop = 0;
     const wasPunch = (this.posePunch || 0) > 0;
     this.posePunch = Math.max(0, (this.posePunch || 0) - dt);
@@ -845,9 +854,8 @@ export class Personaje {
           hard ? 3.9 : sprint ? 3.05 : 2.15
         );
         const clipName = crouchW ? "crouchWalk" : useRun ? "run" : "walk";
-        const clipSpd = Math.max(0.15, this._anims?.[clipName]?.speed || 1);
-        // Ciclo del clip a la frecuencia del stride (no a speed fijo del JSON)
-        this._clipClock = (this._clipClock || 0) + dt * (hz / clipSpd);
+        this._clipClock = (this._clipClock || 0) + dt * (hz / 1.6);
+        this._clipStepped = true;
         this._locoHz = hz;
         pitch = evalClip(this._anims[clipName], this._clipClock).lay || 0;
       } else pitch = (this.rush || 0) > 0.82 ? 0.38 : 0.12;
@@ -1216,7 +1224,7 @@ export class Personaje {
       lx(headG, -0.35);
       this.mesh.rotation.z = THREE.MathUtils.damp(this.mesh.rotation.z, Math.sin(t) * 0.28, 6, dt);
       }
-    } else if (s > 0.04) {
+    } else if (s > 0.04 && (this.volando || this.flyAlt > 0.2)) {
       this._strideBob = 0;
       this.animT += dt * (2.2 + (this.rush || 0) * 3.5);
       const w = Math.sin(this.animT);
@@ -1278,10 +1286,11 @@ export class Personaje {
         hard ? 3.9 : sprint ? 3.05 : 2.15
       );
       const clipName = wantRun ? "run" : "walk";
-      // Si crouchWalk manda, no pisar con walk/run (el clock ya está en ese ciclo)
       const skipLoco = this.crouchWalking();
-      const usedClip =
-        !skipLoco && this.applyEditorClip(clipName, this._clipClock || 0, Math.min(1, locoK * 1.25));
+      if (!skipLoco && clipIsCustomClip(this._anims?.[clipName], clipName) && !this._clipStepped) {
+        this._clipClock = (this._clipClock || 0) + dt * (hz / 1.6);
+      }
+      const usedClip = !skipLoco && this.applyEditorClip(clipName, this._clipClock || 0, 1);
       if (usedClip) this._usedLocoClip = true;
       else if (!skipLoco) {
         const hz2 = this._locoHz || hz;
@@ -1469,6 +1478,40 @@ export class Personaje {
       }
     }
     this.didMove = false;
+    if (this.mesh?.userData) this.mesh.userData.rigSnap = !!this._usedLocoClip;
+    this.applyHeadLook(dt);
+  }
+
+  applyHeadLook(dt) {
+    const head = this.limbs?.headG;
+    if (!head || this.dead) return;
+    const MAX_Y = 0.72;
+    const MAX_X = 0.2;
+    let wantY = 0;
+    let wantX = 0;
+    const tgt = this.lookWorld;
+    if (tgt) {
+      const pos = this.pos();
+      const dx = tgt.x - pos.x;
+      const dz = tgt.z - pos.z;
+      const dist = Math.hypot(dx, dz) || 0.001;
+      let yawTo = Math.atan2(dx, dz) - this.yaw - (this.limbs.torsoG?.rotation.y || 0);
+      while (yawTo > Math.PI) yawTo -= Math.PI * 2;
+      while (yawTo < -Math.PI) yawTo += Math.PI * 2;
+      wantY = THREE.MathUtils.clamp(yawTo, -MAX_Y, MAX_Y);
+      wantX = THREE.MathUtils.clamp(Math.atan2(tgt.y - (pos.y + this.height * 0.72), dist) * 0.7, -MAX_X, MAX_X);
+    } else if (this.camLook) {
+      wantY = THREE.MathUtils.clamp(this.lookOrbit || 0, -MAX_Y, MAX_Y);
+      wantX = THREE.MathUtils.clamp((this.lookPitch || 0) * 0.28, -MAX_X, MAX_X);
+    }
+    const punch = (this.posePunch || 0) > 0 || (this.stun || 0) > 0;
+    const w = punch ? 0.12 : 1;
+    this._lookY = THREE.MathUtils.damp(this._lookY || 0, wantY * w, 9, dt);
+    this._lookX = THREE.MathUtils.damp(this._lookX || 0, wantX * w, 9, dt);
+    this._lookY = THREE.MathUtils.clamp(this._lookY, -MAX_Y, MAX_Y);
+    this._lookX = THREE.MathUtils.clamp(this._lookX, -MAX_X, MAX_X);
+    head.rotation.y += this._lookY;
+    head.rotation.x += this._lookX;
   }
 
   charge(dt) {
@@ -1501,8 +1544,11 @@ export class Personaje {
     } else {
       this.swim = 0;
       const surf = surfaceHeight(x, z);
-      if (this.flyAlt > 0.04 && this._surfY != null) {
-        this.flyAlt = Math.max(0, Math.min(FLY_MAX, this.flyAlt + this._surfY - surf));
+      if (this._surfY != null) {
+        const drop = this._surfY - surf;
+        if (this.flyAlt > 0.04 || drop > 0.7) {
+          this.flyAlt = Math.max(0, Math.min(FLY_MAX, this.flyAlt + drop));
+        }
       }
       this._surfY = surf;
       this.mesh.position.y = surf + this.flyAlt + lean + (this._strideBob || 0);

@@ -166,6 +166,12 @@ const SLIDERS = [
   ["headSx", "Cabeza X", 0.5, 1.4, 0.01],
   ["headSy", "Cabeza Y", 0.5, 1.4, 0.01],
   ["headSz", "Cabeza Z", 0.5, 1.4, 0.01],
+  ["headTopSx", "Arriba X", 0.45, 1.7, 0.01],
+  ["headTopSy", "Arriba Y", 0.45, 1.7, 0.01],
+  ["headTopSz", "Arriba Z", 0.45, 1.7, 0.01],
+  ["headBotSx", "Abajo X", 0.45, 1.7, 0.01],
+  ["headBotSy", "Abajo Y", 0.45, 1.7, 0.01],
+  ["headBotSz", "Abajo Z", 0.45, 1.7, 0.01],
   ["jaw", "Mandíbula", 0, 1, 0.05],
   ["jawX", "Mandíbula X", -0.12, 0.12, 0.002],
   ["jawY", "Mandíbula Y", -0.15, 0.15, 0.002],
@@ -238,10 +244,18 @@ const SLIDERS = [
 ];
 
 const SELECT_LABELS = {
+  headType: "Tipo cabeza",
   pecType: "Tipo pectorales",
   earType: "Tipo orejas",
   eyeType: "Tipo ojos",
   noseType: "Tipo nariz",
+};
+const SELECT_OPTS = {
+  headType: { sphere: "Esfera", oval: "Óvalo", skull: "Cráneo", capsule: "Cápsula", pill: "Cápsula chata", block: "Angular" },
+  pecType: { none: "Ninguno", sphere: "Esfera", flat: "Plano", split: "Split", armor: "Armadura" },
+  earType: { none: "Ninguna", round: "Redonda", pointed: "Picuda", wide: "Ancha" },
+  eyeType: { anime: "Anime", dot: "Punto", narrow: "Estrecho", wide: "Ancho", none: "Ninguno" },
+  noseType: { none: "Ninguna", bulb: "Bulbo", hook: "Gancho", flat: "Plana", ridge: "Cresta", namek: "Namek" },
 };
 
 let open = false;
@@ -516,12 +530,13 @@ function ensureDom() {
     for (const o of opts) {
       const opt = document.createElement("option");
       opt.value = o;
-      opt.textContent = o;
+      opt.textContent = SELECT_OPTS[key]?.[o] || o;
       sel.appendChild(opt);
     }
     sel.value = sculpt[key] ?? DEFAULT_SCULPT[key];
     sel.addEventListener("change", () => {
       sculpt[key] = sel.value;
+      if (key === "headType") dropSizeMolds("headR");
       dirty = true;
       sel.blur();
     });

@@ -6,6 +6,10 @@ import {
   NAMED_F_EARTH,
   NAMED_Z_CELL,
   NAMED_F_CELL,
+  NAMED_Z_CITY,
+  NAMED_F_CITY,
+  NAMED_Z_VEGETA,
+  NAMED_F_VEGETA,
   GENERIC_Z,
   GENERIC_F,
   GENERIC_Z_EARTH,
@@ -16,7 +20,7 @@ import {
 } from "./stats.js";
 import { lookFor } from "./looks.js";
 
-const SSJ = new Set(["Gokú", "Gohan", "Vegeta", "Trunks"]);
+const SSJ = new Set(["Gokú", "Gohan", "Gohan del futuro", "Vegeta", "Trunks"]);
 
 function namedEntry(n, fac, i, stats, mapId) {
   return {
@@ -30,8 +34,10 @@ function namedEntry(n, fac, i, stats, mapId) {
 }
 
 export function buildRoster(mapId = "namek") {
-  const zNamed = mapId === "cell" ? NAMED_Z_CELL : mapId === "earth" ? NAMED_Z_EARTH : NAMED_Z;
-  const fNamed = mapId === "cell" ? NAMED_F_CELL : mapId === "earth" ? NAMED_F_EARTH : NAMED_F;
+  const zNamed =
+    mapId === "city" ? NAMED_Z_CITY : mapId === "vegeta" ? NAMED_Z_VEGETA : mapId === "cell" ? NAMED_Z_CELL : mapId === "earth" ? NAMED_Z_EARTH : NAMED_Z;
+  const fNamed =
+    mapId === "city" ? NAMED_F_CITY : mapId === "vegeta" ? NAMED_F_VEGETA : mapId === "cell" ? NAMED_F_CELL : mapId === "earth" ? NAMED_F_EARTH : NAMED_F;
   const zNames = Object.keys(zNamed);
   const fNames = Object.keys(fNamed);
   const z = [];
@@ -42,15 +48,13 @@ export function buildRoster(mapId = "namek") {
     } else {
       const k = i - zNames.length + 1;
       const n =
-        mapId === "earth" || mapId === "cell"
-          ? `Guerrero terrícola ${k}`
-          : `Guerrero namekiano ${k}`;
+        mapId === "vegeta" ? `Soldado saiyajin ${k}` : mapId === "namek" ? `Guerrero namekiano ${k}` : `Guerrero terrícola ${k}`;
       z.push({
         id: `z-${i}`,
         nombre: n,
         faccion: "z",
-        stats: cloneStats(mapId === "namek" ? GENERIC_Z : GENERIC_Z_EARTH),
-        look: lookFor(mapId === "namek" ? "namek" : "terrícola", "z", `z-${i}`, mapId),
+        stats: cloneStats(mapId === "namek" ? GENERIC_Z : mapId === "vegeta" ? GENERIC_F_EARTH : GENERIC_Z_EARTH),
+        look: lookFor(mapId === "namek" ? "namek" : mapId === "vegeta" ? "saiyajin" : "terrícola", "z", `z-${i}`, mapId),
       });
     }
     if (i < fNames.length) {
@@ -64,10 +68,10 @@ export function buildRoster(mapId = "namek") {
         stats: cloneStats(SAIBAMAN),
         look: lookFor("Saibaman", "f", `f-${i}`, mapId),
       });
-    } else if (mapId === "cell") {
+    } else if (mapId === "cell" || mapId === "city") {
       f.push({
         id: `f-${i}`,
-        nombre: `Cell Jr. ${i - fNames.length + 8}`,
+        nombre: `Cell Jr. ${i - fNames.length + (mapId === "cell" ? 8 : 1)}`,
         faccion: "f",
         stats: cloneStats(CELL_JR),
         look: lookFor("Cell Jr.", "f", `f-${i}`, mapId),

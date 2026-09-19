@@ -26,6 +26,24 @@ export const MAPS = {
     zWin: "Guerreros Z",
     fWin: "Cell",
   },
+  city: {
+    id: "city",
+    zLabel: "GUERREROS Z",
+    fLabel: "ANDROIDES",
+    zShort: "Z",
+    fShort: "ANDRO",
+    zWin: "Guerreros Z",
+    fWin: "Androides",
+  },
+  vegeta: {
+    id: "vegeta",
+    zLabel: "SAIYAJIN",
+    fLabel: "FREEZER",
+    zShort: "SAIYA",
+    fShort: "FREEZER",
+    zWin: "Saiyajin",
+    fWin: "Freezer",
+  },
 };
 
 export let current = MAPS.namek;

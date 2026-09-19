@@ -4,7 +4,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { TEAM_SIZE, superRank, loadSettings, applySettings, snapshot, PIXEL, BLOOM, SHADOWS, MOUSE, FOV, MAP, MATCH_MINS } from "./config.js";
-import { createWorld, updateWorld, WATER_Y } from "./world.js";
+import { createWorld, updateWorld, WATER_Y, buildMapMaquette } from "./world.js";
 import { buildRoster } from "./roster.js";
 import { setScenario, current } from "./scenario.js";
 import { Personaje, resolvePeople } from "./personaje.js";
@@ -114,11 +114,13 @@ const HEROES = {
   namek: ["Gokú", "Gohan", "Krilin", "Pikoro", "Vegeta", "Freezer"],
   earth: ["Gokú", "Gohan", "Krilin", "Vegeta", "Nappa", "Raditz"],
   cell: ["Gokú", "Gohan", "Vegeta", "Trunks", "Cell", "Nº17"],
+  city: ["Trunks", "Gohan del futuro", "Pikoro", "Vegeta", "Nº17", "Cell"],
+  vegeta: ["Vegeta", "Bardock", "Nappa", "Freezer", "Ginyu", "Raditz"],
 };
 
 const OPTS = [
-  { tab: "partida", key: "TEAM_SIZE", label: "Jugadores por equipo", min: 5, max: 20, step: 1, boot: true },
-  { tab: "partida", key: "MAP", label: "Tamaño del mapa", min: 1000, max: 5000, step: 100, boot: true },
+  { tab: "partida", key: "TEAM_SIZE", label: "Jugadores por equipo", min: 3, max: 20, step: 1, boot: true },
+  { tab: "partida", key: "MAP", label: "Tamaño del mapa", min: 1000, max: 3000, step: 100, boot: true },
   {
     tab: "partida", key: "MATCH_MIN", label: "Duración", boot: true, sel: MATCH_MINS.map((m) => [m, m ? `${m} min` : "Ilimitado"]),
   },
@@ -136,9 +138,10 @@ function applyGfx() {
   renderer.setPixelRatio(Math.min(devicePixelRatio, PIXEL));
   renderer.shadowMap.enabled = SHADOWS;
   camera.fov = FOV;
-  camera.far = Math.max(2800, MAP * 1.7);
+  camera.far = current.id === "city" ? 980 : Math.max(2800, MAP * 1.7);
   camera.updateProjectionMatrix();
   if (worldReady) bloomPass.strength = landBloomBase * BLOOM;
+  bloomPass.enabled = BLOOM > 0.04 && (landBloomBase || 0) > 0.04;
   resize();
 }
 
@@ -204,6 +207,7 @@ function buildOpts(host, tabsEl, live) {
         applySettings({ [d.key]: +r.value });
         val.textContent = fmt(snapshot()[d.key]);
         applyGfx();
+        if (!live && d.key === "MAP") paintBootMap();
       };
       lab.append(row, r);
     }
@@ -214,17 +218,93 @@ function buildOpts(host, tabsEl, live) {
 
 buildOpts(document.getElementById("boot-opts"), document.getElementById("boot-tabs"), false);
 buildOpts(document.getElementById("menu-opts"), document.getElementById("menu-tabs"), true);
+function dumpGroup(g) {
+  g.traverse((o) => {
+    o.geometry?.dispose();
+    if (o.material) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) m.dispose();
+    }
+  });
+  g.clear();
+}
+
+const mqCanvas = document.getElementById("map-preview");
+const mqWrap = document.getElementById("map-preview-wrap");
+const mqRenderer = new THREE.WebGLRenderer({ canvas: mqCanvas, antialias: true });
+mqRenderer.setPixelRatio(1);
+mqRenderer.setClearColor(0x071208);
+const mqScene = new THREE.Scene();
+mqScene.add(new THREE.HemisphereLight(0xdde7ee, 0x1a237e, 0.9));
+const mqSun = new THREE.DirectionalLight(0xfff8e1, 0.95);
+mqSun.position.set(40, 70, 28);
+mqScene.add(mqSun);
+const mqCam = new THREE.PerspectiveCamera(34, 1, 0.1, 200);
+mqCam.position.set(0, 20, 34);
+mqCam.lookAt(0, 0, 0);
+const mqPivot = new THREE.Group();
+mqScene.add(mqPivot);
+let mqYaw = 0.55;
+let mqDrag = false;
+let mqLastX = 0;
+let mqSpin = true;
+let mqLive = true;
+
+function sizeMaquette() {
+  if (!mqLive || !mqWrap) return;
+  const w = Math.max(160, mqWrap.clientWidth);
+  const h = Math.max(140, mqWrap.clientHeight);
+  mqRenderer.setSize(w, h, false);
+  mqCam.aspect = w / h;
+  mqCam.updateProjectionMatrix();
+}
+
+function paintBootMap() {
+  dumpGroup(mqPivot);
+  const model = buildMapMaquette(bootMap);
+  const s = 26 / MAP;
+  model.scale.set(s, s * 10, s);
+  mqPivot.add(model);
+  sizeMaquette();
+}
+
+mqWrap.addEventListener("pointerdown", (e) => {
+  mqDrag = true;
+  mqSpin = false;
+  mqLastX = e.clientX;
+  mqWrap.setPointerCapture(e.pointerId);
+});
+mqWrap.addEventListener("pointermove", (e) => {
+  if (!mqDrag) return;
+  mqYaw += (e.clientX - mqLastX) * 0.008;
+  mqLastX = e.clientX;
+});
+mqWrap.addEventListener("pointerup", () => {
+  mqDrag = false;
+  setTimeout(() => {
+    if (!mqDrag) mqSpin = true;
+  }, 900);
+});
+mqWrap.addEventListener("pointercancel", () => {
+  mqDrag = false;
+  mqSpin = true;
+});
+addEventListener("resize", sizeMaquette);
+
 fillHeroes();
 document.querySelectorAll("#boot [data-map]").forEach((b) => {
   b.classList.toggle("on", b.dataset.map === bootMap);
   b.onclick = () => {
     bootMap = b.dataset.map;
     document.querySelectorAll("#boot [data-map]").forEach((x) => x.classList.toggle("on", x === b));
+    b.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
     fillHeroes();
+    paintBootMap();
   };
 });
 document.getElementById("btn-play").onclick = () => startGame(bootMap);
 applyGfx();
+paintBootMap();
 
 function applyLabels() {
   document.getElementById("sc-f-lab").textContent = current.fShort;
@@ -235,7 +315,41 @@ function applyLabels() {
 async function startGame(id) {
   await preloadGoku();
   setScenario(id);
-  if (id === "earth" || id === "cell") {
+  if (id === "vegeta") {
+    skyTex = makeSky([
+      [0, "#6a0d3a"],
+      [0.22, "#ad1457"],
+      [0.48, "#e91e63"],
+      [0.72, "#f48fb1"],
+      [1, "#fce4ec"],
+    ]);
+    fogLand = new THREE.Fog(0xc2185b, 140, 1400);
+    landExposure = 1.18;
+    landBloom = 0.52;
+    landBloomBase = landBloom;
+    bloomPass.strength = landBloom * BLOOM;
+    bloomPass.threshold = 0.76;
+    fogWater = new THREE.Fog(0x880e4f, 3, 70);
+    colWater.setHex(0x4a148c);
+    uwEl.classList.remove("namek");
+  } else if (id === "city") {
+    skyTex = makeSky([
+      [0, "#37474f"],
+      [0.3, "#607d8b"],
+      [0.58, "#90a4ae"],
+      [0.82, "#cfd8dc"],
+      [1, "#eceff1"],
+    ]);
+    fogLand = new THREE.Fog(0x90a4ae, 55, 720);
+    landExposure = 1.12;
+    landBloom = 0;
+    landBloomBase = landBloom;
+    bloomPass.strength = landBloom * BLOOM;
+    bloomPass.threshold = 0.82;
+    fogWater = new THREE.Fog(0x455a64, 3, 70);
+    colWater.setHex(0x263238);
+    uwEl.classList.remove("namek");
+  } else if (id === "earth" || id === "cell") {
     skyTex = makeSky(
       id === "cell"
         ? [
@@ -253,7 +367,6 @@ async function startGame(id) {
             [1, "#fff8e1"],
           ]
     );
-    // fog realista se mantiene; solo afinamos color/distancia por mapa
     fogLand = new THREE.Fog(
       id === "earth" ? 0x7cb342 : 0x5c9bd1,
       id === "earth" ? 70 : 220,
@@ -289,6 +402,7 @@ async function startGame(id) {
   scene.fog = fogLand;
   renderer.toneMappingExposure = landExposure;
   createWorld(scene, id);
+  applyGfx();
   const roster = buildRoster(id);
   const zTeam = roster.filter((r) => r.faccion === "z");
   const fTeam = roster.filter((r) => r.faccion === "f");
@@ -308,6 +422,9 @@ async function startGame(id) {
   fillMenu();
   applyLabels();
   worldReady = true;
+  mqLive = false;
+  dumpGroup(mqPivot);
+  mqRenderer.dispose();
   document.getElementById("boot").style.display = "none";
   document.getElementById("click-msg").style.display = "flex";
 }
@@ -498,7 +615,12 @@ function loop(now) {
   lastDraw = now;
   const dt = Math.min(0.05, clock.getDelta());
   if (!worldReady) {
-    renderer.render(scene, camera);
+    if (mqLive) {
+      sizeMaquette();
+      if (mqSpin && !mqDrag) mqYaw += dt * 0.28;
+      mqPivot.rotation.y = mqYaw;
+      mqRenderer.render(mqScene, mqCam);
+    }
     return;
   }
   if (!menuOpen) match.tick(dt);
@@ -574,8 +696,48 @@ function loop(now) {
         player.superHold = 0;
       }
     }
+    if (!spectating && player && cam.third && !player.dead && !(player.lockT > 0)) {
+      const neck = 0.72;
+      if (Math.abs(cam.orbit) > neck) {
+        const extra = cam.orbit - Math.sign(cam.orbit) * neck;
+        const turn = extra * Math.min(1, dt * 7);
+        player.yaw += turn;
+        cam.orbit -= turn;
+      }
+    }
     for (const p of people) {
       if (spectating || p !== player) aiTick(p, people, balls, combat, match, dt);
+      p.camLook = !spectating && p === player && cam.third && !p.dead;
+      p.lookOrbit = p.camLook ? cam.orbit : 0;
+      p.lookPitch = p.camLook ? cam.pitch : 0;
+      p.lookWorld = null;
+      if (!p.dead) {
+        const pos = p.pos();
+        let best = null;
+        let score = 0;
+        const consider = (x, y, z, sc) => {
+          if (sc > score) {
+            score = sc;
+            best = { x, y, z };
+          }
+        };
+        const foe = p.lockT > 0 && p.lockFoe && !p.lockFoe.dead ? p.lockFoe : p.aiFoe && !p.aiFoe.dead ? p.aiFoe : null;
+        if (foe) {
+          const fp = foe.pos();
+          consider(fp.x, fp.y + foe.height * 0.62, fp.z, 2.2);
+        }
+        for (const b of balls.items) {
+          if (b.held || !b.mesh?.visible) continue;
+          const d = pos.distanceTo(b.mesh.position);
+          if (d < 16 && d > 0.8) consider(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, 1.35 - d / 16);
+        }
+        for (const s of combat.shots) {
+          if (!s.mesh || s.atk === p) continue;
+          const d = pos.distanceTo(s.mesh.position);
+          if (d < 20 && d > 1.2) consider(s.mesh.position.x, s.mesh.position.y, s.mesh.position.z, (s.faccion !== p.faccion ? 1.7 : 0.5) - d / 22);
+        }
+        p.lookWorld = best;
+      }
       p.tick(dt);
     }
     resolvePeople(people);
@@ -615,7 +777,7 @@ function loop(now) {
   updateSeenBars(camera, view, people);
   renderHud(view, match, keysOn, people, keys.has("Tab"), balls);
   const camP = view.pos();
-  updateWorld(camP, dt);
+  updateWorld(camP, dt, _earFwd);
   for (const p of people) {
     const d = p.pos().distanceToSquared(camP);
     if (p._cast !== (d < 3600)) {
@@ -625,7 +787,8 @@ function loop(now) {
       });
     }
   }
-  composer.render();
+  if (bloomPass.enabled && bloomPass.strength > 0.04) composer.render();
+  else renderer.render(scene, camera);
   labelR.render(scene, camera);
 }
 requestAnimationFrame(loop);

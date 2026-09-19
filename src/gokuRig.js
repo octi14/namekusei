@@ -16,6 +16,8 @@ const URLS = {
 export const CHAR_RIG = {
   Gokú: "goku",
   Vegeta: "vegeta",
+  Bardock: "goku",
+  "Rey Vegeta": "vegeta",
   "Nº19": "androide19",
   "Dr. Gero": "gero",
 };
@@ -110,6 +112,13 @@ function vegFore(b, left, x, y, z, snap = false) {
   const roll = left ? b.LeftForeArmRoll : b.RightForeArmRoll;
   setLocal(fa, null, x ?? 0, y ?? 0, z ?? 0, 1, snap);
   if (roll) setLocal(roll, null, 0, 0, 0, 1, snap);
+}
+
+function setHead(b, hx, hy, hz, snap, nod = 1) {
+  // Cápsula: X nod (abajo <0, ref. crouch/charge Gokú), Y mirar izq/der, Z tilt.
+  // Mixamo/Vegeta: yaw de cápsula → Z. Vegeta: nod invertido vs Gokú.
+  setLocal(b.Neck, null, hx * 0.38 * nod, hz * 0.22, hy * 0.38, 1, snap);
+  setLocal(b.Head, null, hx * 0.62 * nod, hz * 0.28, hy * 0.55, 1, snap);
 }
 
 function setLocal(bone, hang, x, y, z, hangW = 1, snap = false) {
@@ -237,14 +246,10 @@ function syncAndroid(g, wrap, b, L) {
   const tx = torsoG.rotation.x || 0;
   const ty = torsoG.rotation.y || 0;
   const tz = torsoG.rotation.z || 0;
-  const hx = headG.rotation.x || 0;
-  const hy = headG.rotation.y || 0;
-  const hz = headG.rotation.z || 0;
   setLocal(b.Spine, null, tx * 0.35, ty * 0.35, tz * 0.35, 1, snap);
   setLocal(b.Spine1, null, tx * 0.4, ty * 0.4, tz * 0.4, 1, snap);
   setLocal(b.Spine2, null, tx * 0.35, ty * 0.35, tz * 0.25, 1, snap);
-  setLocal(b.Neck, null, hx * 0.4, hy * 0.4, hz * 0.4, 1, snap);
-  setLocal(b.Head, null, hx * 0.7, hy * 0.7, hz * 0.7, 1, snap);
+  setHead(b, headG.rotation.x || 0, headG.rotation.y || 0, headG.rotation.z || 0, snap);
   if (b.Hips) {
     setLocal(b.Hips, null, hips?.rotation.x || 0, hips?.rotation.y || 0, hips?.rotation.z || 0, 1, snap);
     b.Hips.position.copy(b.Hips.userData.restP);
@@ -296,14 +301,10 @@ function syncVegeta(g, wrap, b, L) {
   const tx = torsoG.rotation.x || 0;
   const ty = torsoG.rotation.y || 0;
   const tz = torsoG.rotation.z || 0;
-  const hx = headG.rotation.x || 0;
-  const hy = headG.rotation.y || 0;
-  const hz = headG.rotation.z || 0;
   setLocal(b.Spine, null, tx * 0.35, ty * 0.35, tz * 0.35, 1, snap);
   setLocal(b.Spine1, null, tx * 0.4, ty * 0.4, tz * 0.4, 1, snap);
   setLocal(b.Spine2, null, tx * 0.35, ty * 0.35, tz * 0.25, 1, snap);
-  setLocal(b.Neck, null, hx * 0.4, hy * 0.4, hz * 0.4, 1, snap);
-  setLocal(b.Head, null, hx * 0.7, hy * 0.7, hz * 0.7, 1, snap);
+  setHead(b, headG.rotation.x || 0, headG.rotation.y || 0, headG.rotation.z || 0, snap, -1);
   if (b.Hips) {
     setLocal(b.Hips, null, hips?.rotation.x || 0, hips?.rotation.y || 0, hips?.rotation.z || 0, 1, snap);
     b.Hips.position.copy(b.Hips.userData.restP);
@@ -371,14 +372,10 @@ function syncMixamo(g) {
   const tx = torsoG.rotation.x || 0;
   const ty = torsoG.rotation.y || 0;
   const tz = torsoG.rotation.z || 0;
-  const hx = headG.rotation.x || 0;
-  const hy = headG.rotation.y || 0;
-  const hz = headG.rotation.z || 0;
   setLocal(b.Spine, null, tx * 0.35, ty * 0.35, tz * 0.35, 1, snap);
   setLocal(b.Spine1, null, tx * 0.4, ty * 0.4, tz * 0.4, 1, snap);
   setLocal(b.Spine2, null, tx * 0.35, ty * 0.35, tz * 0.25, 1, snap);
-  setLocal(b.Neck, null, hx * 0.4, hy * 0.4, hz * 0.4, 1, snap);
-  setLocal(b.Head, null, hx * 0.7, hy * 0.7, hz * 0.7, 1, snap);
+  setHead(b, headG.rotation.x || 0, headG.rotation.y || 0, headG.rotation.z || 0, snap);
   if (b.Hips) {
     setLocal(b.Hips, null, hips?.rotation.x || 0, hips?.rotation.y || 0, hips?.rotation.z || 0, 1, snap);
     const drop = waistY != null ? waistY - torsoG.position.y : 0;

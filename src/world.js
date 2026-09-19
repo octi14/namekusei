@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { MAP, BASE_Z } from "./config.js";
+import { MAP, BASE_Z, QUALITY, SHADOWS } from "./config.js";
 import { addShipBases, bindBaseWorld, inShipBase, shipSpawnPos, shipWalkHeight, BASE_INNER_R, BASE_PAD_R } from "./bases.js";
 
 const BASE_R = BASE_INNER_R;
@@ -247,6 +247,59 @@ function cellHeight(x, z) {
   return h;
 }
 
+function waterYFor(id) {
+  if (id === "cell") return 3.15;
+  if (id === "earth") return -4.2;
+  if (id === "city" || id === "vegeta") return -80;
+  return -1.35;
+}
+
+const CITY_STEP = 72;
+const CITY_ST = 5;
+const CITY_AVE = 288;
+const CITY_AVE_W = 8;
+const CITY_WALK = 1.15;
+
+function cityLane(v) {
+  const a = ((v % CITY_AVE) + CITY_AVE) % CITY_AVE;
+  if (a < CITY_AVE_W || a > CITY_AVE - CITY_AVE_W) return 2;
+  const p = ((v % CITY_STEP) + CITY_STEP) % CITY_STEP;
+  if (p < CITY_ST || p > CITY_STEP - CITY_ST) return 1;
+  return 0;
+}
+
+function cityRoad(x, z) {
+  return Math.max(cityLane(x), cityLane(z));
+}
+
+function cityWalk(x, z) {
+  if (cityRoad(x, z)) return false;
+  const band = (v, w, step) => {
+    const p = ((v % step) + step) % step;
+    return (p >= w && p < w + CITY_WALK) || (p <= step - w && p > step - w - CITY_WALK);
+  };
+  return band(x, CITY_AVE_W, CITY_AVE) || band(z, CITY_AVE_W, CITY_AVE) || band(x, CITY_ST, CITY_STEP) || band(z, CITY_ST, CITY_STEP);
+}
+
+function cityHeight(x, z) {
+  const road = cityRoad(x, z);
+  if (road) return 2.08 - (road > 1 ? 0.1 : 0.05);
+  if (cityWalk(x, z)) return 2.42;
+  return 2.36;
+}
+
+function vegetaHeight(x, z) {
+  const ridges =
+    Math.abs(Math.sin(x * 0.012) * Math.cos(z * 0.01)) * 7.5 +
+    Math.sin(x * 0.028 + 0.8) * Math.sin(z * 0.024) * 3.2;
+  return (
+    2.8 +
+    Math.sin(x * 0.0055) * Math.cos(z * 0.0048) * 2.4 +
+    ridges * 0.42 +
+    Math.sin((x + z) * 0.018) * 0.7
+  );
+}
+
 /** Fondo marino mucho más profundo (sin tocar orillas/plataformas secas). */
 function deepenSeabed(h) {
   const shore = WATER_Y + 0.45;
@@ -263,6 +316,8 @@ export function groundHeight(x, z) {
 
 function rawGroundHeight(x, z) {
   if (mapId === "cell") return cellHeight(x, z);
+  if (mapId === "city") return cityHeight(x, z);
+  if (mapId === "vegeta") return vegetaHeight(x, z);
   let h = namekSine(x, z);
   if (mapId === "earth") h = earthHeight(x, z);
   else if (mapId === "namek") {
@@ -308,21 +363,54 @@ function applyBasePads(raw, x, z) {
 
 export let WATER_Y = -1.35;
 export const obstacles = [];
+const OBST_CELL = 80;
+const obstGrid = new Map();
+let obstStamp = 0;
 
-function addObst(x, z, r, h = 4, y = 0) {
-  obstacles.push({ x, z, r, h, y });
+function obstKey(ix, iz) {
+  return ix * 1048576 + iz;
+}
+
+function addObst(x, z, r, h = 4, y = 0, roof = false) {
+  const o = { x, z, r, h, y, roof, _t: 0 };
+  const i0 = Math.floor((x - r) / OBST_CELL);
+  const i1 = Math.floor((x + r) / OBST_CELL);
+  const j0 = Math.floor((z - r) / OBST_CELL);
+  const j1 = Math.floor((z + r) / OBST_CELL);
+  for (let ix = i0; ix <= i1; ix++) {
+    for (let iz = j0; iz <= j1; iz++) {
+      const k = obstKey(ix, iz);
+      let a = obstGrid.get(k);
+      if (!a) {
+        a = [];
+        obstGrid.set(k, a);
+      }
+      a.push(o);
+    }
+  }
 }
 
 export function resolveObstacles(p, flyAlt = 0) {
-  for (const o of obstacles) {
-    if (p.y > (o.y || 0) + o.h - 0.35) continue;
-    const dx = p.x - o.x;
-    const dz = p.z - o.z;
-    const d = Math.hypot(dx, dz);
-    if (d < o.r && d > 1e-4) {
-      const k = o.r / d;
-      p.x = o.x + dx * k;
-      p.z = o.z + dz * k;
+  obstStamp++;
+  const ix = Math.floor(p.x / OBST_CELL);
+  const iz = Math.floor(p.z / OBST_CELL);
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      const a = obstGrid.get(obstKey(ix + dx, iz + dz));
+      if (!a) continue;
+      for (const o of a) {
+        if (o._t === obstStamp) continue;
+        o._t = obstStamp;
+        if (p.y > (o.y || 0) + o.h - 0.35) continue;
+        const ox = p.x - o.x;
+        const oz = p.z - o.z;
+        const d = Math.hypot(ox, oz);
+        if (d < o.r && d > 1e-4) {
+          const k = o.r / d;
+          p.x = o.x + ox * k;
+          p.z = o.z + oz * k;
+        }
+      }
     }
   }
 }
@@ -331,10 +419,35 @@ export function isWater(x, z) {
   return groundHeight(x, z) < WATER_Y + 0.45;
 }
 
+function roofAt(x, z) {
+  let best = 0;
+  const ix = Math.floor(x / OBST_CELL);
+  const iz = Math.floor(z / OBST_CELL);
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      const a = obstGrid.get(obstKey(ix + dx, iz + dz));
+      if (!a) continue;
+      for (const o of a) {
+        if (!o.roof) continue;
+        const ox = x - o.x;
+        const oz = z - o.z;
+        if (ox * ox + oz * oz >= o.r * o.r) continue;
+        const t = (o.y || 0) + o.h;
+        if (t > best) best = t;
+      }
+    }
+  }
+  return best;
+}
+
 export function surfaceHeight(x, z) {
   const land = Math.max(groundHeight(x, z), WATER_Y);
   const ship = shipWalkHeight(x, z);
-  return ship > -1e8 ? Math.max(land, ship) : land;
+  const roof = roofAt(x, z);
+  let h = land;
+  if (ship > -1e8) h = Math.max(h, ship);
+  if (roof > h) h = roof;
+  return h;
 }
 
 function addEarthTrees(scene, thick) {
@@ -567,10 +680,12 @@ function makeCloudTex() {
 }
 
 function addClouds(scene) {
+  const pink = mapId === "vegeta";
+  const city = mapId === "city";
   const tex = makeCloudTex();
   const matA = new THREE.SpriteMaterial({
     map: tex,
-    color: 0xf4f7ff,
+    color: pink ? 0xf8bbd0 : city ? 0xcfd8dc : 0xf4f7ff,
     transparent: true,
     depthWrite: false,
     fog: true,
@@ -578,7 +693,7 @@ function addClouds(scene) {
   });
   const matB = new THREE.SpriteMaterial({
     map: tex,
-    color: 0xd5deee,
+    color: pink ? 0xfce4ec : city ? 0x90a4ae : 0xd5deee,
     transparent: true,
     depthWrite: false,
     fog: true,
@@ -854,16 +969,19 @@ function addLandmarks(scene) {
   }
 }
 
-function grassTex(earth) {
+function grassTex(kind) {
   const n = 2048;
   const c = document.createElement("canvas");
   c.width = c.height = n;
   const ctx = c.getContext("2d", { willReadFrequently: true });
   const img = ctx.createImageData(n, n);
   const d = img.data;
-  const br = earth ? 52 : 28;
-  const bg = earth ? 128 : 110;
-  const bb = earth ? 42 : 168;
+  const urban = kind === "city";
+  const rock = kind === "vegeta";
+  const earth = kind === "earth" || kind === true;
+  const br = urban ? 78 : rock ? 110 : earth ? 52 : 28;
+  const bg = urban ? 82 : rock ? 72 : earth ? 128 : 110;
+  const bb = urban ? 88 : rock ? 78 : earth ? 42 : 168;
   for (let y = 0; y < n; y++) {
     for (let x = 0; x < n; x++) {
       const n1 = Math.sin(x * 0.035 + y * 0.021) * 0.5 + Math.sin(x * 0.09 - y * 0.07) * 0.28;
@@ -878,26 +996,32 @@ function grassTex(earth) {
     }
   }
   ctx.putImageData(img, 0, 0);
-  const blade = (x, y, w, h, col) => {
-    ctx.fillStyle = col;
-    ctx.fillRect(((x % n) + n) % n, ((y % n) + n) % n, w, h);
-  };
-  for (let i = 0; i < 90000; i++) {
-    const col = earth
-      ? `rgb(${36 + Math.random() * 70},${95 + Math.random() * 110},${22 + Math.random() * 48})`
-      : `rgb(${16 + Math.random() * 50},${85 + Math.random() * 90},${130 + Math.random() * 95})`;
-    const x = Math.random() * n;
-    const y = Math.random() * n;
-    const w = 1 + Math.random() * 2.2;
-    const h = 4 + Math.random() * 11;
-    blade(x, y, w, h, col);
-    if (x + w > n) blade(x - n, y, w, h, col);
-    if (y + h > n) blade(x, y - n, w, h, col);
+  if (!urban && !rock) {
+    const blade = (x, y, w, h, col) => {
+      ctx.fillStyle = col;
+      ctx.fillRect(((x % n) + n) % n, ((y % n) + n) % n, w, h);
+    };
+    for (let i = 0; i < 90000; i++) {
+      const col = earth
+        ? `rgb(${36 + Math.random() * 70},${95 + Math.random() * 110},${22 + Math.random() * 48})`
+        : `rgb(${16 + Math.random() * 50},${85 + Math.random() * 90},${130 + Math.random() * 95})`;
+      const x = Math.random() * n;
+      const y = Math.random() * n;
+      const w = 1 + Math.random() * 2.2;
+      const h = 4 + Math.random() * 11;
+      blade(x, y, w, h, col);
+      if (x + w > n) blade(x - n, y, w, h, col);
+      if (y + h > n) blade(x, y - n, w, h, col);
+    }
   }
-  for (let i = 0; i < 12000; i++) {
-    ctx.fillStyle = earth
-      ? `rgba(${90 + Math.random() * 50},${80 + Math.random() * 40},${40 + Math.random() * 30},0.35)`
-      : `rgba(${40 + Math.random() * 40},${70 + Math.random() * 40},${90 + Math.random() * 50},0.28)`;
+  for (let i = 0; i < (urban ? 4000 : 12000); i++) {
+    ctx.fillStyle = urban
+      ? `rgba(${90 + Math.random() * 40},${90 + Math.random() * 40},${90 + Math.random() * 40},0.28)`
+      : rock
+        ? `rgba(${140 + Math.random() * 40},${80 + Math.random() * 30},${70 + Math.random() * 25},0.32)`
+        : earth
+          ? `rgba(${90 + Math.random() * 50},${80 + Math.random() * 40},${40 + Math.random() * 30},0.35)`
+          : `rgba(${40 + Math.random() * 40},${70 + Math.random() * 40},${90 + Math.random() * 50},0.28)`;
     ctx.fillRect(Math.random() * n, Math.random() * n, 1 + Math.random() * 2, 1 + Math.random() * 2);
   }
   for (let i = 0; i < 90; i++) {
@@ -937,6 +1061,12 @@ let grassMap;
 const windTrees = [];
 const cloudGroups = [];
 const shadowProps = [];
+const cityChunks = [];
+let cityFar = 620;
+let cityNear = 260;
+let cityShared = null;
+let cityScene = null;
+let cityShadowFloor = null;
 
 function shadowMesh(m) {
   m.castShadow = false;
@@ -979,7 +1109,530 @@ function waterTex(green = false) {
   return t;
 }
 
+function nearBase(x, z, extra = 0) {
+  return Math.hypot(x, z + BASE_Z) < BASE_PAD_R + extra || Math.hypot(x, z - BASE_Z) < BASE_PAD_R + extra;
+}
+
+function cityFacadeTex(shop = false) {
+  const n = 256;
+  const c = document.createElement("canvas");
+  c.width = c.height = n;
+  const g = c.getContext("2d");
+  g.fillStyle = shop ? "#eceff1" : "#dfe6ee";
+  g.fillRect(0, 0, n, n);
+  const cols = shop ? 4 : 5;
+  const rows = shop ? 6 : 9;
+  const cw = (n - 20) / cols;
+  const rh = (n - 18) / rows;
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const lit = ((x * 5 + y * 11) % 7) > 1;
+      if (shop && y === rows - 1) {
+        g.fillStyle = "#1565c0";
+        g.fillRect(12 + x * cw, n - rh - 6, cw - 10, rh - 4);
+        g.fillStyle = "#90caf9";
+        g.fillRect(16 + x * cw, n - rh + 4, cw - 18, rh * 0.45);
+        continue;
+      }
+      g.fillStyle = lit ? "#0d47a1" : "#1a237e";
+      g.fillRect(12 + x * cw, 10 + y * rh, cw - 10, rh - 8);
+      if (lit && ((x + y) & 3) === 0) {
+        g.fillStyle = "#fff59d";
+        g.fillRect(14 + x * cw, 12 + y * rh, cw - 14, rh - 12);
+      }
+    }
+  }
+  g.fillStyle = "rgba(80,90,100,0.35)";
+  g.fillRect(0, 0, n, 6);
+  g.fillRect(0, n - 6, n, 6);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 1;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.repeat.set(1, 1);
+  return t;
+}
+
+function cityBoxUV(rx, ry) {
+  const g = new THREE.BoxGeometry(1, 1, 1);
+  const uv = g.attributes.uv;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) * rx, uv.getY(i) * ry);
+  }
+  return g;
+}
+
+function bakeCityChunk(ch) {
+  if (!ch || ch.root || !cityShared || !cityScene) return;
+  const s = cityShared;
+  const dummy = s.dummy;
+  const cc = s.cc;
+  const bake = (list, geo, mat, place, parent, colored) => {
+    if (!list.length) return;
+    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.frustumCulled = true;
+    for (let i = 0; i < list.length; i++) {
+      place(list[i], dummy);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      if (colored) {
+        cc.setHex(colored(list[i], i));
+        mesh.setColorAt(i, cc);
+      }
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    parent.add(mesh);
+  };
+  const root = new THREE.Group();
+  const detail = new THREE.Group();
+  for (let b = 0; b < 3; b++) {
+    for (const shopPass of [false, true]) {
+      const list = ch.bodies[b].filter((u) => !!u.shop === shopPass);
+      bake(
+        list,
+        s.geos[b],
+        s.mats[shopPass ? 1 : 0],
+        (u, d) => {
+          d.position.set(u.x, u.gy + u.h / 2, u.z);
+          d.scale.set(u.w, u.h, u.d);
+          d.rotation.set(0, u.yaw, 0);
+        },
+        root,
+        (u) => u.col
+      );
+    }
+  }
+  bake(ch.roofs, s.roofGeo, s.roofM, (r, d) => {
+    d.position.set(r.x, r.y, r.z);
+    d.scale.set(r.w, 1, r.d);
+    d.rotation.set(0, r.yaw, 0);
+  }, root);
+  bake(ch.cones, s.coneGeo, s.roofM, (r, d) => {
+    d.position.set(r.x, r.y, r.z);
+    d.scale.set(r.w, 1, r.d);
+    d.rotation.set(0, r.yaw + Math.PI / 4, 0);
+  }, root);
+  const stripM = [s.asph, s.asphA, s.walkM];
+  for (let mi = 0; mi < 3; mi++) {
+    bake(
+      ch.strips.filter((p) => p.mat === mi),
+      s.stripGeo,
+      stripM[mi],
+      (p, d) => {
+        d.position.set(p.x, p.y, p.z);
+        d.scale.set(p.sx, 1, p.sz);
+        d.rotation.set(0, 0, 0);
+      },
+      root
+    );
+  }
+  bake(ch.awnings, s.awGeo, s.awMat, (a, d) => {
+    d.position.set(a.x, a.y, a.z);
+    d.scale.set(a.w, 1, 1);
+    d.rotation.set(0, a.yaw, 0);
+  }, detail, (a) => a.col);
+  bake(ch.acs, s.acGeo, s.acM, (a, d) => {
+    d.position.set(a.x, a.y, a.z);
+    d.scale.set(1, 1, 1);
+    d.rotation.set(0, a.yaw, 0);
+  }, detail);
+  bake(ch.parked, s.carGeo, s.carMat, (p, d) => {
+    d.position.set(p.x, 2.28, p.z);
+    d.scale.set(1, 1, 1);
+    d.rotation.set(0, p.yaw, 0);
+  }, detail, (_, i) => s.carC[i % s.carC.length]);
+  bake(ch.lamps, s.poleGeo, s.lampM, (p, d) => {
+    d.position.set(p.x, 4.7, p.z);
+    d.scale.set(1, 1, 1);
+    d.rotation.set(0, 0, 0);
+  }, detail);
+  bake(ch.lamps, s.lampGeo, s.lampH, (p, d) => {
+    d.position.set(p.x, 7.15, p.z);
+    d.scale.set(1, 1, 1);
+    d.rotation.set(0, 0, 0);
+  }, detail);
+  const placeDash = (p, d) => {
+    d.position.set(p.x, 2.23, p.z);
+    d.scale.set(p.sx, 1, 1);
+    d.rotation.set(0, p.rot, 0);
+  };
+  bake(ch.dashes.filter((d) => !d.yel), s.dashGeo, s.lineM, placeDash, detail);
+  bake(ch.dashes.filter((d) => d.yel), s.dashGeo, s.yelM, placeDash, detail);
+  root.add(detail);
+  cityScene.add(root);
+  ch.root = root;
+  ch.detail = detail;
+}
+
+function addCityDistrict(scene) {
+  const wallC = [0xeceff1, 0xcfd8dc, 0xb0bec5, 0x90caf9, 0xfff8e1, 0xb3e5fc, 0xffccbc, 0xd1c4e9];
+  const shopC = [0xef5350, 0xffa726, 0x42a5f5, 0x66bb6a, 0xab47bc, 0xffee58];
+  const carC = [0xc62828, 0x1565c0, 0x212121, 0xfafafa, 0xffeb3b, 0x37474f, 0x00838f, 0x6a1b9a];
+  const dummy = new THREE.Object3D();
+  const cc = new THREE.Color();
+  const m = MAP / 2 - 36;
+  const lots = QUALITY === 0 ? 4 : 5;
+  const rows = QUALITY === 0 ? 1 : 2;
+  const fillCenter = QUALITY > 0;
+  const extras = QUALITY > 0;
+  const lampEvery = QUALITY === 0 ? 2 : 1;
+  const carMod = QUALITY === 0 ? 4 : 2;
+  const dashGap = QUALITY === 0 ? 14 : 9;
+  const asph = new THREE.MeshLambertMaterial({ color: 0x212121 });
+  const asphA = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+  const walkM = new THREE.MeshLambertMaterial({ color: 0x8d8d8d });
+  const lineM = new THREE.MeshLambertMaterial({ color: 0xf5f5f5 });
+  const yelM = new THREE.MeshLambertMaterial({ color: 0xffd54f });
+  const lampM = new THREE.MeshLambertMaterial({ color: 0x37474f });
+  const lampH = new THREE.MeshLambertMaterial({ color: 0xfff8e1, emissive: 0xffe082, emissiveIntensity: 0.35 });
+  const facade = cityFacadeTex(false);
+  const facadeShop = cityFacadeTex(true);
+  const mats = [
+    new THREE.MeshLambertMaterial({ map: facade, color: 0xffffff }),
+    new THREE.MeshLambertMaterial({ map: facadeShop, color: 0xffffff }),
+  ];
+  const roofM = new THREE.MeshLambertMaterial({ color: 0x455a64 });
+  const acM = new THREE.MeshLambertMaterial({ color: 0x90a4ae });
+  cityChunks.length = 0;
+  const CHUNK = CITY_AVE;
+  const cmap = new Map();
+  const chunkAt = (x, z) => {
+    const ix = Math.floor(x / CHUNK);
+    const iz = Math.floor(z / CHUNK);
+    const k = ix + ":" + iz;
+    let c = cmap.get(k);
+    if (!c) {
+      c = {
+        cx: (ix + 0.5) * CHUNK,
+        cz: (iz + 0.5) * CHUNK,
+        bodies: [[], [], []],
+        roofs: [],
+        cones: [],
+        awnings: [],
+        acs: [],
+        parked: [],
+        lamps: [],
+        dashes: [],
+        strips: [],
+      };
+      cmap.set(k, c);
+    }
+    return c;
+  };
+
+  for (let k = -Math.floor(m / CITY_STEP); k <= Math.floor(m / CITY_STEP); k++) {
+    const v = k * CITY_STEP;
+    if (Math.abs(v) > m) continue;
+    const ave = cityLane(v) > 1;
+    const w = ave ? CITY_AVE_W * 2 : CITY_ST * 2;
+    const y = 2.16;
+    const mat = ave ? 1 : 0;
+    for (let t = -m; t < m; t += CHUNK) {
+      const len = Math.min(CHUNK, m - t);
+      const mid = t + len * 0.5;
+      chunkAt(v, mid).strips.push({ x: v, z: mid, sx: w, sz: len, y, mat });
+      chunkAt(mid, v).strips.push({ x: mid, z: v, sx: len, sz: w, y, mat });
+      const wo = w * 0.5 + CITY_WALK * 0.5;
+      chunkAt(v - wo, mid).strips.push({ x: v - wo, z: mid, sx: CITY_WALK, sz: len, y: 2.38, mat: 2 });
+      chunkAt(v + wo, mid).strips.push({ x: v + wo, z: mid, sx: CITY_WALK, sz: len, y: 2.38, mat: 2 });
+      chunkAt(mid, v - wo).strips.push({ x: mid, z: v - wo, sx: len, sz: CITY_WALK, y: 2.38, mat: 2 });
+      chunkAt(mid, v + wo).strips.push({ x: mid, z: v + wo, sx: len, sz: CITY_WALK, y: 2.38, mat: 2 });
+    }
+    const sx = ave ? 0.45 : 0.28;
+    for (let t = -m; t < m; t += dashGap) {
+      if (cityLane(t) && Math.abs(t - v) > w) continue;
+      chunkAt(v, t).dashes.push({ x: v, z: t, rot: 0, sx, yel: ave });
+      chunkAt(t, v).dashes.push({ x: t, z: v, rot: Math.PI / 2, sx, yel: ave });
+    }
+  }
+
+  const inset = CITY_ST + CITY_WALK + 0.45;
+  const gy = 2.36;
+  const addBld = (x, z, yaw, kind, ix, iz, s, i, scale = 1) => {
+    if (nearBase(x, z, 10) || cityRoad(x, z)) return;
+    const shop = kind >= 7;
+    const house = kind >= 4 && kind < 7;
+    const w = (shop ? 5.6 : house ? 5.2 : 5.4 + (i % 3) * 0.7) * scale;
+    const d = (shop ? 5.8 : house ? 5.4 : 6.2 + ((s + i) % 3) * 0.5) * scale;
+    const h = (shop ? 4.2 : house ? 3.4 + (i % 3) * 0.9 : 9 + ((ix + iz + s + i * 3) % 26) * 1.15) * scale;
+    const mi = shop ? (ix + iz + i) % shopC.length : (ix + iz + s + i) % wallC.length;
+    const col = shop ? shopC[mi] : wallC[mi];
+    const ch = chunkAt(x, z);
+    ch.bodies[h < 7 ? 0 : h < 18 ? 1 : 2].push({ x, z, gy, w, d, h, yaw, shop, col });
+    if (house) ch.cones.push({ x, z, y: gy + h + 0.95, w: w * 0.62, d: d * 0.62, yaw });
+    else ch.roofs.push({ x, z, y: gy + h + 0.18, w: w + 0.28, d: d + 0.28, yaw });
+    if (shop && extras) {
+      ch.awnings.push({
+        x: x + Math.sin(yaw) * (d * 0.52),
+        z: z + Math.cos(yaw) * (d * 0.52),
+        y: gy + 3.0,
+        w: w * 0.92,
+        yaw,
+        col,
+      });
+    } else if (!house && extras && (i + s) % 2 === 0) ch.acs.push({ x: x + 0.9, z: z - 0.6, y: gy + h + 0.5, yaw });
+    addObst(x, z, Math.max(w, d) * 0.5, h + (house ? 0.22 : 0.36), gy, true);
+  };
+  for (let ix = -Math.floor(m / CITY_STEP); ix < Math.floor(m / CITY_STEP); ix++) {
+    for (let iz = -Math.floor(m / CITY_STEP); iz < Math.floor(m / CITY_STEP); iz++) {
+      const x0 = ix * CITY_STEP;
+      const z0 = iz * CITY_STEP;
+      const cx = x0 + CITY_STEP * 0.5;
+      const cz = z0 + CITY_STEP * 0.5;
+      if (Math.abs(cx) > m || Math.abs(cz) > m || nearBase(cx, cz, 16)) continue;
+      const park = ((ix * 5 + iz * 9) & 31) === 0;
+      const span = CITY_STEP - inset * 2;
+      const lotW = span / lots;
+      const sides = [
+        { yaw: 0, x: (i) => x0 + inset + lotW * (i + 0.5), z: (row) => z0 + CITY_STEP - inset - 3.2 - row * 6.4 },
+        { yaw: Math.PI, x: (i) => x0 + inset + lotW * (i + 0.5), z: (row) => z0 + inset + 3.2 + row * 6.4 },
+        { yaw: Math.PI / 2, x: (row) => x0 + CITY_STEP - inset - 3.2 - row * 6.4, z: (i) => z0 + inset + lotW * (i + 0.5) },
+        { yaw: -Math.PI / 2, x: (row) => x0 + inset + 3.2 + row * 6.4, z: (i) => z0 + inset + lotW * (i + 0.5) },
+      ];
+      if (!park) {
+        for (let s = 0; s < 4; s++) {
+          const side = sides[s];
+          const nHere = lots;
+          for (let row = 0; row < rows; row++) {
+            for (let i = 0; i < nHere; i++) {
+              if (row === 1 && (i === 0 || i === nHere - 1)) continue;
+              const x = s < 2 ? side.x(i) : side.x(row);
+              const z = s < 2 ? side.z(row) : side.z(i);
+              addBld(x, z, side.yaw, (ix * 7 + iz * 3 + s * 5 + i + row * 2) % 9, ix, iz, s, i, row ? 0.88 : 1);
+            }
+          }
+        }
+        if (fillCenter) {
+          for (let gx = -1; gx <= 1; gx++) {
+            for (let gz = -1; gz <= 1; gz++) {
+              if (!gx && !gz) continue;
+              addBld(cx + gx * 6.2, cz + gz * 6.2, (gx + gz + 2) * 0.78, (ix + iz + gx + gz + 6) % 9, ix, iz, 4, gx + 2, 0.82);
+            }
+          }
+        }
+      }
+      const stW = CITY_ST * 0.62;
+      for (const [px, pz, yaw] of [
+        [cx, z0, 0],
+        [cx, z0 + CITY_STEP, 0],
+        [x0, cz, Math.PI / 2],
+        [x0 + CITY_STEP, cz, Math.PI / 2],
+      ]) {
+        if (nearBase(px, pz, 16)) continue;
+        if (((ix + iz) % carMod) === 0) {
+          chunkAt(px, pz).parked.push({
+            x: px + (yaw ? 0 : (ix % 2 ? stW : -stW)),
+            z: pz + (yaw ? (iz % 2 ? stW : -stW) : 0),
+            yaw,
+          });
+        }
+        if (((ix * 3 + iz) % lampEvery) === 0) {
+          chunkAt(px, pz).lamps.push({
+            x: px + (yaw ? CITY_ST + CITY_WALK * 0.45 : 0),
+            z: pz + (yaw ? 0 : CITY_ST + CITY_WALK * 0.45),
+          });
+        }
+      }
+    }
+  }
+
+  cityFar = QUALITY === 0 ? 420 : QUALITY === 1 ? 620 : 820;
+  cityNear = QUALITY === 0 ? 160 : QUALITY === 1 ? 260 : 360;
+  cityScene = scene;
+  cityShared = {
+    dummy,
+    cc,
+    geos: [cityBoxUV(3, 3), cityBoxUV(4, 6), cityBoxUV(5, 11)],
+    mats,
+    roofGeo: new THREE.BoxGeometry(1, 0.36, 1),
+    coneGeo: new THREE.ConeGeometry(1, 1.85, 4),
+    awGeo: new THREE.BoxGeometry(1, 0.16, 1.1),
+    acGeo: new THREE.BoxGeometry(1.4, 0.7, 1.1),
+    carGeo: new THREE.BoxGeometry(2.6, 0.72, 1.2),
+    poleGeo: new THREE.CylinderGeometry(0.12, 0.16, 5.2, 6),
+    lampGeo: new THREE.SphereGeometry(0.28, 8, 6),
+    dashGeo: new THREE.BoxGeometry(1, 0.04, 2.8),
+    stripGeo: new THREE.BoxGeometry(1, 0.1, 1),
+    roofM,
+    acM,
+    awMat: new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    carMat: new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    lampM,
+    lampH,
+    lineM,
+    yelM,
+    asph,
+    asphA,
+    walkM,
+    carC,
+  };
+  const r2 = cityFar * cityFar;
+  for (const ch of cmap.values()) {
+    cityChunks.push(ch);
+    const dx0 = ch.cx;
+    const dz0 = ch.cz;
+    if (
+      dx0 * dx0 + dz0 * dz0 < r2 ||
+      dx0 * dx0 + (dz0 - BASE_Z) * (dz0 - BASE_Z) < r2 ||
+      dx0 * dx0 + (dz0 + BASE_Z) * (dz0 + BASE_Z) < r2
+    ) {
+      bakeCityChunk(ch);
+    }
+  }
+}
+
+function vegetaMats() {
+  return {
+    white: new THREE.MeshLambertMaterial({ color: 0xe8eaf6 }),
+    cream: new THREE.MeshLambertMaterial({ color: 0xd1c4e9 }),
+    blue: new THREE.MeshLambertMaterial({ color: 0x42a5f5 }),
+    rib: new THREE.MeshLambertMaterial({ color: 0x5c6bc0 }),
+    win: new THREE.MeshLambertMaterial({ color: 0x0d47a1 }),
+    rivet: new THREE.MeshLambertMaterial({ color: 0x3949ab }),
+    rock: new THREE.MeshLambertMaterial({ color: 0x6d4c41 }),
+  };
+}
+
+function vegetaTower(scene, x, z, kind, s, mats) {
+  const y = groundHeight(x, z);
+  const g = new THREE.Group();
+  const h = (kind === 1 ? 34 : kind === 2 ? 22 : 28) * s;
+  if (kind === 0) {
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(4.1 * s, h * 0.52, 6, 14), mats.white);
+    body.position.y = h * 0.4;
+    g.add(shadowMesh(body));
+    const rib = new THREE.Mesh(new THREE.CylinderGeometry(3.95 * s, 4.2 * s, h * 0.36, 12, 5, true), mats.blue);
+    rib.position.set(1.15 * s, h * 0.26, 0);
+    g.add(rib);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(3.4 * s, 9.5 * s, 10), mats.white);
+    cap.position.y = h * 0.78;
+    g.add(shadowMesh(cap));
+    for (let i = -1; i <= 1; i++) {
+      const w = new THREE.Mesh(new THREE.SphereGeometry(0.52 * s, 8, 6), mats.win);
+      w.position.set(3.55 * s, h * 0.54, i * 1.28 * s);
+      g.add(w);
+    }
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      const rv = new THREE.Mesh(new THREE.SphereGeometry(0.16 * s, 5, 4), mats.rivet);
+      rv.position.set(Math.cos(a) * 4.15 * s, h * 0.62, Math.sin(a) * 4.15 * s);
+      g.add(rv);
+    }
+    addObst(x, z, 4.2 * s, h * 0.72, y, true);
+  } else if (kind === 1) {
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(5.4 * s, 6.2 * s, h * 0.62, 16), mats.white);
+    shaft.position.y = h * 0.31;
+    g.add(shadowMesh(shaft));
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(7.4 * s, 7.4 * s, 0.7 * s, 18), mats.cream);
+    brim.position.y = h * 0.62;
+    g.add(brim);
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const rv = new THREE.Mesh(new THREE.SphereGeometry(0.22 * s, 5, 4), mats.rivet);
+      rv.position.set(Math.cos(a) * 7.2 * s, h * 0.66, Math.sin(a) * 7.2 * s);
+      g.add(rv);
+    }
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(5.2 * s, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), mats.white);
+    dome.position.y = h * 0.64;
+    g.add(shadowMesh(dome));
+    const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.28 * s, 0.45 * s, 8.5 * s, 6), mats.white);
+    spire.position.y = h * 0.88;
+    g.add(spire);
+    const door = new THREE.Mesh(new THREE.CylinderGeometry(1.6 * s, 1.7 * s, 4.2 * s, 10, 1, true), mats.win);
+    door.position.set(0, 2.2 * s, 5.5 * s);
+    g.add(door);
+    addObst(x, z, 7.2 * s, h * 0.62 + 0.4 * s, y, true);
+  } else {
+    const fat = new THREE.Mesh(new THREE.CylinderGeometry(5.8 * s, 6.4 * s, h, 14), mats.white);
+    fat.position.y = h * 0.5;
+    g.add(shadowMesh(fat));
+    const ear = new THREE.Mesh(new THREE.SphereGeometry(2.6 * s, 10, 8), mats.rib);
+    ear.position.set(5.6 * s, h * 0.58, 0);
+    g.add(shadowMesh(ear));
+    for (let i = -1; i <= 1; i++) {
+      const w = new THREE.Mesh(new THREE.SphereGeometry(0.62 * s, 8, 6), mats.win);
+      w.position.set(0, h * 0.78, i * 1.5 * s);
+      g.add(w);
+    }
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(5.2 * s, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), mats.cream);
+    cap.position.y = h * 0.92;
+    g.add(shadowMesh(cap));
+    addObst(x, z, 5.6 * s, h * 0.92 + 0.4 * s, y, true);
+  }
+  g.position.set(x, y, z);
+  g.rotation.y = (x * 0.13 + z * 0.07) % (Math.PI * 2);
+  scene.add(g);
+}
+
+function addVegetaInstallations(scene) {
+  const mats = vegetaMats();
+  const spots = [
+    [80, -40, 0, 1.55],
+    [-120, 90, 1, 1.7],
+    [210, 140, 2, 1.25],
+    [-240, -160, 0, 1.35],
+    [40, 260, 1, 1.4],
+    [320, -220, 0, 1.15],
+    [-360, 40, 2, 1.2],
+    [160, -340, 1, 1.3],
+    [-80, -280, 0, 1.05],
+    [280, 320, 2, 1.1],
+    [-300, 280, 0, 1.2],
+    [420, 40, 1, 1.15],
+    [-420, -80, 2, 1.05],
+    [60, 420, 0, 0.95],
+    [-160, 380, 1, 1.0],
+    [380, -380, 0, 1.05],
+    [-480, 180, 2, 0.9],
+    [500, 220, 1, 0.95],
+    [-40, -460, 0, 1.1],
+    [220, 480, 2, 0.88],
+  ];
+  const m = MAP / 2 - 90;
+  for (const [x, z, k, s] of spots) {
+    if (nearBase(x, z, 28)) continue;
+    vegetaTower(scene, x, z, k, s, mats);
+  }
+  let n = 0;
+  let g = 0;
+  while (n < 36 && g < 800) {
+    g++;
+    const x = (Math.random() * 2 - 1) * m;
+    const z = (Math.random() * 2 - 1) * m;
+    if (nearBase(x, z, 36)) continue;
+    if (Math.hypot(x, z) < 70) continue;
+    vegetaTower(scene, x, z, n % 3, 0.55 + (n % 5) * 0.12, mats);
+    n++;
+  }
+  const dummy = new THREE.Object3D();
+  const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), mats.rock, 180);
+  let r = 0;
+  g = 0;
+  while (r < 180 && g < 6000) {
+    g++;
+    const x = (Math.random() * 2 - 1) * m;
+    const z = (Math.random() * 2 - 1) * m;
+    if (nearBase(x, z, 20)) continue;
+    const gy = groundHeight(x, z);
+    dummy.position.set(x, gy + 0.5, z);
+    dummy.rotation.set(Math.random(), Math.random(), Math.random());
+    const sc = 0.8 + Math.random() * 2.6;
+    dummy.scale.set(sc, sc * 0.65, sc);
+    dummy.updateMatrix();
+    rocks.setMatrixAt(r, dummy.matrix);
+    if (sc > 1.8) addObst(x, z, sc * 0.7, sc + 1);
+    r++;
+  }
+  rocks.count = r;
+  rocks.instanceMatrix.needsUpdate = true;
+  scene.add(rocks);
+}
+
 function addRocks(scene) {
+  if (mapId === "city" || mapId === "vegeta") return;
   if (mapId === "earth") {
     const rockM = new THREE.MeshStandardMaterial({ color: 0x6d4c41, roughness: 0.88, metalness: 0.04 });
     for (let k = 0; k < 52; k++) {
@@ -1021,7 +1674,7 @@ function addRocks(scene) {
   }
 }
 
-export function updateWorld(camPos, dt = 0) {
+export function updateWorld(camPos, dt = 0, camFwd = null) {
   const t = (updateWorld._t = (updateWorld._t || 0) + dt);
   if (waterMesh?.material.map) {
     waterMesh.material.map.offset.x += dt * 0.028;
@@ -1043,6 +1696,44 @@ export function updateWorld(camPos, dt = 0) {
     const dz = m.position.z - camPos.z;
     m.castShadow = dx * dx + dz * dz < lim;
   }
+  if (cityShadowFloor) {
+    cityShadowFloor.position.x = camPos.x;
+    cityShadowFloor.position.z = camPos.z;
+  }
+  if (cityChunks.length && ((updateWorld._cc = (updateWorld._cc || 0) + 1) & 1) === 0) {
+    const far2 = cityFar * cityFar;
+    const near2 = cityNear * cityNear;
+    let fx = 0;
+    let fz = 0;
+    let lookDown = true;
+    if (camFwd) {
+      fx = camFwd.x;
+      fz = camFwd.z;
+      const fl = Math.hypot(fx, fz);
+      lookDown = fl < 0.22;
+      if (!lookDown) {
+        fx /= fl;
+        fz /= fl;
+      }
+    }
+    let baked = 0;
+    for (const ch of cityChunks) {
+      const dx = ch.cx - camPos.x;
+      const dz = ch.cz - camPos.z;
+      const d2 = dx * dx + dz * dz;
+      const vis = d2 < far2 && (lookDown || d2 < 48400 || dx * fx + dz * fz > -180);
+      if (vis && !ch.root) {
+        if (baked >= 2) continue;
+        bakeCityChunk(ch);
+        baked++;
+      }
+      if (ch.root && ch.root.visible !== vis) ch.root.visible = vis;
+      if (ch.detail) {
+        const dvis = vis && d2 < near2;
+        if (ch.detail.visible !== dvis) ch.detail.visible = dvis;
+      }
+    }
+  }
   if (!sunLight) return;
   sunLight.position.set(camPos.x + 50, 88, camPos.z + 28);
   sunLight.target.position.set(camPos.x, camPos.y, camPos.z);
@@ -1051,89 +1742,118 @@ export function updateWorld(camPos, dt = 0) {
 
 export function createWorld(scene, id = "namek") {
   mapId = id;
-  WATER_Y = id === "cell" ? 3.15 : id === "earth" ? -4.2 : -1.35;
+  WATER_Y = waterYFor(id);
   obstacles.length = 0;
+  obstGrid.clear();
   shadowProps.length = 0;
+  cityChunks.length = 0;
+  cityShared = null;
+  cityScene = null;
+  cityShadowFloor = null;
   windTrees.length = 0;
   cloudGroups.length = 0;
   pickPatriarchHill();
   refreshBasePads();
   const earth = id === "earth";
   const cell = id === "cell";
-  const EXT = MAP * 2.15;
-  const segs = cell ? 280 : 200;
+  const city = id === "city";
+  const vegeta = id === "vegeta";
+  const EXT = city ? MAP : MAP * 2.15;
+  const segs = cell ? 280 : city ? 1 : 200;
   const geo = new THREE.PlaneGeometry(EXT, EXT, segs, segs);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    pos.setY(i, groundHeight(pos.getX(i), pos.getZ(i)));
+  if (city) {
+    for (let i = 0; i < pos.count; i++) pos.setY(i, 2.12);
+  } else {
+    for (let i = 0; i < pos.count; i++) {
+      pos.setY(i, groundHeight(pos.getX(i), pos.getZ(i)));
+    }
   }
   pos.needsUpdate = true;
   geo.computeVertexNormals();
-  const cols = new Float32Array(pos.count * 3);
-  const cc = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const y = pos.getY(i);
-    if (cell) {
-      if (y < WATER_Y + 0.4) cc.setHex(0x0277bd);
-      else if (y < WATER_Y + 9.2) cc.setHex(0xc4a574);
-      else {
-        const n = Math.sin(pos.getX(i) * 0.035) * Math.cos(pos.getZ(i) * 0.03);
-        cc.setHex(n > 0.28 ? 0x33691e : 0x9ccc65);
-      }
-    } else if (earth) {
+  grassMap = grassTex(city ? "earth" : vegeta ? "vegeta" : earth || cell ? "earth" : "namek");
+  if (city) {
+    const ground = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: grassMap, color: 0x8bc34a }));
+    ground.receiveShadow = false;
+    scene.add(ground);
+    cityShadowFloor = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), new THREE.ShadowMaterial({ opacity: 0.32 }));
+    cityShadowFloor.rotation.x = -Math.PI / 2;
+    cityShadowFloor.position.y = 2.2;
+    cityShadowFloor.receiveShadow = true;
+    scene.add(cityShadowFloor);
+  } else {
+    const cols = new Float32Array(pos.count * 3);
+    const cc = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i);
       const x = pos.getX(i);
       const z = pos.getZ(i);
-      const amt = earthMountAmt(x, z);
-      if (y < WATER_Y + 0.9) cc.setHex(0x81d4fa);
-      else if (y < WATER_Y + 2.4) cc.setHex(0xc9b896);
-      else {
-        const g = new THREE.Color(y > 4 ? 0x43a047 : 0x66bb6a);
-        const rock = new THREE.Color(y > 32 ? 0x5d4037 : 0x8d6e63);
-        cc.copy(g).lerp(rock, Math.min(1, amt * 0.92 + Math.max(0, y - 18) * 0.025));
-      }
-    } else if (y < WATER_Y + 0.85) cc.setHex(0x66bb6a);
-    else if (y > 24) cc.setHex(0x1565c0);
-    else cc.setHex(0x81d4fa);
-    cols[i * 3] = cc.r;
-    cols[i * 3 + 1] = cc.g;
-    cols[i * 3 + 2] = cc.b;
+      if (vegeta) {
+        cc.setHex(y > 8 ? 0x5d4037 : y > 5 ? 0x8d6e63 : 0xa1887f);
+      } else if (cell) {
+        if (y < WATER_Y + 0.4) cc.setHex(0x0277bd);
+        else if (y < WATER_Y + 9.2) cc.setHex(0xc4a574);
+        else {
+          const n = Math.sin(x * 0.035) * Math.cos(z * 0.03);
+          cc.setHex(n > 0.28 ? 0x33691e : 0x9ccc65);
+        }
+      } else if (earth) {
+        const amt = earthMountAmt(x, z);
+        if (y < WATER_Y + 0.9) cc.setHex(0x81d4fa);
+        else if (y < WATER_Y + 2.4) cc.setHex(0xc9b896);
+        else {
+          const g = new THREE.Color(y > 4 ? 0x43a047 : 0x66bb6a);
+          const rock = new THREE.Color(y > 32 ? 0x5d4037 : 0x8d6e63);
+          cc.copy(g).lerp(rock, Math.min(1, amt * 0.92 + Math.max(0, y - 18) * 0.025));
+        }
+      } else if (y < WATER_Y + 0.85) cc.setHex(0x66bb6a);
+      else if (y > 24) cc.setHex(0x1565c0);
+      else cc.setHex(0x81d4fa);
+      cols[i * 3] = cc.r;
+      cols[i * 3 + 1] = cc.g;
+      cols[i * 3 + 2] = cc.b;
+    }
+    geo.setAttribute("color", new THREE.BufferAttribute(cols, 3));
+    const ground = new THREE.Mesh(
+      geo,
+      new THREE.MeshStandardMaterial({
+        map: grassMap,
+        vertexColors: true,
+        roughness: vegeta ? 0.96 : 0.92,
+        metalness: 0.02,
+      })
+    );
+    ground.receiveShadow = true;
+    scene.add(ground);
   }
-  geo.setAttribute("color", new THREE.BufferAttribute(cols, 3));
-  grassMap = grassTex(earth || cell);
-  const ground = new THREE.Mesh(
-    geo,
-    new THREE.MeshStandardMaterial({
-      map: grassMap,
-      vertexColors: true,
-      roughness: 0.92,
-      metalness: 0.02,
-    })
-  );
-  ground.receiveShadow = true;
-  scene.add(ground);
 
-  waterMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(EXT + 8, EXT + 8),
-    new THREE.MeshStandardMaterial({
-      map: waterTex(!earth && !cell),
-      color: cell ? 0x01579b : earth ? 0x0277bd : 0x1b5e20,
-      roughness: 0.12,
-      metalness: 0.28,
-      transparent: true,
-      opacity: cell ? 0.97 : 0.95,
-      depthWrite: true,
-      side: THREE.DoubleSide,
-    })
-  );
-  waterMesh.rotation.x = -Math.PI / 2;
-  waterMesh.position.y = WATER_Y;
-  waterMesh.receiveShadow = true;
-  scene.add(waterMesh);
+  waterMesh = null;
+  if (!city && !vegeta) {
+    waterMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(EXT + 8, EXT + 8),
+      new THREE.MeshStandardMaterial({
+        map: waterTex(!earth && !cell),
+        color: cell ? 0x01579b : earth ? 0x0277bd : 0x1b5e20,
+        roughness: 0.12,
+        metalness: 0.28,
+        transparent: true,
+        opacity: cell ? 0.97 : 0.95,
+        depthWrite: true,
+        side: THREE.DoubleSide,
+      })
+    );
+    waterMesh.rotation.x = -Math.PI / 2;
+    waterMesh.position.y = WATER_Y;
+    waterMesh.receiveShadow = true;
+    scene.add(waterMesh);
+  }
 
   bindBaseWorld({ groundHeight, addObst, shadowMesh });
   addShipBases(scene);
-  if (earth) {
+  if (city) addCityDistrict(scene);
+  else if (vegeta) addVegetaInstallations(scene);
+  else if (earth) {
     addKameHouse(scene);
     addEarthTrees(scene, true);
     addEarthGrass(scene);
@@ -1147,9 +1867,14 @@ export function createWorld(scene, id = "namek") {
   addRocks(scene);
   addClouds(scene);
 
-  scene.add(new THREE.HemisphereLight(earth || cell ? 0x90caf9 : 0xdce775, earth || cell ? 0x33691e : 0x0d47a1, 0.72));
-  sunLight = new THREE.DirectionalLight(earth || cell ? 0xfff8e1 : 0xfff1d0, earth || cell ? 2.55 : 2.85);
-  sunLight.castShadow = true;
+  const hemi = vegeta ? 0xf8bbd0 : city ? 0xb0bec5 : earth || cell ? 0x90caf9 : 0xdce775;
+  const hemiG = vegeta ? 0x6a1b9a : city ? 0x455a64 : earth || cell ? 0x33691e : 0x0d47a1;
+  scene.add(new THREE.HemisphereLight(hemi, hemiG, vegeta ? 0.85 : 0.72));
+  sunLight = new THREE.DirectionalLight(
+    vegeta ? 0xffcdd2 : city ? 0xeceff1 : earth || cell ? 0xfff8e1 : 0xfff1d0,
+    vegeta ? 2.2 : earth || cell ? 2.55 : 2.85
+  );
+  sunLight.castShadow = SHADOWS;
   sunLight.shadow.mapSize.set(1024, 1024);
   sunLight.shadow.camera.near = 8;
   sunLight.shadow.camera.far = 200;
@@ -1160,7 +1885,7 @@ export function createWorld(scene, id = "namek") {
   sunLight.shadow.bias = -0.0009;
   scene.add(sunLight);
   scene.add(sunLight.target);
-  scene.add(new THREE.AmbientLight(earth || cell ? 0x81c784 : 0x4a7aaa, earth || cell ? 0.48 : 0.4));
+  scene.add(new THREE.AmbientLight(vegeta ? 0xf48fb1 : city ? 0x90a4ae : earth || cell ? 0x81c784 : 0x4a7aaa, vegeta ? 0.55 : earth || cell ? 0.48 : 0.4));
 }
 
 export function inOwnBase(pos, faccion) {
@@ -1175,4 +1900,144 @@ export function clampMap(p) {
   const m = MAP / 2 - 2;
   p.x = Math.max(-m, Math.min(m, p.x));
   p.z = Math.max(-m, Math.min(m, p.z));
+}
+
+export function buildMapMaquette(id = "namek") {
+  const prevId = mapId;
+  const prevW = WATER_Y;
+  const hill = { x: patriarchHill.x, z: patriarchHill.z, baseY: patriarchHill.baseY };
+  mapId = id;
+  WATER_Y = waterYFor(id);
+  pickPatriarchHill();
+  refreshBasePads();
+  const cell = id === "cell";
+  const earth = id === "earth";
+  const city = id === "city";
+  const vegeta = id === "vegeta";
+  const segs = 64;
+  const geo = new THREE.PlaneGeometry(MAP, MAP, segs, segs);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  const cols = new Float32Array(pos.count * 3);
+  const cc = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const y = groundHeight(x, z);
+    pos.setY(i, y);
+    let hex;
+    if (city) {
+      hex = cityRoad(x, z) > 1 ? 0x1a1a1a : cityRoad(x, z) ? 0x242424 : cityWalk(x, z) ? 0x9e9e9e : 0x7cb342;
+    } else if (vegeta) {
+      hex = y > 8 ? 0x5d4037 : y > 5 ? 0x8d6e63 : 0xa1887f;
+    } else if (cell) {
+      hex = y < WATER_Y + 0.4 ? 0x0277bd : y < WATER_Y + 9.2 ? 0xc4a574 : Math.sin(x * 0.035) * Math.cos(z * 0.03) > 0.28 ? 0x33691e : 0x9ccc65;
+    } else if (earth) {
+      const amt = earthMountAmt(x, z);
+      if (y < WATER_Y + 0.9) hex = 0x81d4fa;
+      else if (y < WATER_Y + 2.4) hex = 0xc9b896;
+      else hex = amt * 0.92 + Math.max(0, y - 18) * 0.025 > 0.55 ? (y > 32 ? 0x5d4037 : 0x8d6e63) : y > 4 ? 0x43a047 : 0x66bb6a;
+    } else {
+      hex = y < WATER_Y + 0.85 ? 0x66bb6a : y > 24 ? 0x1565c0 : 0x81d4fa;
+    }
+    cc.setHex(hex);
+    cols[i * 3] = cc.r;
+    cols[i * 3 + 1] = cc.g;
+    cols[i * 3 + 2] = cc.b;
+  }
+  pos.needsUpdate = true;
+  geo.setAttribute("color", new THREE.BufferAttribute(cols, 3));
+  geo.computeVertexNormals();
+  const root = new THREE.Group();
+  root.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true })));
+  if (!city && !vegeta) {
+    const water = new THREE.Mesh(
+      new THREE.PlaneGeometry(MAP * 1.04, MAP * 1.04),
+      new THREE.MeshLambertMaterial({
+        color: cell ? 0x01579b : earth ? 0x0277bd : 0x1b5e20,
+        transparent: true,
+        opacity: 0.82,
+      })
+    );
+    water.rotation.x = -Math.PI / 2;
+    water.position.y = WATER_Y + 0.2;
+    root.add(water);
+  }
+  if (city) {
+    const asph = new THREE.MeshLambertMaterial({ color: 0x212121 });
+    const wall = new THREE.MeshLambertMaterial({ color: 0xcfd8dc });
+    const shop = new THREE.MeshLambertMaterial({ color: 0xef5350 });
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    const lim = MAP / 2 - 80;
+    for (let v = -lim; v <= lim; v += CITY_STEP) {
+      const w = cityLane(v) > 1 ? CITY_AVE_W * 2 : CITY_ST * 2;
+      const hx = new THREE.Mesh(new THREE.BoxGeometry(w, 1.2, MAP), asph);
+      hx.position.set(v, 2.7, 0);
+      root.add(hx);
+      const hz = new THREE.Mesh(new THREE.BoxGeometry(MAP, 1.2, w), asph);
+      hz.position.set(0, 2.7, v);
+      root.add(hz);
+    }
+    for (let ix = -6; ix < 6; ix++) {
+      for (let iz = -6; iz < 6; iz++) {
+        const x0 = ix * CITY_STEP;
+        const z0 = iz * CITY_STEP;
+        const inset = CITY_ST + 5;
+        const h = 14 + ((ix * 5 + iz * 3 + 40) % 26);
+        const col = ((ix + iz) % 5) === 0 ? shop : wall;
+        for (const [x, z] of [
+          [x0 + CITY_STEP * 0.5, z0 + CITY_STEP - inset],
+          [x0 + CITY_STEP * 0.5, z0 + inset],
+          [x0 + CITY_STEP - inset, z0 + CITY_STEP * 0.5],
+          [x0 + inset, z0 + CITY_STEP * 0.5],
+        ]) {
+          const b = new THREE.Mesh(box, col);
+          b.position.set(x, 2.4 + h / 2, z);
+          b.scale.set(10, h, 7);
+          root.add(b);
+        }
+      }
+    }
+  } else if (vegeta) {
+    const white = new THREE.MeshLambertMaterial({ color: 0xe8eaf6 });
+    const blue = new THREE.MeshLambertMaterial({ color: 0x42a5f5 });
+    for (const [x, z, s] of [
+      [80, -40, 1.4],
+      [-120, 90, 1.6],
+      [210, 140, 1.1],
+      [-240, -160, 1.2],
+      [40, 260, 1.3],
+      [320, -220, 1.0],
+      [160, -340, 1.2],
+      [-300, 280, 1.1],
+    ]) {
+      const y = groundHeight(x, z);
+      const h = 36 * s;
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(8 * s, 10 * s, h, 10), white);
+      shaft.position.set(x, y + h / 2, z);
+      root.add(shaft);
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(8 * s, 14 * s, 8), white);
+      cap.position.set(x, y + h + 6 * s, z);
+      root.add(cap);
+      const rib = new THREE.Mesh(new THREE.CylinderGeometry(8.2 * s, 8.6 * s, h * 0.32, 10), blue);
+      rib.position.set(x, y + h * 0.35, z);
+      root.add(rib);
+    }
+  }
+  for (const [cz, col] of [
+    [-BASE_Z, 0xff5252],
+    [BASE_Z, 0x40c4ff],
+  ]) {
+    const y = groundHeight(0, cz);
+    const peg = new THREE.Mesh(new THREE.CylinderGeometry(18, 22, 10, 8), new THREE.MeshLambertMaterial({ color: col }));
+    peg.position.set(0, y + 6, cz);
+    root.add(peg);
+  }
+  mapId = prevId;
+  WATER_Y = prevW;
+  patriarchHill.x = hill.x;
+  patriarchHill.z = hill.z;
+  patriarchHill.baseY = hill.baseY;
+  refreshBasePads();
+  return root;
 }

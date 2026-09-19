@@ -209,7 +209,43 @@
         opacity: 0.35; pointer-events: none; animation: bootScan 18s linear infinite;
       }
       @keyframes bootScan { to { transform: translateY(40px); } }
-      #boot .boot-inner { position: relative; width: min(920px, 100%); margin: 0 auto; }
+      #boot .boot-inner { position: relative; width: min(1180px, 100%); margin: 0 auto; }
+      .boot-pick { display: flex; flex-direction: column; gap: 12px; margin-bottom: 4px; }
+      #map-preview-wrap {
+        overflow: hidden;
+        height: min(46vh, 340px);
+        border: 2px solid #ffeb3b66;
+        border-radius: 8px;
+        background: #071208;
+        box-shadow: inset 0 0 24px #0008, 0 8px 24px #0006;
+        touch-action: none;
+        cursor: grab;
+      }
+      #map-preview-wrap:active { cursor: grabbing; }
+      #map-preview { display: block; width: 100%; height: 100%; }
+      .map-preview-hint {
+        margin: 6px 0 0; font-family: "Barlow Condensed", sans-serif; font-weight: 700;
+        font-size: 11px; letter-spacing: 0.14em; opacity: 0.65; text-align: center;
+      }
+      #boot .maps {
+        display: flex; gap: 10px; flex-wrap: nowrap; justify-content: flex-start;
+        overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 2px 2px 8px;
+        scroll-snap-type: x mandatory;
+      }
+      #boot .maps button {
+        flex: 0 0 auto; width: min(220px, 78vw); max-width: none; min-height: 96px; padding: 12px 12px 10px; cursor: pointer;
+        border: 2px solid #ffeb3b55; color: #fff; text-align: left;
+        font: inherit; letter-spacing: 0.08em; font-size: 18px;
+        clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+        transition: transform 0.15s ease, border-color 0.15s, box-shadow 0.15s;
+        box-shadow: 0 8px 24px #0008; scroll-snap-align: start;
+      }
+      @media (min-width: 720px) {
+        .boot-pick { display: grid; grid-template-columns: minmax(360px, 1.7fr) minmax(220px, 0.7fr); align-items: stretch; gap: 16px; }
+        #map-preview-wrap { height: min(58vh, 560px); }
+        #boot .maps { flex-direction: column; overflow-x: hidden; overflow-y: auto; max-height: min(58vh, 560px); scroll-snap-type: y mandatory; }
+        #boot .maps button { width: 100%; }
+      }
       #boot h1 {
         font-size: clamp(32px, 9vw, 64px); letter-spacing: 0.16em;
         margin: 4px 0 4px; color: #fff59d; text-align: center;
@@ -220,15 +256,6 @@
         letter-spacing: 0.28em; font-size: 12px; opacity: 0.7; margin: 0 0 16px; text-transform: uppercase;
         text-align: center;
       }
-      #boot .maps { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-      #boot .maps button {
-        flex: 1 1 140px; max-width: 260px; min-height: 108px; padding: 12px 12px 10px; cursor: pointer;
-        border: 2px solid #ffeb3b55; color: #fff; text-align: left;
-        font: inherit; letter-spacing: 0.08em; font-size: 18px;
-        clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
-        transition: transform 0.15s ease, border-color 0.15s, box-shadow 0.15s;
-        box-shadow: 0 8px 24px #0008;
-      }
       #boot button[data-map="namek"] {
         background: linear-gradient(180deg, #fff3 0%, transparent 40%), linear-gradient(160deg, #1b5e20cc, #0d1f12ee);
       }
@@ -237,6 +264,12 @@
       }
       #boot button[data-map="cell"] {
         background: linear-gradient(180deg, #fff3 0%, transparent 40%), linear-gradient(160deg, #4527a0cc, #120818ee);
+      }
+      #boot button[data-map="city"] {
+        background: linear-gradient(180deg, #fff3 0%, transparent 40%), linear-gradient(160deg, #546e7acc, #1a237eee);
+      }
+      #boot button[data-map="vegeta"] {
+        background: linear-gradient(180deg, #fff3 0%, transparent 40%), linear-gradient(160deg, #ad1457cc, #4a148cee);
       }
       #boot .maps button:hover, #boot .maps button.on {
         transform: translateY(-3px); border-color: #ffeb3b;
@@ -608,10 +641,18 @@
       <div class="boot-inner">
         <!-- <h1>NAMEKUSEI</h1> -->
         <p class="tagline">Seleccionar escenario</p>
-        <div class="maps">
-          <button type="button" data-map="namek"><span class="map-kicker">PLANETA</span>NAMEK<small>Z vs Freezer</small></button>
-          <button type="button" data-map="earth"><span class="map-kicker">SAGA SAIYAN</span>TIERRA<small>Z vs Saiyajin</small></button>
-          <button type="button" data-map="cell"><span class="map-kicker">SAGA CELL</span>ISLAS<small>Z vs Cell</small></button>
+        <div class="boot-pick">
+          <div>
+            <div id="map-preview-wrap"><canvas id="map-preview"></canvas></div>
+            <p class="map-preview-hint">ARRASTRÁ PARA GIRAR LA MAQUETA</p>
+          </div>
+          <div class="maps">
+            <button type="button" data-map="namek"><span class="map-kicker">PLANETA</span>NAMEK<small>Z vs Freezer</small></button>
+            <button type="button" data-map="earth"><span class="map-kicker">SAGA SAIYAN</span>TIERRA<small>Z vs Saiyajin</small></button>
+            <button type="button" data-map="cell"><span class="map-kicker">SAGA CELL</span>ISLAS<small>Z vs Cell</small></button>
+            <button type="button" data-map="city"><span class="map-kicker">TRUNKS DEL FUTURO</span>CIUDAD<small>Z vs Androides</small></button>
+            <button type="button" data-map="vegeta"><span class="map-kicker">ERA SAIYAJIN</span>PLANETA VEGETA<small>Saiyajin vs Freezer</small></button>
+          </div>
         </div>
         <div class="hero-row">
           <label>Jugar como <select id="opt-hero"></select></label>

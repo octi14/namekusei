@@ -166,6 +166,13 @@ export const DEFAULT_SCULPT = {
   headSx: 1,
   headSy: 1,
   headSz: 1,
+  headType: "sphere", // sphere | oval | skull | capsule | pill | block
+  headTopSx: 1,
+  headTopSy: 1,
+  headTopSz: 1,
+  headBotSx: 1,
+  headBotSy: 1,
+  headBotSz: 1,
   jaw: 0, // 0–1 mandíbula extra
   jawX: 0,
   jawY: 0,
@@ -290,6 +297,7 @@ export const DEFAULT_SCULPT = {
 };
 
 export const SCULPT_SELECTS = {
+  headType: ["sphere", "oval", "skull", "capsule", "pill", "block"],
   pecType: ["none", "sphere", "flat", "split", "armor"],
   earType: ["none", "round", "pointed", "wide"],
   eyeType: ["anime", "dot", "narrow", "wide", "none"],
@@ -1094,6 +1102,105 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
   }
 }
 
+function squashHeadHalves(geo, sc) {
+  const tx = sc.headTopSx ?? 1;
+  const ty = sc.headTopSy ?? 1;
+  const tz = sc.headTopSz ?? 1;
+  const bx = sc.headBotSx ?? 1;
+  const by = sc.headBotSy ?? 1;
+  const bz = sc.headBotSz ?? 1;
+  if (tx === 1 && ty === 1 && tz === 1 && bx === 1 && by === 1 && bz === 1) return;
+  geo.computeBoundingBox();
+  const minY = geo.boundingBox.min.y;
+  const maxY = geo.boundingBox.max.y;
+  const span = Math.max(1e-6, maxY - minY);
+  const mid = (minY + maxY) * 0.5;
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    let u = (y - minY) / span;
+    u = u * u * (3 - 2 * u);
+    pos.setXYZ(i, x * (bx + (tx - bx) * u), mid + (y - mid) * (by + (ty - by) * u), z * (bz + (tz - bz) * u));
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+}
+
+function makeHeadShell(sc, s, skin) {
+  const r = sc.headR * s;
+  const type = sc.headType || "sphere";
+  let geo;
+  if (type === "oval") {
+    geo = new THREE.SphereGeometry(r, 22, 18);
+    geo.scale(0.86, 1.2, 0.96);
+  } else if (type === "capsule") {
+    geo = new THREE.CapsuleGeometry(r * 0.78, r * 0.58, 8, 18);
+  } else if (type === "pill") {
+    const pts = [
+      new THREE.Vector2(0.001, -r * 1.05),
+      new THREE.Vector2(r * 0.62, -r * 1.02),
+      new THREE.Vector2(r * 0.88, -r * 0.82),
+      new THREE.Vector2(r * 0.94, -r * 0.38),
+      new THREE.Vector2(r * 0.94, r * 0.38),
+      new THREE.Vector2(r * 0.88, r * 0.82),
+      new THREE.Vector2(r * 0.62, r * 1.02),
+      new THREE.Vector2(0.001, r * 1.05),
+    ];
+    geo = new THREE.LatheGeometry(pts, 24);
+    geo.scale(1.08, 1, 0.72);
+  } else if (type === "block") {
+    const sx = r * 1.7;
+    const sy = r * 1.9;
+    const sz = r * 1.58;
+    const rad = 0.48 * Math.min(sx, sy, sz) * 0.5;
+    geo = new THREE.BoxGeometry(sx, sy, sz, 10, 12, 10);
+    const hw = sx * 0.5 - rad;
+    const hh = sy * 0.5 - rad;
+    const hd = sz * 0.5 - rad;
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+      const cx = THREE.MathUtils.clamp(x, -hw, hw);
+      const cy = THREE.MathUtils.clamp(y, -hh, hh);
+      const cz = THREE.MathUtils.clamp(z, -hd, hd);
+      const dx = x - cx;
+      const dy = y - cy;
+      const dz = z - cz;
+      const len = Math.hypot(dx, dy, dz) || 1;
+      pos.setXYZ(i, cx + (dx / len) * rad, cy + (dy / len) * rad, cz + (dz / len) * rad);
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+  } else if (type === "skull") {
+    const pts = [
+      new THREE.Vector2(0.001, -r * 1.1),
+      new THREE.Vector2(r * 0.26, -r * 1.04),
+      new THREE.Vector2(r * 0.46, -r * 0.82),
+      new THREE.Vector2(r * 0.6, -r * 0.48),
+      new THREE.Vector2(r * 0.76, -r * 0.06),
+      new THREE.Vector2(r * 0.84, r * 0.28),
+      new THREE.Vector2(r * 0.7, r * 0.76),
+      new THREE.Vector2(r * 0.34, r * 1.06),
+      new THREE.Vector2(0.001, r * 1.12),
+    ];
+    geo = new THREE.LatheGeometry(pts, 24);
+    geo.scale(1, 1, 0.86);
+  } else {
+    geo = new THREE.SphereGeometry(r, 22, 18);
+  }
+  squashHeadHalves(geo, sc);
+  const head = new THREE.Mesh(geo, skin);
+  head.scale.set(sc.headSx, sc.headSy, sc.headSz);
+  head.castShadow = true;
+  head.userData.moldId = "head";
+  head.userData.moldFamily = "head";
+  return head;
+}
+
 function addEars(headG, s, skin, sc) {
   if (sc.earType === "none") return;
   for (const side of [-1, 1]) {
@@ -1438,11 +1545,7 @@ export function makeBody(altura, look, sculpt = {}) {
 
   const headG = new THREE.Group();
   headG.position.y = neckY + sc.neckLen * s * 0.5 + sc.headR * (sc.headSy || 1) * s * 0.55;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(sc.headR * s, 22, 18), skin);
-  head.scale.set(sc.headSx, sc.headSy, sc.headSz);
-  head.castShadow = true;
-  head.userData.moldId = "head";
-  head.userData.moldFamily = "head";
+  const head = makeHeadShell(sc, s, skin);
   headG.add(head);
   if (sc.jaw > 0.05) {
     const jaw = new THREE.Mesh(new THREE.SphereGeometry(sc.headR * 0.72 * s * sc.jaw, 14, 12), skin);

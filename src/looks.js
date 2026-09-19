@@ -33,6 +33,11 @@ export const LOOK = {
   Raditz: L(0x0d47a1, 0xf3d5c0, "raditz", 0x1a1208, "armor", 0xffffff, { suit: 0x1565c0, scouter: 0xd32f2f, boots: 0xffffff }),
   Saibaman: L(0x558b2f, 0x7cb342, "bald", 0x33691e, "brute", 0x1b5e20),
   Trunks: L(0x1565c0, 0xf3d5c0, "trunks", 0x7e57c2, "armor", 0xffffff, { suit: 0x1565c0, boots: 0xffffff }),
+  "Gohan del futuro": L(0xef6c00, 0xf3d5c0, "goku", 0x1a1208, "gi", 0x1565c0, { pants: 0x1565c0, sash: 0x0d47a1, boots: 0x0d47a1, undershirt: 0x5d4037, wrist: 0x1565c0, sleeves: 0xef6c00 }),
+  Bardock: L(0x0d47a1, 0xf3d5c0, "goku", 0x1a1208, "armor", 0xffffff, { suit: 0x1565c0, scouter: 0xd32f2f, boots: 0xffffff, trim: 0xf5f5f5, pads: 0xf5f5f5 }),
+  "Rey Vegeta": L(0x0d47a1, 0xf3d5c0, "vegeta", 0x0a0a0a, "armor", 0xffffff, { suit: 0x0d47a1, scouter: 0xffd54f, boots: 0xffffff, trim: 0xffecb3, pads: 0xfff8e1 }),
+  Tooma: L(0xb71c1c, 0xf3d5c0, "vegeta", 0x3e2723, "armor", 0xffffff, { suit: 0xb71c1c, scouter: 0xd32f2f, boots: 0xffffff }),
+  Paragus: L(0x455a64, 0xe0c8a0, "bald", 0x111, "armor", 0xffffff, { suit: 0x37474f, boots: 0xffffff, trim: 0xeeeeee }),
   "Mr. Satan": L(0xc62828, 0xf3d5c0, "bald", 0x111, "gi", 0xc62828, { pants: 0x212121, sash: 0xffeb3b, boots: 0x212121, undershirt: 0xfafafa, wrist: 0xc62828 }),
   Cell: L(0x33691e, 0x9ccc65, "frieza", 0x1b5e20, "frost", 0x7cb342, { boots: 0x1b5e20 }),
   "Nº16": L(0x455a64, 0xb0bec5, "bald", 0x111, "brute", 0x1b5e20, { boots: 0x37474f }),
@@ -78,10 +83,11 @@ export function lookTemplateId(nombre, faccion = "z", mapId = "namek") {
   if (nombre.startsWith("Guerrero terrícola")) return "terrícola";
   if (nombre.startsWith("Soldado saiyajin")) return "saiyajin";
   if (nombre.startsWith("Soldado de Freezer")) return "soldado";
-  if (mapId === "earth" || mapId === "cell") {
+  if (mapId === "earth" || mapId === "cell" || mapId === "city") {
     if (faccion === "f" && mapId === "earth") return "saiyajin";
     return "terrícola";
   }
+  if (mapId === "vegeta") return faccion === "z" ? "saiyajin" : "soldado";
   return faccion === "z" ? "namek" : "soldado";
 }
 

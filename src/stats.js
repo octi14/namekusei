@@ -95,6 +95,49 @@ export const NAMED_F_CELL = {
 
 export const CELL_JR = g(900, 140, 19, 9, 14, 0.80);
 
+export const NAMED_Z_CITY = {
+  Trunks: g(1100, 200, 24, 13, 15, 1.14),
+  "Gohan del futuro": g(1150, 210, 25, 13, 14, 1.18),
+  Pikoro: SHARED.Pikoro,
+  Vegeta: SHARED.Vegeta,
+  "Ten Shin Han": SHARED["Ten Shin Han"],
+  Chaoz: SHARED.Chaoz,
+  Yamcha: SHARED.Yamcha,
+  Krilin: SHARED.Krilin,
+};
+
+export const NAMED_F_CITY = {
+  "Nº17": g(1100, 200, 22, 12, 15, 1.10),
+  "Nº18": g(1100, 200, 22, 12, 15, 1.10),
+  "Nº16": g(1100, 200, 23, 15, 11, 1.65),
+  Cell: g(1200, 240, 26, 14, 15, 1.38),
+  "Nº19": g(1100, 180, 20, 12, 10, 1.22),
+  "Dr. Gero": g(1000, 175, 20, 11, 10, 1.05),
+};
+
+export const NAMED_Z_VEGETA = {
+  Vegeta: SHARED.Vegeta,
+  Nappa: g(1100, 185, 23, 13, 13, 1.50),
+  Raditz: g(1050, 165, 22, 12, 14, 1.40),
+  Bardock: g(1080, 175, 23, 12, 14, 1.18),
+  "Rey Vegeta": g(1120, 185, 23, 14, 13, 1.22),
+  Tooma: g(1020, 160, 21, 12, 13, 1.20),
+  Paragus: g(980, 155, 20, 11, 12, 1.16),
+};
+
+export const NAMED_F_VEGETA = {
+  Freezer: g(1300, 240, 26, 15, 16, 1.25),
+  Zaabon: g(1100, 190, 23, 13, 13, 1.25),
+  Dodoria: g(1100, 190, 22, 13, 13, 1.15),
+  Kiwy: g(950, 150, 20, 10, 11, 1.05),
+  Appule: g(900, 140, 20, 9, 11, 1.05),
+  Gurdo: g(900, 140, 19, 12, 10, 0.80),
+  Rikum: g(1100, 180, 24, 13, 14, 1.45),
+  Yiz: g(1000, 170, 21, 13, 14, 1.12),
+  Butter: g(1000, 180, 22, 13, 13, 1.44),
+  Ginyu: g(1200, 200, 24, 13, 15, 1.48),
+};
+
 export function cloneStats(s) {
   return {
     hpMax: s.hpMax,
