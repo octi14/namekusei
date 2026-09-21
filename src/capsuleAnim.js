@@ -1,6 +1,8 @@
 import { getAnimMap, setAnimMap } from "./pack.js";
+import { CHAR_RIG } from "./gokuRig.js";
 
 const KEY = "namekusei.anims";
+const DEF = "__default";
 
 try {
   localStorage.removeItem(KEY);
@@ -143,6 +145,10 @@ export function defaultClips() {
       { u: 0, pose: P({ armL: [-0.12, 0, 0.55], armR: [-0.12, 0, -0.55], elbowL: [-1.28, 0, 0], elbowR: [-1.28, 0, 0], head: [-0.15, 0, 0] }) },
       { u: 0.5, pose: P({ armL: [-0.04, 0, 0.55], armR: [-0.04, 0, -0.55], elbowL: [-1.28, 0, 0], elbowR: [-1.28, 0, 0], head: [-0.15, 0, 0] }) },
     ]),
+    superCharge: clip(2.2, [
+      { u: 0, pose: P({ armL: [-0.12, 0, 0.55], armR: [-0.12, 0, -0.55], elbowL: [-1.28, 0, 0], elbowR: [-1.28, 0, 0], head: [-0.15, 0, 0] }) },
+      { u: 0.5, pose: P({ armL: [-0.04, 0, 0.55], armR: [-0.04, 0, -0.55], elbowL: [-1.28, 0, 0], elbowR: [-1.28, 0, 0], head: [-0.15, 0, 0] }) },
+    ]),
     block: clip(0.55, [
       { u: 0, pose: P({ armL: [-0.72, 0, 0.48], armR: [-0.68, 0, -0.48], elbowL: [-1.32, 0, 0], elbowR: [-1.28, 0, 0], torso: [0.1, 0, 0], head: [0.08, 0, 0] }) },
       { u: 0.5, pose: P({ armL: [-0.64, 0, 0.52], armR: [-0.6, 0, -0.52], elbowL: [-1.38, 0, 0], elbowR: [-1.34, 0, 0], torso: [0.12, 0, 0], head: [0.1, 0, 0] }) },
@@ -251,8 +257,40 @@ export function applyEval(mesh, pose) {
   }
 }
 
-export function loadClips(who) {
+export function capsuleDefaults() {
   const base = defaultClips();
+  try {
+    const saved = storedAnims()[DEF];
+    if (!saved) return base;
+    for (const k of Object.keys(base)) {
+      if (!saved[k]?.keys) continue;
+      const c = JSON.parse(JSON.stringify(saved[k]));
+      delete c._own;
+      base[k] = c;
+    }
+  } catch {
+    /* ignore */
+  }
+  return base;
+}
+
+function baseClips(who) {
+  return CHAR_RIG[who] ? defaultClips() : capsuleDefaults();
+}
+
+export function setCapsuleDefault(name, clip) {
+  if (!name || !clip?.keys) return;
+  const all = storedAnims();
+  const d = { ...(all[DEF] || {}) };
+  const c = JSON.parse(JSON.stringify(clip));
+  delete c._own;
+  d[name] = c;
+  all[DEF] = d;
+  setAnimMap(all);
+}
+
+export function loadClips(who) {
+  const base = baseClips(who);
   try {
     const saved = storedAnims()[packKey(who)];
     if (!saved) return base;
@@ -266,9 +304,17 @@ export function loadClips(who) {
 }
 
 export function saveClips(who, clips) {
-  if (!who) return;
+  if (!who || who === DEF) return;
   const all = storedAnims();
-  all[who] = clips;
+  const base = baseClips(who);
+  const saved = {};
+  for (const k of Object.keys(defaultClips())) {
+    const c = clips[k];
+    if (!c?.keys) continue;
+    if (c._own || clipSig(c) !== clipSig(base[k])) saved[k] = c;
+  }
+  if (Object.keys(saved).length) all[who] = saved;
+  else delete all[who];
   setAnimMap(all);
 }
 
@@ -278,7 +324,9 @@ export function copyClipsTo(fromWho, toWho, names) {
   const dest = loadClips(toWho);
   const keys = !names || names === "*" ? Object.keys(defaultClips()) : [].concat(names);
   for (const k of keys) {
-    if (src[k]) dest[k] = JSON.parse(JSON.stringify(src[k]));
+    if (!src[k]) continue;
+    dest[k] = JSON.parse(JSON.stringify(src[k]));
+    dest[k]._own = true;
   }
   saveClips(toWho, dest);
 }
@@ -308,9 +356,10 @@ function clipSig(c) {
   });
 }
 
-export function clipIsCustomClip(data, name) {
+export function clipIsCustomClip(data, name, who) {
   if (!data?.keys?.length || !name) return false;
-  const now = clipSig(defaultClips()[name]);
+  if (data._own) return true;
+  const now = clipSig(baseClips(who)[name]);
   if (!now) return true;
   const got = clipSig(data);
   if (got === now) return false;
@@ -321,10 +370,17 @@ export function clipIsCustomClip(data, name) {
   return true;
 }
 
+/** Cápsulas: sí (default o propia). Mixamo: solo si es clip propio, no el default de cápsula. */
+export function clipShouldPlay(data, name, who) {
+  if (!data?.keys?.length || !name) return false;
+  if (CHAR_RIG[who]) return clipIsCustomClip(data, name, who);
+  return true;
+}
+
 export function clipIsCustom(who, name) {
   try {
     const saved = storedAnims()[packKey(who)]?.[name];
-    return clipIsCustomClip(saved, name);
+    return clipIsCustomClip(saved, name, who);
   } catch {
     return false;
   }

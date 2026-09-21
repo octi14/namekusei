@@ -63,6 +63,17 @@ export const GENERIC_Z_EARTH = g(900, 140, 19, 9, 12, 1.1);
 export const GENERIC_F_EARTH = g(900, 140, 19, 9, 12, 1.12);
 export const SAIBAMAN = g(900, 140, 19, 9, 12, 0.80);
 
+/** Curanderos: hp = fracción del hpMax del aliado; ki = coste; range = alcance. */
+export const HEALERS = {
+  Dendé: { hp: 0.34, ki: 22, range: 7.4 },
+  Kami: { hp: 0.28, ki: 26, range: 6.8 },
+  Pikoro: { hp: 0.2, ki: 34, range: 5.6 },
+};
+
+export function healerSpec(nombre) {
+  return HEALERS[nombre] || null;
+}
+
 export const NAMED_Z_CELL = {
   Gokú: SHARED.Gokú,
   Gohan: SHARED.Gohan,

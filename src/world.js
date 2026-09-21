@@ -9,18 +9,28 @@ const PAT_R = 36;
 
 export function pickDryLand(minBase = 220) {
   const m = MAP / 2 - 50;
-  for (let i = 0; i < 160; i++) {
-    const x = (Math.random() * 2 - 1) * m;
-    const z = (Math.random() * 2 - 1) * (m * 0.82);
+  const tries = mapId === "city" ? 420 : 220;
+  for (let i = 0; i < tries; i++) {
+    let x = (Math.random() * 2 - 1) * m;
+    let z = (Math.random() * 2 - 1) * (m * 0.82);
+    if (mapId === "city" && i < 180 && !cityRoad(x, z) && !cityWalk(x, z)) continue;
     if (Math.hypot(x, z + BASE_Z) < minBase || Math.hypot(x, z - BASE_Z) < minBase) continue;
-    if (groundHeight(x, z) > WATER_Y + 3.5) return { x, z };
+    if (insideObst(x, z, 2.8)) continue;
+    if (mapId === "city" || mapId === "vegeta" || groundHeight(x, z) > WATER_Y + 3.5) return { x, z };
+  }
+  if (mapId === "city") {
+    const p = { x: (Math.floor(Math.random() * 5) - 2) * CITY_AVE, z: (Math.random() * 2 - 1) * m * 0.65 };
+    pushOutObst(p, 3.2);
+    return p;
   }
   const mid = CELL_ISLANDS.filter((isl) => Math.abs(isl.z) < BASE_Z - 280);
   const isl = mid[Math.floor(Math.random() * mid.length)] || CELL_ISLANDS[2];
-  return {
+  const fb = {
     x: isl.x + (Math.random() - 0.5) * isl.rx * 0.45,
     z: isl.z + (Math.random() - 0.5) * isl.rz * 0.45,
   };
+  pushOutObst(fb, 3.2);
+  return fb;
 }
 
 export function pickPatriarchHill() {
@@ -288,16 +298,156 @@ function cityHeight(x, z) {
   return 2.36;
 }
 
+let vegetaClusters = [];
+let vegetaDunes = [];
+let vegetaMesas = [];
+let vegetaRidges = [];
+let vegetaLoners = [];
+
+function distToSeg(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const l2 = dx * dx + dz * dz || 1;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / l2));
+  return { d: Math.hypot(px - (ax + t * dx), pz - (az + t * dz)), t };
+}
+
+function smooth01(u) {
+  return u * u * (3 - 2 * u);
+}
+
+function layoutVegeta() {
+  vegetaClusters = [];
+  vegetaDunes = [];
+  vegetaMesas = [];
+  vegetaRidges = [];
+  vegetaLoners = [];
+  if (mapId !== "vegeta") return;
+  const m = MAP / 2 - 130;
+  const nC = MAP < 1500 ? 2 : MAP < 2800 ? 3 : MAP < 4000 ? 4 : 5;
+  const seeds = [
+    [0.22, -0.08, 11],
+    [-0.32, 0.26, 13],
+    [0.12, 0.42, 8],
+    [-0.24, -0.46, 10],
+    [0.46, 0.28, 7],
+  ];
+  for (let i = 0; i < nC; i++) {
+    const [u, v, n] = seeds[i];
+    const x = u * m;
+    const z = v * m;
+    if (nearBase(x, z, 95)) continue;
+    vegetaClusters.push({ x, z, n, spread: 24 + n * 2.1 });
+  }
+  const blocked = (x, z, r) =>
+    nearBase(x, z, r + 55) || vegetaClusters.some((c) => Math.hypot(x - c.x, z - c.z) < r * 0.35 + c.spread);
+  const duneSeeds = [
+    [0.58, 0.08, 260, 38],
+    [-0.52, -0.30, 340, 52],
+    [0.14, -0.68, 220, 34],
+    [-0.70, 0.34, 310, 46],
+    [0.72, -0.48, 180, 28],
+    [-0.08, 0.62, 200, 32],
+    [0.40, 0.58, 170, 26],
+    [0.28, 0.12, 150, 22],
+    [-0.38, 0.02, 190, 30],
+    [0.62, 0.32, 145, 24],
+    [-0.62, -0.58, 210, 36],
+    [0.05, -0.38, 165, 25],
+  ];
+  for (const [u, v, r, h] of duneSeeds) {
+    const x = u * m;
+    const z = v * m;
+    if (blocked(x, z, r)) continue;
+    vegetaDunes.push({ x, z, r: r + MAP * 0.02, h });
+  }
+  const mesaSeeds = [
+    [0.36, -0.22, 195, 24],
+    [-0.16, 0.48, 240, 30],
+    [0.68, 0.18, 155, 20],
+    [-0.44, -0.62, 175, 22],
+  ];
+  for (const [u, v, r, h] of mesaSeeds) {
+    const x = u * m;
+    const z = v * m;
+    if (blocked(x, z, r)) continue;
+    vegetaMesas.push({ x, z, r: r + MAP * 0.015, h });
+  }
+  const ridgeSeeds = [
+    [-0.78, 0.02, -0.22, 0.52, 110, 20, 44],
+    [0.18, -0.78, 0.74, -0.22, 95, 16, 40],
+    [-0.58, -0.48, 0.12, -0.28, 85, 28, 18],
+    [0.48, 0.72, -0.08, 0.78, 80, 14, 32],
+  ];
+  for (const [u0, v0, u1, v1, w, h0, h1] of ridgeSeeds) {
+    const ax = u0 * m;
+    const az = v0 * m;
+    const bx = u1 * m;
+    const bz = v1 * m;
+    const mx = (ax + bx) * 0.5;
+    const mz = (az + bz) * 0.5;
+    if (nearBase(ax, az, w + 70) || nearBase(bx, bz, w + 70) || nearBase(mx, mz, w + 70)) continue;
+    vegetaRidges.push({ ax, az, bx, bz, w: w + MAP * 0.01, h0, h1 });
+  }
+  const loneSeeds = [
+    [0.64, -0.05],
+    [-0.58, 0.50],
+    [0.04, -0.74],
+    [-0.72, -0.10],
+    [0.44, 0.66],
+    [-0.06, 0.72],
+    [0.74, -0.36],
+  ];
+  for (const [u, v] of loneSeeds) {
+    const x = u * m;
+    const z = v * m;
+    if (nearBase(x, z, 50)) continue;
+    if (vegetaClusters.some((c) => Math.hypot(x - c.x, z - c.z) < 150)) continue;
+    vegetaLoners.push({ x, z });
+  }
+}
+
+function vegetaOnLandform(x, z) {
+  if (vegetaDunes.some((d) => Math.hypot(x - d.x, z - d.z) < d.r * 1.1)) return true;
+  if (vegetaMesas.some((d) => Math.hypot(x - d.x, z - d.z) < d.r * 1.08)) return true;
+  return vegetaRidges.some((g) => distToSeg(x, z, g.ax, g.az, g.bx, g.bz).d < g.w * 1.05);
+}
+
 function vegetaHeight(x, z) {
-  const ridges =
-    Math.abs(Math.sin(x * 0.012) * Math.cos(z * 0.01)) * 7.5 +
-    Math.sin(x * 0.028 + 0.8) * Math.sin(z * 0.024) * 3.2;
-  return (
-    2.8 +
-    Math.sin(x * 0.0055) * Math.cos(z * 0.0048) * 2.4 +
-    ridges * 0.42 +
-    Math.sin((x + z) * 0.018) * 0.7
-  );
+  let h =
+    2.55 +
+    Math.sin(x * 0.0031) * Math.cos(z * 0.0027) * 7.2 +
+    Math.sin((x + z) * 0.002) * 5.4 +
+    Math.sin(x * 0.007) * Math.cos(z * 0.006) * 1.4 +
+    Math.sin((x + z) * 0.014) * 0.4;
+  for (const d of vegetaDunes) {
+    const u = 1 - Math.hypot(x - d.x, z - d.z) / d.r;
+    if (u <= 0) continue;
+    h += d.h * smooth01(u);
+  }
+  for (const d of vegetaMesas) {
+    const wob = 1 + Math.sin(x * 0.018 + z * 0.015) * 0.07;
+    const u = 1 - Math.hypot(x - d.x, z - d.z) / (d.r * wob);
+    if (u <= 0) continue;
+    const rim = 0.36;
+    const s = u >= rim ? 1 : smooth01(u / rim);
+    h += d.h * s;
+  }
+  for (const g of vegetaRidges) {
+    const { d, t } = distToSeg(x, z, g.ax, g.az, g.bx, g.bz);
+    if (d >= g.w) continue;
+    const across = smooth01(1 - d / g.w);
+    const end = t < 0.16 ? smooth01(t / 0.16) : t > 0.84 ? smooth01((1 - t) / 0.16) : 1;
+    const bump = 0.58 + 0.42 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2.35 + 0.4));
+    h += (g.h0 + (g.h1 - g.h0) * t) * bump * across * end;
+  }
+  for (const c of vegetaClusters) {
+    const u = 1 - Math.hypot(x - c.x, z - c.z) / (c.spread * 1.55);
+    if (u <= 0) continue;
+    const s = smooth01(u);
+    h = h * (1 - s * 0.88) + 2.82 * s * 0.88;
+  }
+  return h;
 }
 
 /** Fondo marino mucho más profundo (sin tocar orillas/plataformas secas). */
@@ -413,6 +563,50 @@ export function resolveObstacles(p, flyAlt = 0) {
       }
     }
   }
+}
+
+function hitObst(x, z, pad, minH = 2.4, skipRoof = false) {
+  const ix = Math.floor(x / OBST_CELL);
+  const iz = Math.floor(z / OBST_CELL);
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      const a = obstGrid.get(obstKey(ix + dx, iz + dz));
+      if (!a) continue;
+      for (const o of a) {
+        if (o.h < minH) continue;
+        if (skipRoof && o.roof) continue;
+        const need = o.r + pad;
+        const ox = x - o.x;
+        const oz = z - o.z;
+        if (ox * ox + oz * oz < need * need) return o;
+      }
+    }
+  }
+  return null;
+}
+
+export function insideObst(x, z, pad = 2.2) {
+  return !!hitObst(x, z, pad, 2.4, true);
+}
+
+export function pushOutObst(p, pad = 2.4) {
+  for (let n = 0; n < 5; n++) {
+    const o = hitObst(p.x, p.z, pad, 2.4, true);
+    if (!o) return p;
+    const ox = p.x - o.x;
+    const oz = p.z - o.z;
+    const d = Math.hypot(ox, oz);
+    const need = o.r + pad;
+    if (d < 1e-4) {
+      p.x = o.x + need;
+      p.z = o.z;
+    } else {
+      const k = need / d;
+      p.x = o.x + ox * k;
+      p.z = o.z + oz * k;
+    }
+  }
+  return p;
 }
 
 export function isWater(x, z) {
@@ -1569,57 +1763,45 @@ function vegetaTower(scene, x, z, kind, s, mats) {
 
 function addVegetaInstallations(scene) {
   const mats = vegetaMats();
-  const spots = [
-    [80, -40, 0, 1.55],
-    [-120, 90, 1, 1.7],
-    [210, 140, 2, 1.25],
-    [-240, -160, 0, 1.35],
-    [40, 260, 1, 1.4],
-    [320, -220, 0, 1.15],
-    [-360, 40, 2, 1.2],
-    [160, -340, 1, 1.3],
-    [-80, -280, 0, 1.05],
-    [280, 320, 2, 1.1],
-    [-300, 280, 0, 1.2],
-    [420, 40, 1, 1.15],
-    [-420, -80, 2, 1.05],
-    [60, 420, 0, 0.95],
-    [-160, 380, 1, 1.0],
-    [380, -380, 0, 1.05],
-    [-480, 180, 2, 0.9],
-    [500, 220, 1, 0.95],
-    [-40, -460, 0, 1.1],
-    [220, 480, 2, 0.88],
-  ];
-  const m = MAP / 2 - 90;
-  for (const [x, z, k, s] of spots) {
-    if (nearBase(x, z, 28)) continue;
-    vegetaTower(scene, x, z, k, s, mats);
-  }
-  let n = 0;
-  let g = 0;
-  while (n < 36 && g < 800) {
-    g++;
-    const x = (Math.random() * 2 - 1) * m;
-    const z = (Math.random() * 2 - 1) * m;
-    if (nearBase(x, z, 36)) continue;
-    if (Math.hypot(x, z) < 70) continue;
-    vegetaTower(scene, x, z, n % 3, 0.55 + (n % 5) * 0.12, mats);
-    n++;
+  const pack = (cx, cz, n, big) => {
+    let i = 0;
+    let ring = 0;
+    while (i < n) {
+      const k = ring === 0 ? 1 : 6 * ring;
+      const rad = ring * 20;
+      for (let j = 0; j < k && i < n; j++, i++) {
+        const a = ring ? (j / k) * Math.PI * 2 + ring * 0.18 : 0;
+        const x = cx + Math.cos(a) * rad;
+        const z = cz + Math.sin(a) * rad;
+        if (nearBase(x, z, 28)) continue;
+        const s = i === 0 ? 1.28 + big : 0.62 + (i % 5) * 0.11;
+        vegetaTower(scene, x, z, i % 3, s, mats);
+      }
+      ring++;
+    }
+  };
+  for (const c of vegetaClusters) pack(c.x, c.z, c.n, 0.22);
+  for (let i = 0; i < vegetaLoners.length; i++) {
+    const p = vegetaLoners[i];
+    vegetaTower(scene, p.x, p.z, i % 3, 0.95 + (i % 3) * 0.18, mats);
   }
   const dummy = new THREE.Object3D();
-  const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), mats.rock, 180);
+  const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), mats.rock, 220);
+  const m = MAP / 2 - 90;
   let r = 0;
-  g = 0;
-  while (r < 180 && g < 6000) {
+  let g = 0;
+  while (r < 220 && g < 7000) {
     g++;
     const x = (Math.random() * 2 - 1) * m;
     const z = (Math.random() * 2 - 1) * m;
     if (nearBase(x, z, 20)) continue;
+    if (vegetaClusters.some((c) => Math.hypot(x - c.x, z - c.z) < c.spread * 1.25)) continue;
+    const onDune = vegetaOnLandform(x, z);
+    if (!onDune && Math.random() > 0.28) continue;
     const gy = groundHeight(x, z);
     dummy.position.set(x, gy + 0.5, z);
     dummy.rotation.set(Math.random(), Math.random(), Math.random());
-    const sc = 0.8 + Math.random() * 2.6;
+    const sc = 0.8 + Math.random() * (onDune ? 3.2 : 2.2);
     dummy.scale.set(sc, sc * 0.65, sc);
     dummy.updateMatrix();
     rocks.setMatrixAt(r, dummy.matrix);
@@ -1754,6 +1936,7 @@ export function createWorld(scene, id = "namek") {
   cloudGroups.length = 0;
   pickPatriarchHill();
   refreshBasePads();
+  layoutVegeta();
   const earth = id === "earth";
   const cell = id === "cell";
   const city = id === "city";
@@ -1910,6 +2093,7 @@ export function buildMapMaquette(id = "namek") {
   WATER_Y = waterYFor(id);
   pickPatriarchHill();
   refreshBasePads();
+  layoutVegeta();
   const cell = id === "cell";
   const earth = id === "earth";
   const city = id === "city";
@@ -1929,7 +2113,7 @@ export function buildMapMaquette(id = "namek") {
     if (city) {
       hex = cityRoad(x, z) > 1 ? 0x1a1a1a : cityRoad(x, z) ? 0x242424 : cityWalk(x, z) ? 0x9e9e9e : 0x7cb342;
     } else if (vegeta) {
-      hex = y > 8 ? 0x5d4037 : y > 5 ? 0x8d6e63 : 0xa1887f;
+      hex = y > 22 ? 0x4e342e : y > 12 ? 0x6d4c41 : y > 6 ? 0x8d6e63 : 0xa1887f;
     } else if (cell) {
       hex = y < WATER_Y + 0.4 ? 0x0277bd : y < WATER_Y + 9.2 ? 0xc4a574 : Math.sin(x * 0.035) * Math.cos(z * 0.03) > 0.28 ? 0x33691e : 0x9ccc65;
     } else if (earth) {
@@ -2001,16 +2185,7 @@ export function buildMapMaquette(id = "namek") {
   } else if (vegeta) {
     const white = new THREE.MeshLambertMaterial({ color: 0xe8eaf6 });
     const blue = new THREE.MeshLambertMaterial({ color: 0x42a5f5 });
-    for (const [x, z, s] of [
-      [80, -40, 1.4],
-      [-120, 90, 1.6],
-      [210, 140, 1.1],
-      [-240, -160, 1.2],
-      [40, 260, 1.3],
-      [320, -220, 1.0],
-      [160, -340, 1.2],
-      [-300, 280, 1.1],
-    ]) {
+    const peg = (x, z, s) => {
       const y = groundHeight(x, z);
       const h = 36 * s;
       const shaft = new THREE.Mesh(new THREE.CylinderGeometry(8 * s, 10 * s, h, 10), white);
@@ -2022,7 +2197,15 @@ export function buildMapMaquette(id = "namek") {
       const rib = new THREE.Mesh(new THREE.CylinderGeometry(8.2 * s, 8.6 * s, h * 0.32, 10), blue);
       rib.position.set(x, y + h * 0.35, z);
       root.add(rib);
+    };
+    for (const c of vegetaClusters) {
+      peg(c.x, c.z, 1.35);
+      for (let i = 0; i < Math.min(6, c.n - 1); i++) {
+        const a = (i / 6) * Math.PI * 2;
+        peg(c.x + Math.cos(a) * 22, c.z + Math.sin(a) * 22, 0.7);
+      }
     }
+    for (const p of vegetaLoners) peg(p.x, p.z, 0.95);
   }
   for (const [cz, col] of [
     [-BASE_Z, 0xff5252],

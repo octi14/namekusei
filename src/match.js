@@ -17,8 +17,13 @@ export class Match {
     this.slots = [];
   }
 
-  start() {
+  start(skipIntro = false) {
     if (this.phase !== "wait") return;
+    if (skipIntro) {
+      this.phase = "play";
+      this.banner = "";
+      return;
+    }
     this.phase = "intro";
     this.introT = 0;
     this.setBanner("3");

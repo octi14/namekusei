@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
-import { SUPER_KI, superRank } from "./config.js";
+import { SUPER_KI, superRank, KI_REGEN } from "./config.js";
 import { clipOnceDuration } from "./capsuleAnim.js";
 import { powerStyle, makePowerMesh, alignBeam, spawnBurst, spawnClash, spawnHit, spawnMuzzle, spawnMeleeArc, spawnImpactRing, spawnTelegraph } from "./powers.js";
 import { playSfx, atPos, stopSfxLoop } from "./sfx.js";
+import { healerSpec } from "./stats.js";
 
 function meleeYOk(at, t) {
   const ay = at.pos().y + at.height * 0.55;
@@ -13,6 +14,26 @@ function meleeYOk(at, t) {
 
 function fwd(yaw) {
   return new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+}
+
+const _shotPrev = new THREE.Vector3();
+const _shotAim = new THREE.Vector3();
+const _shotAb = new THREE.Vector3();
+const _shotAp = new THREE.Vector3();
+const _shotHit = new THREE.Vector3();
+
+function shotHits(s, t, a, b) {
+  _shotAim.copy(t.pos());
+  _shotAim.y += t.height * 0.7;
+  _shotAb.subVectors(b, a);
+  const len2 = _shotAb.lengthSq();
+  let d;
+  if (len2 < 1e-8) d = _shotAim.distanceTo(a);
+  else {
+    const u = THREE.MathUtils.clamp(_shotAp.subVectors(_shotAim, a).dot(_shotAb) / len2, 0, 1);
+    d = _shotAim.distanceTo(_shotHit.copy(a).addScaledVector(_shotAb, u));
+  }
+  return d < s.hitR;
 }
 
 function guarding(t, from, ki) {
@@ -232,6 +253,7 @@ export class Combat {
       const [sx, sy, sz] = atPos(at);
       if (superOn) {
         stopSfxLoop("chargingSuperLoop");
+        stopSfxLoop(`super-${at.id}`);
         at._sfxSuper = false;
         playSfx(at.faccion === "f" ? "freezerSuperInit" : rank >= 2 ? "bestBigInit" : "enhancedBigInit", sx, sy, sz, 0.62);
         playSfx("bigBlastShoot", sx, sy, sz, 0.7);
@@ -240,20 +262,6 @@ export class Combat {
       else playSfx(Math.random() < 0.5 ? "smallBlast" : "smallBlastShoot2", sx, sy, sz, 0.5);
     }
     const dir = this.shotDir(at);
-    const mesh = makePowerMesh(style, superOn, rank);
-    mesh.position.copy(at.pos()).addScaledVector(dir, superOn ? 2.4 : 1.4);
-    mesh.position.y = at.pos().y + at.height * (superOn ? 0.78 : 0.7);
-    if (style.kind === "beam") alignBeam(mesh, dir);
-    this.scene.add(mesh);
-    const hand = at.pos().clone().addScaledVector(dir, 0.85);
-    hand.y += at.height * 0.68;
-    const off = new THREE.Vector3(dir.z, 0, -dir.x).multiplyScalar(0.22);
-    spawnMuzzle(this.scene, hand.clone().add(off), style.color, this.fx);
-    spawnMuzzle(this.scene, hand.clone().sub(off), style.color, this.fx);
-    if (superOn || snipe) {
-      spawnTelegraph(this.scene, hand, style.color, this.fx, superOn ? 1.6 : 1.1);
-      this.jolt(hand, superOn ? 0.35 : 0.18);
-    }
     const dmg = superOn
       ? Math.round((180 + at.s.kiMax * 1.2) * (0.78 + rank * 0.36))
       : Math.round((snipe ? 60 : 80) + at.s.kiMax * 0.4);
@@ -266,6 +274,22 @@ export class Combat {
       at.lockFoe && !at.lockFoe.dead && (at.lockT || 0) > 0
         ? at.lockFoe
         : this.pickLock(at, dir, people, rng, superOn || snipe ? 0.38 : 0.62);
+    const lockD = locked ? at.pos().distanceTo(locked.pos()) : 80;
+    const spawnFwd = superOn ? 2.4 : THREE.MathUtils.clamp(lockD * 0.28, 0.32, 1.4);
+    const mesh = makePowerMesh(style, superOn, rank);
+    mesh.position.copy(at.pos()).addScaledVector(dir, spawnFwd);
+    mesh.position.y = at.pos().y + at.height * (superOn ? 0.78 : 0.7);
+    if (style.kind === "beam") alignBeam(mesh, dir);
+    this.scene.add(mesh);
+    const hand = at.pos().clone().addScaledVector(dir, 0.85);
+    hand.y += at.height * 0.68;
+    const off = new THREE.Vector3(dir.z, 0, -dir.x).multiplyScalar(0.22);
+    spawnMuzzle(this.scene, hand.clone().add(off), style.color, this.fx);
+    spawnMuzzle(this.scene, hand.clone().sub(off), style.color, this.fx);
+    if (superOn || snipe) {
+      spawnTelegraph(this.scene, hand, style.color, this.fx, superOn ? 1.6 : 1.1);
+      this.jolt(hand, superOn ? 0.35 : 0.18);
+    }
     const home = superOn
       ? at.controller === "humano"
         ? locked && at.lockFoe === locked
@@ -280,7 +304,9 @@ export class Combat {
       dmg,
       life,
       atk: at,
-      // Velocidad: STYLES.speed (común). Tocá los × de abajo para largo/especial.
+      // Velocidad del proyectil en u/s. NO usa K/D ni s.velocidad (eso es correr/volar).
+      // Base: powers.js STYLES.speed (ki común). Acá solo los × de especial / largo (T).
+      // El especial SÍ puede ir más rápido si rank sube (rank mira ataque+ki → un kill puede subir rank).
       speed: style.speed * (superOn ? 1.55 + rank * 0.18 /* especial */ : snipe ? 1.25 /* largo T */ : 1 /* común */),
       hitR,
       kind: style.kind,
@@ -296,12 +322,64 @@ export class Combat {
     return true;
   }
 
+  heal(at, t) {
+    const spec = healerSpec(at.nombre);
+    if (!spec || !t || at.dead || t.dead || at === t) return false;
+    if (t.faccion !== at.faccion || at.cooldown > 0 || (at.stun || 0) > 0) return false;
+    if (at.s.ki < spec.ki || t.s.hp >= t.s.hpMax * 0.94) return false;
+    if (at.pos().distanceTo(t.pos()) > spec.range) return false;
+    if (!meleeYOk(at, t)) return false;
+    at.s.ki -= spec.ki;
+    at.cooldown = 1.2;
+    t.s.hp = Math.min(t.s.hpMax, t.s.hp + t.s.hpMax * spec.hp);
+    const pos = t.pos().clone();
+    pos.y += t.height * 0.55;
+    spawnBurst(this.scene, pos, 0x69f0ae, this.fx);
+    spawnMuzzle(this.scene, pos, 0xb9f6ca, this.fx);
+    return true;
+  }
+
+  healNearest(at, people) {
+    const spec = healerSpec(at.nombre);
+    if (!spec || at.dead || at.cooldown > 0) return false;
+    let best = null;
+    let worst = 1;
+    for (const t of people) {
+      if (t === at || t.dead || t.faccion !== at.faccion) continue;
+      const frac = t.s.hp / Math.max(1, t.s.hpMax);
+      if (frac >= 0.94) continue;
+      if (at.pos().distanceTo(t.pos()) > spec.range) continue;
+      if (!meleeYOk(at, t)) continue;
+      if (frac < worst) {
+        worst = frac;
+        best = t;
+      }
+    }
+    return best ? this.heal(at, best) : false;
+  }
+
   shotDir(at) {
     if (at.controller === "humano" && this.cam?.camera) {
       const d = new THREE.Vector3();
       this.cam.camera.getWorldDirection(d);
       if (d.lengthSq() > 1e-6) return d.normalize();
     }
+    const yaw = at.yaw + (at._lookY || 0);
+    const pit = at._lookX || 0;
+    const cy = Math.cos(pit);
+    const eye = new THREE.Vector3(Math.sin(yaw) * cy, Math.sin(pit), Math.cos(yaw) * cy);
+    const tgt = at.lookWorld;
+    if (tgt) {
+      const ox = at.pos().x;
+      const oy = at.pos().y + at.height * 0.72;
+      const oz = at.pos().z;
+      const to = new THREE.Vector3(tgt.x - ox, tgt.y - oy, tgt.z - oz);
+      if (to.lengthSq() > 1e-6) {
+        to.normalize();
+        eye.lerp(to, 0.72);
+      }
+    }
+    if (eye.lengthSq() > 1e-6) return eye.normalize();
     return fwd(at.yaw);
   }
 
@@ -334,9 +412,10 @@ export class Combat {
       if (t.faccion === at.faccion || t === at || t.dead) continue;
       const to = t.pos().clone().sub(origin);
       const dist = to.length();
-      if (dist > maxD || dist < 0.8) continue;
+      if (dist > maxD || dist < 0.2) continue;
       to.normalize();
-      if (to.dot(dir) < cone) continue;
+      const need = dist < 16 ? THREE.MathUtils.lerp(cone * 0.35, cone, dist / 16) : cone;
+      if (to.dot(dir) < need) continue;
       if (dist < bestD) {
         bestD = dist;
         best = t;
@@ -379,12 +458,16 @@ export class Combat {
       const src = from || atk?.pos();
       if (src) t.knock(src, ki ? 16 : 12);
       t.die(this.balls, atk, ki);
+      // KILL: stats que GANA el que mata (no toca la velocidad de los proyectiles).
+      // Muerte / pérdida: personaje.js die() + DEATH_MULT / STAT_FLOOR en config.js
       if (atk) {
         atk.aiHeat = (atk.aiHeat || 0) + 0.95;
         atk.s.ataque += 1;
         atk.s.defensa += 1;
         atk.s.velocidad += 1;
         atk.s.kiMax += 8;
+        // Recarga sube más lento que el tanque (~½ del ritmo de kiMax) → llena más lento, no tanto como antes.
+        atk.s.kiRegen = (atk.s.kiRegen || KI_REGEN) + 0.38;
       }
       if (t.controller === "humano") this.screenHit(ki, true);
       return;
@@ -475,15 +558,20 @@ export class Combat {
         const aim = s.lock.pos().clone();
         aim.y += s.lock.height * 0.7;
         const to = aim.sub(s.mesh.position);
-        if (to.length() > 1) {
+        const dist = to.length();
+        if (dist > 0.15) {
           to.normalize();
-          if (to.dot(s.dir) > 0.15) {
-            s.dir.lerp(to, Math.min(1, s.home * dt * 60));
+          const near = THREE.MathUtils.clamp((24 - dist) / 24, 0, 1);
+          const minDot = THREE.MathUtils.lerp(0.15, -0.25, near * near);
+          if (to.dot(s.dir) > minDot) {
+            const pull = s.home * (1 + near * near * 7);
+            s.dir.lerp(to, Math.min(1, pull * dt * 60));
             s.dir.normalize();
           }
         }
       }
-      s.mesh.position.addScaledVector(s.dir, s.speed * dt); // avance: speed (u/s) * dt
+      _shotPrev.copy(s.mesh.position);
+      s.mesh.position.addScaledVector(s.dir, s.speed * dt);
       if (s.kind === "disk") s.mesh.rotation.z += dt * 14;
       if (s.kind === "beam") alignBeam(s.mesh, s.dir);
       s.trail += dt;
@@ -525,9 +613,7 @@ export class Combat {
       let hit = false;
       for (const t of people) {
         if (t.faccion === s.faccion || t.dead) continue;
-        const aim = t.pos().clone();
-        aim.y += t.height * 0.7;
-        if (s.mesh.position.distanceTo(aim) < s.hitR) {
+        if (shotHits(s, t, _shotPrev, s.mesh.position)) {
           hit = true;
           break;
         }
@@ -536,10 +622,8 @@ export class Combat {
         if (s.aoe && (hit || s.life <= 0)) this.boom(s, people);
         else if (hit) {
           const t = people.find((o) => {
-            if (o.faccion === s.faccion) return false;
-            const aim = o.pos().clone();
-            aim.y += o.height * 0.7;
-            return s.mesh.position.distanceTo(aim) < s.hitR;
+            if (o.faccion === s.faccion || o.dead) return false;
+            return shotHits(s, o, _shotPrev, s.mesh.position);
           });
           if (t) {
             if (guarding(t, s.mesh.position, true)) this.blockedHit(t, s.dmg, true, s.atk, s.mesh.position);

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
-// Tabla por personaje: kind = forma. speed = u/s del ki COMÚN (click der).
-// Largo y especial no tienen speed propio: se multiplican en combat.blast.
+// Velocidad de CADA poder (ki común, u/s). Largo y especial = este speed × combat.js blast().
+// K/D NO cambia este speed. Un kill sube s.velocidad (moverse) y s.kiMax/ataque (daño de ki), no el vuelo del rayo.
 const STYLES = {
   Gokú: { kind: "beam", color: 0xdcebbe, speed: 80, r: 0.2, life: 2.2, range: 120 },
   Gohan: { kind: "beam", color: 0x81d4fa, speed: 75, r: 0.18, life: 1.8, range: 100 },

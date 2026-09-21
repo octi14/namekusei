@@ -9,7 +9,7 @@ import { lookFor, lookTemplateId } from "./looks.js";
 import { makeRiggedBody, gokuReady, CHAR_RIG } from "./gokuRig.js";
 import { footstep, playSfx, atPos, stopSfxLoop } from "./sfx.js";
 import { spawnSpeedStreak, spawnImpactRing } from "./powers.js";
-import { loadClips, evalClip, clipIsCustomClip, resolveAnimWho } from "./capsuleAnim.js";
+import { loadClips, evalClip, clipIsCustomClip, clipShouldPlay, resolveAnimWho } from "./capsuleAnim.js";
 
 const _c = new THREE.Vector3();
 let _trailTex;
@@ -85,7 +85,9 @@ export class Personaje {
       defensa: this.s.defensa,
       velocidad: this.s.velocidad,
       kiMax: this.s.kiMax,
+      kiRegen: KI_REGEN,
     };
+    this.s.kiRegen = KI_REGEN;
 
     const mixamo = CHAR_RIG[def.nombre];
     const lookWho = def.look?.who || lookTemplateId(def.nombre) || def.nombre;
@@ -281,10 +283,11 @@ export class Personaje {
 
   refreshAnims() {
     const who = resolveAnimWho(this.nombre, this.lookWho);
+    this._animWho = who;
     this._anims = loadClips(who);
     this._animCustom = {};
-    for (const n of ["walk", "run", "hover", "fly", "charge", "idle", "swim", "swimIdle", "punch", "punchTwo", "punchKick", "elbow", "blast", "blastTwo", "crouch", "crouchWalk", "block"]) {
-      this._animCustom[n] = clipIsCustomClip(this._anims[n], n);
+    for (const n of ["walk", "run", "hover", "fly", "charge", "superCharge", "idle", "swim", "swimIdle", "punch", "punchTwo", "punchKick", "elbow", "blast", "blastTwo", "crouch", "crouchWalk", "block"]) {
+      this._animCustom[n] = clipShouldPlay(this._anims[n], n, who);
     }
   }
 
@@ -300,9 +303,9 @@ export class Personaje {
     const oneshot = name === "punch" || name === "punchTwo" || name === "punchKick" || name === "elbow" || name === "blast" || name === "blastTwo";
     const clip = this._anims?.[name];
     if (!clip?.keys?.length) return false;
-    const custom = clipIsCustomClip(clip, name);
-    if (!oneshot && !custom) return false;
-    if (oneshot && this.mesh?.userData?.syncRig && !custom) return false;
+    const play = clipShouldPlay(clip, name, this._animWho);
+    if (!oneshot && !play) return false;
+    if (oneshot && this.mesh?.userData?.syncRig && !play) return false;
     const pose = evalClip(clip, phase, oneshot);
     if (mirror) {
       const swap = (a, b) => {
@@ -555,7 +558,9 @@ export class Personaje {
       this.hitGlow.visible = false;
     }
     if (this.s.ki > 0) this.s.hp = Math.min(this.s.hpMax, this.s.hp + HP_REGEN * dt);
-    this.s.ki = Math.min(this.s.kiMax, this.s.ki + KI_REGEN_PASSIVE * dt);
+    const regen = this.s.kiRegen || KI_REGEN;
+    const passive = KI_REGEN_PASSIVE * (regen / KI_REGEN);
+    this.s.ki = Math.min(this.s.kiMax, this.s.ki + passive * dt);
     if (this.flyAlt > 0.2 && !this.inSwim()) {
       this.s.ki = Math.max(0, this.s.ki - 2.55 * dt);
     }
@@ -1133,7 +1138,11 @@ export class Personaje {
     }
     if (this._kiCharge || (this.superHold || 0) > 0.04) {
       this.animT += dt * 4.2;
-      if (!this.applyEditorClip("charge", this.animT, k)) {
+      const wind =
+        (this.superHold || 0) > 0.04 &&
+        clipIsCustomClip(this._anims?.superCharge, "superCharge", this._animWho) &&
+        this.applyEditorClip("superCharge", this.animT, k);
+      if (!wind && !this.applyEditorClip("charge", this.animT, k)) {
         const pulse = Math.sin(this.animT) * 0.06;
         lx(armL, -0.08 + pulse);
         lx(armR, -0.08 - pulse);
@@ -1287,7 +1296,7 @@ export class Personaje {
       );
       const clipName = wantRun ? "run" : "walk";
       const skipLoco = this.crouchWalking();
-      if (!skipLoco && clipIsCustomClip(this._anims?.[clipName], clipName) && !this._clipStepped) {
+      if (!skipLoco && clipShouldPlay(this._anims?.[clipName], clipName, this._animWho) && !this._clipStepped) {
         this._clipClock = (this._clipClock || 0) + dt * (hz / 1.6);
       }
       const usedClip = !skipLoco && this.applyEditorClip(clipName, this._clipClock || 0, 1);
@@ -1525,7 +1534,9 @@ export class Personaje {
     }
     this._kiCharge = true;
     this._kiChargeHold = 0.15;
-    this.s.ki = Math.min(this.s.kiMax, this.s.ki + (KI_REGEN - KI_REGEN_PASSIVE) * dt);
+    const regen = this.s.kiRegen || KI_REGEN;
+    const passive = KI_REGEN_PASSIVE * (regen / KI_REGEN);
+    this.s.ki = Math.min(this.s.kiMax, this.s.ki + (regen - passive) * dt);
   }
 
   inSwim() {
@@ -1795,11 +1806,19 @@ export class Personaje {
   die(balls, killer, ki) {
     if (this.dead) return;
     const lived = this.aliveFor || 0;
-    if (lived < 16) this.spawnWave = Math.min(4, (this.spawnWave || 0) + 1);
+    if (lived < 22) this.spawnWave = Math.min(6, (this.spawnWave || 0) + 1);
+    else if (lived < 50) this.spawnWave = Math.max(0, (this.spawnWave || 0) - 1);
     else this.spawnWave = 0;
-    this.deadMax = 2.8 + this.spawnWave * 7.5;
+    this.deadMax = 5.2 + this.spawnWave * 10;
     this.dead = true;
     this.deadT = this.deadMax;
+    this._aiSuper = false;
+    this.superHold = 0;
+    if (this._sfxSuper) {
+      stopSfxLoop("chargingSuperLoop");
+      stopSfxLoop(`super-${this.id}`);
+      this._sfxSuper = false;
+    }
     this.hitFlash = 0;
     if (this.hitGlow) this.hitGlow.visible = false;
     this._resetBodyEmissive();
@@ -1823,6 +1842,8 @@ export class Personaje {
     }
     if (killer) logKill(killer.nombre, this.nombre, ki, "", killer.faccion);
     else log(`${this.nombre} cayó`, this.faccion);
+    // DEATH: stats que PIERDE el que muere. DEATH_MULT y STAT_FLOOR están en config.js
+    // (hoy DEATH_MULT=1 → no baja nada; el piso es orig * STAT_FLOOR).
     for (const k of ["ataque", "defensa", "velocidad", "kiMax"]) {
       this.s[k] = Math.max(this.orig[k] * STAT_FLOOR, this.s[k] * DEATH_MULT);
     }

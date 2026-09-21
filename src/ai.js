@@ -4,6 +4,8 @@ import { isWater, groundHeight, WATER_Y } from "./world.js";
 import { BASE_INNER_R, steerShipNav, nearAnyShip, shipDist, inShipBase } from "./bases.js";
 import { powerStyle } from "./powers.js";
 import { aiTraceTick } from "./aiTrace.js";
+import { playSfx, atPos, stopSfxLoop } from "./sfx.js";
+import { healerSpec } from "./stats.js";
 
 /**
  * ===========================================================================
@@ -29,6 +31,7 @@ import { aiTraceTick } from "./aiTrace.js";
  *   - Reparto de roles (guard/baller/aggro)           → aiRole().
  *   - Rango en que ve enemigos                        → foeRange en aiTick.
  *   - Pedidos de equipo (help/defend/raid) + camp     → blackboard teamBoard().
+ *   - Ir a curandero (Dendé/Kami/Pikoro)              → utilBest `heal` / modo heal.
  *   - Cupos: HELP_SLOTS / DEFEND_SLOTS / RAID_SLOTS / RAID_MAX_ACTIVE.
  *
  * Nota: muchas probabilidades van multiplicadas por `dt * 60`, o sea que el
@@ -639,8 +642,24 @@ function flankAngle(p, foe, dt) {
   const direct = Math.atan2(dx, dz);
   // offset lateral ~40-65° según distancia
   const dist = Math.hypot(dx, dz);
-  const off = dist > 12 ? 0.85 : dist > 5 ? 0.55 : 0.2;
+  const off = dist > 18 ? 0.28 : dist > 8 ? 0.12 : 0;
   return direct + side * off;
+}
+
+function findHealer(p, people) {
+  let best = null;
+  let bestD = 1e9;
+  for (const o of people) {
+    if (o === p || o.dead || o.faccion !== p.faccion) continue;
+    const spec = healerSpec(o.nombre);
+    if (!spec || o.s.ki < spec.ki * 0.7) continue;
+    const d = o.pos().distanceTo(p.pos());
+    if (d < bestD) {
+      bestD = d;
+      best = o;
+    }
+  }
+  return best;
 }
 
 function allyById(people, id) {
@@ -686,6 +705,8 @@ function utilBest(p, ctx) {
     raidCall,
     idleish,
     hideOk,
+    medic,
+    medicDist,
   } = ctx;
   // Con esfera: deliver fuerte, pero fight/hide pueden ganar si hay amenaza.
   const sticky = (m) => {
@@ -699,6 +720,7 @@ function utilBest(p, ctx) {
     if (m === "fight") return 25;
     if (m === "deliver") return 28;
     if (m === "hide") return 16;
+    if (m === "heal") return 22;
     return 20;
   };
   const rows = [];
@@ -748,6 +770,15 @@ function utilBest(p, ctx) {
     if (carrying && enemyDist < 20) hideS += 10;
   }
   rows.push(["hide", hideS]);
+  let healS = -40;
+  if (!carrying && medic && (lowHp || critHp) && medicDist < 240) {
+    healS = 10 + (1 - mood.hp) * 38 + sticky("heal") - medicDist * 0.05;
+    if (critHp) healS += 16;
+    if (agg > 0.55 && !critHp) healS -= 14;
+    if (mood.front > 0.25 && !critHp) healS -= 12;
+    if (healerSpec(p.nombre)) healS -= 20;
+  }
+  rows.push(["heal", healS]);
   let ballS = -30;
   if (ball && !carrying) {
     const d = Math.hypot(ball.mesh.position.x - p.pos().x, ball.mesh.position.z - p.pos().z);
@@ -853,6 +884,44 @@ function pickHideSpot(p, people, homeZ) {
     }
   }
   return { x: bx, z: bz };
+}
+
+const SUPER_WIND = 0.55;
+
+function beginAiSuper(p) {
+  p._aiSuper = true;
+  p.superHold = Math.max(p.superHold || 0, 0.05);
+}
+
+function cancelAiSuper(p) {
+  if (p._sfxSuper) {
+    stopSfxLoop(`super-${p.id}`);
+    p._sfxSuper = false;
+  }
+  p._aiSuper = false;
+  if ((p.superHold || 0) > 0) p.superHold = 0;
+}
+
+function tickAiSuper(p, combat, people, foe, dt) {
+  if (p.dead || (p.stun || 0) > 0) {
+    cancelAiSuper(p);
+    return;
+  }
+  if (foe && !foe.dead) faceLock(p, foe, dt, 1.2);
+  if (!p._sfxSuper) {
+    const [x, y, z] = atPos(p);
+    playSfx("chargingBigBlast", x, y, z, 0.5);
+    playSfx("chargingSuperLoop", x, y, z, 0.35, true, `super-${p.id}`);
+    if (p.nombre === "Gokú" && superRank(p.s.ki, p.s.kiMax, p.s.ataque) >= 3)
+      playSfx("kameCharge", x, y, z, 0.55);
+    p._sfxSuper = true;
+  }
+  p.superHold = (p.superHold || 0) + dt;
+  if (p.superHold >= SUPER_WIND) {
+    const dist = foe && !foe.dead ? foe.pos().distanceTo(p.pos()) : 30;
+    combat.blast(p, true, people, dist > 40);
+    cancelAiSuper(p);
+  }
 }
 
 function faceLock(p, foe, dt, hold) {
@@ -1450,6 +1519,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
     !defend &&
     (kiFrac < band.lo || ((p.aiChargeTo || 0) > 0 && kiFrac < p.aiChargeTo));
 
+  const medic = findHealer(p, people);
+  const medicDist = medic ? medic.pos().distanceTo(p.pos()) : 1e9;
   const pick = utilBest(p, {
     mood,
     carrying,
@@ -1466,6 +1537,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
     agg,
     snipeOk,
     hideOk,
+    medic,
+    medicDist,
     baseThreat: threat,
     defend,
     role,
@@ -1487,6 +1560,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
     (hardFight && enemyDist < 15) ||
     (defend && hardFight && enemyDist < 32) ||
     (pick === "hide" && carrying && enemy) ||
+    (pick === "heal" && critHp && medic) ||
     (pick === "ball" && role === "baller" && ballCand && (p.aiMode === "wander" || p.aiMode === "charge"));
   if (hard || (p.aiModeT || 0) <= 0) {
     if (pick === "hide") {
@@ -1497,6 +1571,11 @@ export function aiTick(p, people, balls, combat, match, dt) {
       p.aiFoe = null;
       // 20 segundos
       commitMode(p, "hide", 20 + (1 - agg) * 2.2);
+    } else if (pick === "heal" && medic) {
+      p.aiMedic = medic;
+      p.aiFight = 0;
+      p.aiFoe = null;
+      commitMode(p, "heal", 14 + (1 - mood.hp) * 8);
     } else if (pick === "snipe") {
       p.aiFoe = snipeFoe || p.aiFoe || enemy;
       const nest = pickNest(p, p.aiFoe);
@@ -1688,6 +1767,22 @@ export function aiTick(p, people, balls, combat, match, dt) {
         p.aiCharge = true;
       }
     }
+  } else if (p.aiMode === "heal") {
+    const m = p.aiMedic && !p.aiMedic.dead ? p.aiMedic : findHealer(p, people);
+    p.aiMedic = m;
+    if (!m || p.s.hp > p.s.hpMax * 0.82) {
+      dir.set(0, 0, 0);
+    } else {
+      const spec = healerSpec(m.nombre);
+      const reach = (spec?.range || 6) * 0.72;
+      dir.set(m.pos().x - p.pos().x, 0, m.pos().z - p.pos().z);
+      const md = m.pos().distanceTo(p.pos());
+      if (md < reach) {
+        dir.set(0, 0, 0);
+        smoothYaw(p, Math.atan2(m.pos().x - p.pos().x, m.pos().z - p.pos().z), dt, 8);
+        combat.heal(m, p);
+      }
+    }
   } else if (fighting && !doorBusy) {
     const dist0 = foe.pos().distanceTo(p.pos());
     if (dist0 > 42 && !huntingCarrier) {
@@ -1704,36 +1799,39 @@ export function aiTick(p, people, balls, combat, match, dt) {
     // Con preferKi se queda lejos; en cuerpo a cuerpo 2.6 ≈ alcance del puño
     // (el melee de combat.js llega a ~3). Subirlo hace que peguen al aire.
     const hold = preferKi
-      ? Math.min(18, rng * (mood.front < 0 ? 0.34 : 0.24))
+      ? Math.min(12, rng * (mood.front < 0 ? 0.22 : 0.16))
       : huntingCarrier
         ? 3.2
         : mood.ki < 0.2
           ? 3.0
           : 2.6;
-    const inKiRange = dist < rng * 0.9 && dist > 2.4;
+    const inKiRange = dist < rng * 1.05;
     const close = dist < 4.2;
     const wetFight = isWater(p.pos().x, p.pos().z);
-    // AJUSTE: chance por segundo de "fijar" al rival (lo encara y lo orbita).
+    const fp = foe.pos();
+    p.lookWorld = { x: fp.x, y: fp.y + foe.height * 0.62, z: fp.z };
+    // AJUSTE: chance de “lock” (encare). Ya no orbita por estar fijado.
     const lockChance = (0.014 + agg * 0.022 + Math.max(0, mood.front) * 0.025) * dt * 60;
     const locked = (p.lockFoe === foe && (p.lockT || 0) > 0) || (dist < rng * 0.88 && Math.random() < lockChance);
-    if (locked) faceLock(p, foe, dt, 1.35 + agg * 0.8);
+    if (locked || dist < 28) faceLock(p, foe, dt, 1.35 + agg * 0.8);
     else {
       p.lockT = Math.max(0, (p.lockT || 0) - dt);
-      const approachYaw = dist > 4.5 && !wetFight ? flankAngle(p, foe, dt) : Math.atan2(dir.x, dir.z);
+      const approachYaw = dist > 22 && !wetFight ? flankAngle(p, foe, dt) : Math.atan2(dir.x, dir.z);
       smoothYaw(p, approachYaw, dt, 7);
     }
     const lookYaw = Math.atan2(dir.x, dir.z);
     let dy = lookYaw - p.yaw;
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
-    // AJUSTE: 0.55 rad (~31°) de tolerancia de encare para poder atacar.
-    const facing = Math.abs(dy) < 0.55;
-    if (dir.lengthSq() > 0.4) {
+    // AJUSTE: cuerpo ~50°; “mira” (cabeza) más ancha para tirar ki.
+    const facing = Math.abs(dy) < 0.88;
+    const onSight = Math.abs(dy) < 1.25;
+    if (dir.lengthSq() > 0.4 && !p._aiSuper) {
       dir.normalize();
     const side = seed(p) > 0.5 ? 1 : -1;
     const strafe = new THREE.Vector3(Math.cos(lookYaw) * side, 0, -Math.sin(lookYaw) * side);
-    // AJUSTE: mezcla de avance recto vs orbitar de costado (0 = va derecho).
-    const mixS = wetFight ? 0.05 : locked ? 0.35 : 0.22;
+    // AJUSTE: mezcla de avance vs orbitar (0 = va derecho).
+    const mixS = wetFight ? 0.05 : 0.1;
     // Retirada con poca vida (hp < 32% y sin envión); abajo, retirada por ki < 16%.
     if (mood.hp < 0.32 && mood.front < 0.1 && dist < 8 && !huntingCarrier) aiMove(p, dir.clone().multiplyScalar(-1), true, dt);
     else if (p.s.ki < p.s.kiMax * 0.16 && dist > 5 && !huntingCarrier) {
@@ -1743,37 +1841,34 @@ export function aiTick(p, people, balls, combat, match, dt) {
     } else if (dist > hold) {
       const fd = dir.clone().lerp(strafe, mixS).normalize();
       aiMove(p, fd, dist > 8 && (mood.ki > 0.22 || huntingCarrier), dt);
-    } else if (dist < hold * 0.5 && p.s.ki > 12 && preferKi && !huntingCarrier) {
-      aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, wetFight ? 0.08 : 0.4).normalize(), false, dt);
+    } else if (dist < 2.6 && p.s.ki > 12 && preferKi && !huntingCarrier) {
+      aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, wetFight ? 0.08 : 0.25).normalize(), false, dt);
     } else if (close && (p.flyAlt || 0) > 0.35 && !wetFight) {
       if ((p.aiHover || 0) > 0) p.aiHover -= dt;
       else p.aiHover = 0.35 + seed(p) * 0.45;
-      if ((p.aiHover || 0) > 0.18) aiMove(p, strafe, false, dt);
-    } else if (locked && !wetFight) aiMove(p, strafe, false, dt);
-    else if (wetFight && dist > 3) aiMove(p, dir, mood.ki > 0.2, dt);
+      if ((p.aiHover || 0) > 0.18 && Math.random() < 0.22) aiMove(p, strafe, false, dt);
+    } else if (wetFight && dist > 3) aiMove(p, dir, mood.ki > 0.2, dt);
     }
-    // AJUSTE: probabilidad por frame de tirar ki común. Cada factor multiplica:
-    // encare, actitud (front), cuánto ki tiene, si está fijado y la distancia.
-    // Subí el 0.07/0.12 para que disparen más seguido.
+    // AJUSTE: chance de ki. onSight = mira al rival, no hace falta encare perfecto.
     const blastOdds =
-      (facing ? 1 : 0.15) *
-      (mood.front < 0 ? 0.12 : 0.07) *
-      (mood.ki > 0.42 ? 1.05 : mood.ki > 0.28 ? 0.4 : 0.08) *
-      (locked ? 1.1 : 0.85) *
-      ((p.flyAlt || 0) > 2 ? 0.35 : dist > 22 ? 0.45 : 0.7);
+      (onSight ? 1.2 : 0.45) *
+      (mood.front < 0 ? 0.22 : 0.16) *
+      (mood.ki > 0.42 ? 1.1 : mood.ki > 0.28 ? 0.7 : 0.28) *
+      ((p.flyAlt || 0) > 2 ? 0.7 : 0.95);
     const rank = superRank(p.s.ki, p.s.kiMax, p.s.ataque);
     const canSuper = rank >= 1;
     // AJUSTE: chance por frame de tirar el especial (necesita rank >= 1, ver
-    // SUPER_KI en config.js). Rango máximo del super: dist < 52.
+    // SUPER_KI en config.js). Rango máximo del super: dist < 62.
     const superOdds = (0.048 + agg * 0.03 + (rank >= 2 ? 0.03 : 0) + (rank >= 3 ? 0.02 : 0)) * dt * 60;
-    if (canSuper && inKiRange && facing && dist < 52 && (p.cooldown || 0) <= 0 && Math.random() < superOdds) {
-      combat.blast(p, true, people, dist > 40);
+    if (p._aiSuper) {
+      /* windup: tickAiSuper más abajo */
+    } else if (canSuper && inKiRange && onSight && dist < 62 && (p.cooldown || 0) <= 0 && Math.random() < superOdds) {
+      beginAiSuper(p);
     } else if (
       inKiRange &&
-      facing &&
-      dist < 38 && // AJUSTE: alcance del ki común
-
-      p.s.ki >= p.s.kiMax * 0.18 &&
+      onSight &&
+      dist < rng * 1.05 &&
+      p.s.ki >= p.s.kiMax * 0.14 &&
       (p.cooldown || 0) <= 0 &&
       Math.random() < blastOdds
     ) {
@@ -1799,7 +1894,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
     if (foeSwing || kiIn) p._aiGuard = 0.32;
     else p._aiGuard = Math.max(0, (p._aiGuard || 0) - dt);
     p.guard((p._aiGuard || 0) > 0, dt);
-    if (!p._blocking && dist < meleeRange && facing && Math.random() < meleeOdds * MELEE) {
+    if (!p._aiSuper && !p._blocking && dist < meleeRange && facing && Math.random() < meleeOdds * MELEE) {
       // Micro-paso hacia el rival al tirar el golpe, para no quedarse corto.
       // AJUSTE: tope 9 de velocidad; 1.2 es la distancia que deja sin cerrar.
       const stepV = Math.min(9, Math.max(0, dist - 1.2) * 7);
@@ -1980,6 +2075,12 @@ export function aiTick(p, people, balls, combat, match, dt) {
   } else if (p.aiMode === "help" && help) {
     aimX = help.pos().x;
     aimZ = help.pos().z;
+  } else if (p.aiMode === "heal" && p.aiMedic && !p.aiMedic.dead) {
+    aimX = p.aiMedic.pos().x;
+    aimZ = p.aiMedic.pos().z;
+  } else if (p.aiMode === "hide" && p.aiHideX != null) {
+    aimX = p.aiHideX;
+    aimZ = p.aiHideZ;
   } else if (p.aiWanderX != null) {
     aimX = p.aiWanderX;
     aimZ = p.aiWanderZ;
@@ -1987,6 +2088,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
   // Distancia real al objetivo del modo actual: la usa applyLoco para decidir
   // si vale la pena volar/correr. (aim* es el punto al que apunta cada modo.)
   const goalDist = Math.hypot(aimX - pos.x, aimZ - pos.z);
+  if (p._aiSuper) tickAiSuper(p, combat, people, foe, dt);
+
   const chargingHard = p.aiMode === "charge" || ((p.aiChargeTo || 0) > 0 && kiFrac < p.aiChargeTo);
 
   const locoOut = applyLoco(
@@ -2056,8 +2159,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
     return;
   }
 
-  const forceLocoMove = shipGate || locoOut.loco === "shipDoor" || !fighting || !locoOut.allowFight;
-  if (shipGate && dir.lengthSq() > 0.04) {
+  const forceLocoMove = !p._aiSuper && (shipGate || locoOut.loco === "shipDoor" || !fighting || !locoOut.allowFight);
+  if (!p._aiSuper && shipGate && dir.lengthSq() > 0.04) {
     dir.normalize();
     const x = p.mesh.position.x;
     if (Math.abs(x) > 1.2 && nearAnyShip(p.pos(), 48) && !inShipBase(p.pos(), p.faccion === "z" ? "f" : "z"))
@@ -2074,7 +2177,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
 
   p.tryGrab(balls, dt, match);
   p.tryDeposit(match, balls);
-  if (locoOut.canCharge && !shipGate) p.charge(dt);
+  if (!p._aiSuper && healerSpec(p.nombre)) combat.healNearest(p, people);
+  if (!p._aiSuper && locoOut.canCharge && !shipGate) p.charge(dt);
   p.stickY();
 
   // DEBUG UI: snapshot del tick (sacar cuando no haga falta)

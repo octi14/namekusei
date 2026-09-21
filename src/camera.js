@@ -123,17 +123,17 @@ export class PlayerCamera {
     if (tbo > 0.04 && (third || !p.volando)) {
       const w = Math.sin(this._bob);
       const rgt = new THREE.Vector3(f.z, 0, -f.x);
-      const m = third ? 1 : 0.28;
+      const m = third ? 0.32 : 0.28;
       this.camera.position.y += w * 0.05 * tbo * m;
       this.camera.position.addScaledVector(rgt, Math.cos(this._bob * 0.85) * 0.032 * tbo * m);
       this.camera.rotateZ(Math.sin(this._bob * 1.7) * 0.014 * tbo * m);
     }
     if (this.kick > 0.004 && (third || !p.volando)) {
-      const k = this.kick;
+      const k = this.kick * (third ? 0.26 : 1);
       this.camera.position.x += (Math.random() - 0.5) * k;
       this.camera.position.y += (Math.random() - 0.5) * k * 0.55;
       this.camera.position.z += (Math.random() - 0.5) * k;
-      this.kick *= 0.78;
+      this.kick *= third ? 0.62 : 0.78;
     } else this.kick = 0;
   }
 }

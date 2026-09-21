@@ -958,7 +958,6 @@ export function setCharEditor(on) {
     cancelAnimationFrame(raf);
     tick();
   } else {
-    persistEditor(false);
     cancelAnimationFrame(raf);
   }
 }

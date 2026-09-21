@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { makeBody, loadSavedSculpt, DEFAULT_SCULPT } from "./body.js";
 import { LOOK, loadSavedLook } from "./looks.js";
-import { loadClips, saveClips, evalClip, applyEval, BONES, defaultClips, copyClipsTo } from "./capsuleAnim.js";
+import { loadClips, saveClips, evalClip, applyEval, BONES, defaultClips, capsuleDefaults, setCapsuleDefault, copyClipsTo, clipIsCustomClip } from "./capsuleAnim.js";
 import { makeRiggedBody, preloadGoku, CHAR_RIG } from "./gokuRig.js";
 import { flushPack } from "./pack.js";
 
@@ -34,6 +34,7 @@ const POSES = [
   ["crouch", "Agachar"],
   ["crouchWalk", "Caminar agachado"],
   ["charge", "Cargar ki"],
+  ["superCharge", "Cargar especial"],
   ["block", "Bloquear"],
   ["blast", "Lanzar ki"],
   ["blastTwo", "Ki a dos manos"],
@@ -82,7 +83,7 @@ function setSt(t) {
   if (el) el.textContent = t;
 }
 
-async function persist() {
+async function persist(opts = {}) {
   saveClips(presetName, clips);
   await flushPack();
   try {
@@ -93,7 +94,7 @@ async function persist() {
     /* ignore */
   }
   dispatchEvent(new CustomEvent("nk-char-saved", { detail: { preset: presetName } }));
-  setSt(`Guardado ${presetName} · ${poseName}`);
+  if (!opts.silent) setSt(`Guardado ${presetName} · ${poseName}`);
 }
 
 async function rebuild() {
@@ -130,6 +131,7 @@ function writeBone() {
   root.querySelector("#ae-rxn").value = x.toFixed(3);
   root.querySelector("#ae-ryn").value = y.toFixed(3);
   root.querySelector("#ae-rzn").value = z.toFixed(3);
+  syncDefUi();
 }
 
 function drawTl() {
@@ -182,7 +184,22 @@ function syncUi() {
   root.querySelector("#ae-fi").textContent = `${frame + 1}/${c.keys.length}`;
   fillCopy();
   fillSamePoseCopy();
+  syncDefUi();
   drawTl();
+}
+
+function isRig() {
+  return !!CHAR_RIG[presetName];
+}
+
+function syncDefUi() {
+  const row = root.querySelector("#ae-def-row");
+  const btn = root.querySelector("#ae-set-def");
+  const cap = !isRig();
+  if (row) row.style.display = cap ? "flex" : "none";
+  if (btn) btn.style.display = cap ? "" : "none";
+  const cb = root.querySelector("#ae-use-def");
+  if (cb && cap) cb.checked = !clipIsCustomClip(cur(), poseName, presetName);
 }
 
 function poseLabel(id) {
@@ -204,7 +221,7 @@ function fillSamePoseCopy() {
 function fillCopy() {
   const sel = root.querySelector("#ae-copy");
   const keep = sel.value;
-  sel.innerHTML = `<option value="*">Todos los demás</option>`;
+  sel.innerHTML = `<option value="*">Todos los demás</option><option value="*caps">Todas las cápsulas</option>`;
   for (const n of names()) {
     if (n === presetName) continue;
     sel.appendChild(Object.assign(document.createElement("option"), { value: n, textContent: PRESET_LABEL[n] || n }));
@@ -258,6 +275,11 @@ function ensureDom() {
       <select id="ae-preset"></select>
       <select id="ae-pose"></select>
       <button type="button" id="ae-save">Guardar</button>
+      <button type="button" id="ae-playmap">Probar en mapa</button>
+      <label id="ae-def-row" style="flex-direction:row;align-items:center;gap:6px;font-size:13px;min-width:auto">
+        <input type="checkbox" id="ae-use-def" /> Usar default
+      </label>
+      <button type="button" id="ae-set-def">Set default</button>
       <button type="button" id="ae-reset">Reset clip</button>
       <button type="button" id="ae-close">Cerrar (F3)</button>
       <span id="ae-status" style="font-size:12px;opacity:.7"></span>
@@ -468,27 +490,61 @@ function ensureDom() {
     syncUi();
   });
   root.querySelector("#ae-reset").addEventListener("click", () => {
-    clips[poseName] = defaultClips()[poseName];
+    clips[poseName] = JSON.parse(JSON.stringify((isRig() ? defaultClips() : capsuleDefaults())[poseName]));
     frame = 0;
     syncUi();
     setSt(`${poseName} a default`);
   });
-  root.querySelector("#ae-save").addEventListener("click", persist);
-  root.querySelector("#ae-close").addEventListener("click", () => setAnimEditor(false));
-  const copy = (all) => {
-    persist();
-    const dest = root.querySelector("#ae-copy").value;
-    const targets = dest === "*" ? names().filter((n) => n !== presetName) : [dest];
-    for (const n of targets) copyClipsTo(presetName, n, all ? "*" : poseName);
+  root.querySelector("#ae-use-def").addEventListener("change", async (e) => {
+    if (isRig()) return;
+    if (e.target.checked) {
+      clips[poseName] = JSON.parse(JSON.stringify(capsuleDefaults()[poseName]));
+    } else {
+      clips[poseName] = { ...JSON.parse(JSON.stringify(cur())), _own: true };
+    }
+    frame = 0;
+    await persist({ silent: true });
+    syncUi();
+    setSt(e.target.checked ? `${poseName} usa default` : `${poseName} personalizada`);
+  });
+  root.querySelector("#ae-set-def").addEventListener("click", async () => {
+    if (isRig()) return;
+    setCapsuleDefault(poseName, cur());
+    clips[poseName] = JSON.parse(JSON.stringify(capsuleDefaults()[poseName]));
+    await persist({ silent: true });
     dispatchEvent(new CustomEvent("nk-char-saved", { detail: {} }));
-    setSt(`Copiado ${all ? "todas" : poseName} → ${dest === "*" ? "todos" : dest}`);
+    syncUi();
+    setSt(`Default de ${poseLabel(poseName)} actualizado`);
+  });
+  root.querySelector("#ae-save").addEventListener("click", persist);
+  root.querySelector("#ae-playmap").addEventListener("click", async () => {
+    await persist();
+    setAnimEditor(false);
+    dispatchEvent(new CustomEvent("nk-anim-test", { detail: { who: presetName } }));
+  });
+  root.querySelector("#ae-close").addEventListener("click", () => setAnimEditor(false));
+  const copy = async (all) => {
+    await persist({ silent: true });
+    const dest = root.querySelector("#ae-copy").value;
+    const targets =
+      dest === "*"
+        ? names().filter((n) => n !== presetName)
+        : dest === "*caps"
+          ? names().filter((n) => n !== presetName && !CHAR_RIG[n])
+          : [dest];
+    for (const n of targets) copyClipsTo(presetName, n, all ? "*" : poseName);
+    await flushPack();
+    dispatchEvent(new CustomEvent("nk-char-saved", { detail: {} }));
+    const who = dest === "*" ? "todos" : dest === "*caps" ? "cápsulas" : dest;
+    setSt(`Copiado ${all ? "todas" : poseName} → ${who}`);
   };
   root.querySelector("#ae-copy-one").addEventListener("click", () => copy(false));
   root.querySelector("#ae-copy-all").addEventListener("click", () => copy(true));
-  root.querySelector("#ae-same-copy-btn").addEventListener("click", () => {
+  root.querySelector("#ae-same-copy-btn").addEventListener("click", async () => {
     const dest = root.querySelector("#ae-same-copy").value;
     if (!dest || dest === poseName) return;
-    clips[dest] = JSON.parse(JSON.stringify(cur()));
+    clips[dest] = { ...JSON.parse(JSON.stringify(cur())), _own: true };
+    await persist({ silent: true });
     setSt(`${poseLabel(poseName)} → ${poseLabel(dest)} · ${presetName}`);
   });
   canvas.addEventListener("pointerdown", (e) => {

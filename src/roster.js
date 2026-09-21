@@ -17,6 +17,7 @@ import {
   SAIBAMAN,
   CELL_JR,
   cloneStats,
+  SHARED,
 } from "./stats.js";
 import { lookFor } from "./looks.js";
 
@@ -31,6 +32,23 @@ function namedEntry(n, fac, i, stats, mapId) {
     look: lookFor(n, fac, `${fac}-${i}`, mapId),
     canSsj: SSJ.has(n),
   };
+}
+
+export function buildSandboxRoster(who, mapId = "namek") {
+  const stats =
+    SHARED[who] ||
+    NAMED_Z[who] ||
+    NAMED_F[who] ||
+    NAMED_Z_EARTH[who] ||
+    NAMED_F_EARTH[who] ||
+    NAMED_Z_CELL[who] ||
+    NAMED_F_CELL[who] ||
+    NAMED_Z_CITY[who] ||
+    NAMED_F_CITY[who] ||
+    NAMED_Z_VEGETA[who] ||
+    NAMED_F_VEGETA[who] ||
+    (who === "Saibaman" ? SAIBAMAN : who === "Cell Jr." ? CELL_JR : who === "soldado" ? GENERIC_F : who === "saiyajin" || who === "terrícola" ? GENERIC_Z_EARTH : GENERIC_Z);
+  return [namedEntry(who, "z", 0, stats, mapId)];
 }
 
 export function buildRoster(mapId = "namek") {

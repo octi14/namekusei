@@ -3,9 +3,9 @@ import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { TEAM_SIZE, superRank, loadSettings, applySettings, snapshot, PIXEL, BLOOM, SHADOWS, MOUSE, FOV, MAP, MATCH_MINS } from "./config.js";
+import { TEAM_SIZE, superRank, loadSettings, applySettings, applySandbox, snapshot, PIXEL, BLOOM, SHADOWS, MOUSE, FOV, MAP, MATCH_MINS } from "./config.js";
 import { createWorld, updateWorld, WATER_Y, buildMapMaquette } from "./world.js";
-import { buildRoster } from "./roster.js";
+import { buildRoster, buildSandboxRoster } from "./roster.js";
 import { setScenario, current } from "./scenario.js";
 import { Personaje, resolvePeople } from "./personaje.js";
 import { DragonBalls, resolveBallCollisions } from "./dragonBalls.js";
@@ -99,6 +99,7 @@ let cam;
 let combat;
 let player;
 let worldReady = false;
+let sandboxMode = false;
 
 const keys = new Set();
 let keysOn = true;
@@ -312,7 +313,12 @@ function applyLabels() {
   document.getElementById("menu-f-h").textContent = current.fLabel;
 }
 
-async function startGame(id) {
+async function startGame(id, opts = {}) {
+  const who = opts.who;
+  if (opts.sandbox) {
+    applySandbox(420, 1);
+    sandboxMode = true;
+  }
   await preloadGoku();
   setScenario(id);
   if (id === "vegeta") {
@@ -403,19 +409,19 @@ async function startGame(id) {
   renderer.toneMappingExposure = landExposure;
   createWorld(scene, id);
   applyGfx();
-  const roster = buildRoster(id);
+  const roster = opts.sandbox && who ? buildSandboxRoster(who, id) : buildRoster(id);
   const zTeam = roster.filter((r) => r.faccion === "z");
   const fTeam = roster.filter((r) => r.faccion === "f");
   people = roster.map((def) => {
     const team = def.faccion === "z" ? zTeam : fTeam;
     const i = team.indexOf(def);
-    return new Personaje(def, i, TEAM_SIZE, scene);
+    return new Personaje(def, i, Math.max(1, team.length), scene);
   });
   balls = new DragonBalls(scene);
   match = new Match();
   cam = new PlayerCamera(camera);
   combat = new Combat(scene, balls, cam, match);
-  const want = document.getElementById("opt-hero").value;
+  const want = who || document.getElementById("opt-hero").value;
   player = people.find((p) => p.nombre === want) || people.find((p) => p.nombre === "Gokú") || people[0];
   player.controller = "humano";
   player.nameLabel.element.classList.add("yo");
@@ -427,6 +433,24 @@ async function startGame(id) {
   mqRenderer.dispose();
   document.getElementById("boot").style.display = "none";
   document.getElementById("click-msg").style.display = "flex";
+}
+
+addEventListener("nk-anim-test", (e) => {
+  const who = e.detail?.who;
+  if (!who) return;
+  if (worldReady) {
+    sessionStorage.setItem("nk-anim-test", who);
+    location.reload();
+    return;
+  }
+  startGame("namek", { who, sandbox: true });
+});
+{
+  const who = sessionStorage.getItem("nk-anim-test");
+  if (who) {
+    sessionStorage.removeItem("nk-anim-test");
+    startGame("namek", { who, sandbox: true });
+  }
 }
 
 const lockEl = document.createElement("div");
@@ -511,7 +535,7 @@ document.addEventListener("pointerlockchange", () => {
   locked = document.pointerLockElement === canvas;
   document.getElementById("click-msg").style.display =
     !worldReady || locked || menuOpen ? "none" : "flex";
-  if (locked && match) match.start();
+  if (locked && match) match.start(sandboxMode);
 });
 addEventListener("mousemove", (e) => {
   if (!locked) return;
@@ -674,6 +698,7 @@ function loop(now) {
         else player.duckHold();
       }
       player.guard(keys.has("ControlLeft") || keys.has("ControlRight") || keys.has("KeyX"), dt);
+      combat.healNearest(player, people);
       if (keys.has("KeyF")) {
         if (player.superHold !== -99) {
           if (!player._sfxSuper) {

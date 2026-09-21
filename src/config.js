@@ -8,8 +8,8 @@ export let SUPER_KI = 0.7;
 export let SUPER_ATK2 = 28;
 export let SUPER_ATK3 = 32;
 export let MATCH_SEC = 20 * 60;
-export let STAT_FLOOR = 0.5;
-export let DEATH_MULT = 1;
+export let STAT_FLOOR = 0.5; // Al morir, stats no bajan de orig * esto (0.5 = 50% del inicial)
+export let DEATH_MULT = 1; // Al morir, atk/def/vel/kiMax se multiplican por esto (1 = no se pierden; 0.9 = -10%)
 export let HP_REGEN = 5;
 export let KI_REGEN = 18;
 export let KI_REGEN_PASSIVE = 2;
@@ -66,6 +66,13 @@ export function applySettings(s, save = true) {
   if (save) {
     try { localStorage.setItem(LS, JSON.stringify(snapshot())); } catch (_) {}
   }
+}
+
+export function applySandbox(map = 420, team = 1) {
+  TEAM_SIZE = team;
+  MAP = map;
+  BASE_Z = Math.min(960 * MAP / 2200, MAP / 2 - 90);
+  MATCH_SEC = 0;
 }
 
 export function loadSettings() {

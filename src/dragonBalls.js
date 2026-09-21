@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { MAP, BASE_Z } from "./config.js";
 import { log } from "./log.js";
-import { surfaceHeight, groundHeight, WATER_Y, isWater, pickDryLand } from "./world.js";
+import { surfaceHeight, groundHeight, WATER_Y, isWater, pickDryLand, pushOutObst } from "./world.js";
 import { shipBallSlot } from "./bases.js";
 
 const BALL_R = 0.72;
@@ -160,7 +160,8 @@ export class DragonBalls {
     b.cold = 0.7;
     b.mesh.visible = true;
     b.vy = 2.4;
-    b.mesh.position.set(x, surfaceHeight(x, z) + 1.1, z);
+    const p = pushOutObst({ x, z }, 2.6);
+    b.mesh.position.set(p.x, surfaceHeight(p.x, p.z) + 1.1, p.z);
   }
 
   tick(dt) {
