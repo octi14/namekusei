@@ -456,7 +456,7 @@ export class Combat {
       t.aiHeat = (t.aiHeat || 0) - 1.15;
       t.hitBy = [];
       const src = from || atk?.pos();
-      if (src) t.knock(src, ki ? 16 : 12);
+      if (src) t.knock(src, ki ? 11 : 8);
       t.die(this.balls, atk, ki);
       // KILL: stats que GANA el que mata (no toca la velocidad de los proyectiles).
       // Muerte / pérdida: personaje.js die() + DEATH_MULT / STAT_FLOOR en config.js
@@ -474,7 +474,7 @@ export class Combat {
     }
     const src = from || atk?.pos();
     // Los golpes intermedios del combo empujan poco: el remate es el que manda lejos.
-    const kbForce = ki ? 20 : finisher ? 22 : 5;
+    const kbForce = ki ? 14 : finisher ? 15 : 4;
     if (src) {
       t.knock(src, kbForce);
       if (heavy && (t.flyAlt || 0) < 0.25 && !t.inSwim()) {

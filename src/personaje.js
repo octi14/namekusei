@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
-import { FLY_MAX, FLY_UP, FLY_DOWN, HP_REGEN, KI_REGEN, KI_REGEN_PASSIVE, DEATH_MULT, STAT_FLOOR } from "./config.js";
+import { FLY_MAX, FLY_UP, FLY_DOWN, HP_REGEN, KI_REGEN, KI_REGEN_PASSIVE, DEATH_MULT, DEATH_MULT_ATK, DEATH_MULT_VEL, STAT_FLOOR } from "./config.js";
 import { spawnPos, clampMap, resolveObstacles, inOwnBase, surfaceHeight, isWater, groundHeight, WATER_Y } from "./world.js";
 import { resolveShipCollisions } from "./bases.js";
 import { log, logKill } from "./log.js";
@@ -489,7 +489,7 @@ export class Personaje {
         this.flyAlt = 0;
         this.vy = 0;
       }
-      const deadDrag = falling ? 0.85 : 11;
+      const deadDrag = falling ? 5.2 : 14;
       this.vx *= Math.exp(-deadDrag * dt);
       this.vz *= Math.exp(-deadDrag * dt);
       this.mesh.position.x += this.vx * dt;
@@ -719,7 +719,7 @@ export class Personaje {
       }
       this.mesh.position.x += this.vx * dt;
       this.mesh.position.z += this.vz * dt;
-      const kbDrag = this.inSwim() ? 3.4 : this.flyAlt > 0.2 ? 1.2 : 9.8;
+      const kbDrag = this.inSwim() ? 4.5 : this.flyAlt > 0.2 ? 4.2 : 12.5;
       this.vx *= Math.exp(-kbDrag * dt);
       this.vz *= Math.exp(-kbDrag * dt);
     }
@@ -1494,8 +1494,12 @@ export class Personaje {
   applyHeadLook(dt) {
     const head = this.limbs?.headG;
     if (!head || this.dead) return;
-    const MAX_Y = 0.72;
-    const MAX_X = 0.2;
+    // Límites de cuello (local): yaw ~±32°, pitch ~±22°, tilt ~±14°
+    const MAX_Y = 0.56;
+    const MAX_X = 0.38;
+    const LIM_Y = 0.56;
+    const LIM_X = 0.42;
+    const LIM_Z = 0.25;
     let wantY = 0;
     let wantX = 0;
     const tgt = this.lookWorld;
@@ -1508,10 +1512,10 @@ export class Personaje {
       while (yawTo > Math.PI) yawTo -= Math.PI * 2;
       while (yawTo < -Math.PI) yawTo += Math.PI * 2;
       wantY = THREE.MathUtils.clamp(yawTo, -MAX_Y, MAX_Y);
-      wantX = THREE.MathUtils.clamp(Math.atan2(tgt.y - (pos.y + this.height * 0.72), dist) * 0.7, -MAX_X, MAX_X);
+      wantX = THREE.MathUtils.clamp(Math.atan2(tgt.y - (pos.y + this.height * 0.72), dist) * 0.55, -MAX_X * 0.55, MAX_X);
     } else if (this.camLook) {
       wantY = THREE.MathUtils.clamp(this.lookOrbit || 0, -MAX_Y, MAX_Y);
-      wantX = THREE.MathUtils.clamp((this.lookPitch || 0) * 0.28, -MAX_X, MAX_X);
+      wantX = THREE.MathUtils.clamp((this.lookPitch || 0) * 0.22, -MAX_X * 0.55, MAX_X);
     }
     const punch = (this.posePunch || 0) > 0 || (this.stun || 0) > 0;
     const w = punch ? 0.12 : 1;
@@ -1521,6 +1525,10 @@ export class Personaje {
     this._lookX = THREE.MathUtils.clamp(this._lookX, -MAX_X, MAX_X);
     head.rotation.y += this._lookY;
     head.rotation.x += this._lookX;
+    // Tope absoluto: pose de clip + mirada no puede romper el cuello
+    head.rotation.y = THREE.MathUtils.clamp(head.rotation.y, -LIM_Y, LIM_Y);
+    head.rotation.x = THREE.MathUtils.clamp(head.rotation.x, -LIM_X, LIM_X);
+    head.rotation.z = THREE.MathUtils.clamp(head.rotation.z, -LIM_Z, LIM_Z);
   }
 
   charge(dt) {
@@ -1842,10 +1850,10 @@ export class Personaje {
     }
     if (killer) logKill(killer.nombre, this.nombre, ki, "", killer.faccion);
     else log(`${this.nombre} cayó`, this.faccion);
-    // DEATH: stats que PIERDE el que muere. DEATH_MULT y STAT_FLOOR están en config.js
-    // (hoy DEATH_MULT=1 → no baja nada; el piso es orig * STAT_FLOOR).
+    // DEATH: atk/vel caen más; def/kiMax un poco menos. Piso = orig * STAT_FLOOR.
+    const mult = { ataque: DEATH_MULT_ATK, velocidad: DEATH_MULT_VEL, defensa: DEATH_MULT, kiMax: DEATH_MULT };
     for (const k of ["ataque", "defensa", "velocidad", "kiMax"]) {
-      this.s[k] = Math.max(this.orig[k] * STAT_FLOOR, this.s[k] * DEATH_MULT);
+      this.s[k] = Math.max(this.orig[k] * STAT_FLOOR, this.s[k] * mult[k]);
     }
   }
 

@@ -12,6 +12,8 @@ export class PlayerCamera {
     this.kick = 0;
     this._fov = 0;
     this._fpBody = null;
+    /** En spectate 1ª persona: la cámara sigue lookWorld / cabeza de la IA. */
+    this.followAiLook = false;
   }
 
   _setFp(p, on) {
@@ -100,9 +102,6 @@ export class PlayerCamera {
     } else {
       this._setFp(p, true);
       p.mesh.updateMatrixWorld(true);
-      const pit = this.pitch;
-      const cy = Math.cos(pit);
-      const aim = new THREE.Vector3(Math.sin(p.yaw) * cy, Math.sin(pit), Math.cos(p.yaw) * cy);
       const eye = new THREE.Vector3();
       const head = p.limbs?.headG;
       if (head) {
@@ -112,10 +111,42 @@ export class PlayerCamera {
         eye.copy(p.pos());
         eye.y += p.height * 0.84;
       }
-      // Más adelante: en lean/punch/blast la cabeza se mete en el torso/pelo
       const rigged = !!p.mesh?.userData?.gokuVis;
+      let yawAim = p.yaw;
+      let pit = this.pitch;
+      if (this.followAiLook) {
+        const tgt = p.lookWorld;
+        if (tgt) {
+          const dx = tgt.x - eye.x;
+          const dy = tgt.y - eye.y;
+          const dz = tgt.z - eye.z;
+          const flat = Math.hypot(dx, dz) || 0.001;
+          yawAim = Math.atan2(dx, dz);
+          const wantPit = THREE.MathUtils.clamp(Math.atan2(dy, flat), -1.15, 0.95);
+          this.pitch = THREE.MathUtils.damp(this.pitch, wantPit, 10, dt);
+          pit = this.pitch;
+          let dY = yawAim - (this._fyaw ?? yawAim);
+          while (dY > Math.PI) dY -= Math.PI * 2;
+          while (dY < -Math.PI) dY += Math.PI * 2;
+          this._fyaw = (this._fyaw ?? yawAim) + dY * (1 - Math.exp(-12 * dt));
+          yawAim = this._fyaw;
+        } else {
+          yawAim = p.yaw + (p._lookY || 0) + (p.limbs?.torsoG?.rotation.y || 0);
+          const wantPit = THREE.MathUtils.clamp((p._lookX || 0) * 2.8, -0.85, 0.65);
+          this.pitch = THREE.MathUtils.damp(this.pitch, wantPit, 10, dt);
+          pit = this.pitch;
+          this._fyaw = yawAim;
+        }
+        this.orbit = 0;
+      }
+      const cy = Math.cos(pit);
+      const aim = new THREE.Vector3(Math.sin(yawAim) * cy, Math.sin(pit), Math.cos(yawAim) * cy);
+      // Más adelante: en lean/punch/blast la cabeza se mete en el torso/pelo
       eye.addScaledVector(aim, rigged ? 0.58 : 0.48);
       const look = eye.clone().addScaledVector(aim, 8);
+      if (this.followAiLook && p.lookWorld) {
+        look.set(p.lookWorld.x, p.lookWorld.y, p.lookWorld.z);
+      }
       this.camera.position.copy(eye);
       this.camera.lookAt(look);
       this._fpPos = eye;

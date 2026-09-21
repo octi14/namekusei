@@ -844,7 +844,7 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
     }
   } else if (t === "namek" || t === "piccolo" || t === "nail" || t === "dende" || t === "turban") {
     if (t !== "turban") {
-      for (const side of [-1, 1]) {
+    for (const side of [-1, 1]) {
         const ant = loftMesh(
           [sc.antR * s, sc.antR * 0.85 * s, sc.antR * 0.65 * s],
           sc.antLen * s,
@@ -852,8 +852,8 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
           { radial: 8 }
         );
         ant.position.set(side * sc.antSpread * s, 0.18 * s, 0.06 * s);
-        ant.rotation.z = side * -0.28;
-        ant.rotation.x = -0.35;
+      ant.rotation.z = side * -0.28;
+      ant.rotation.x = -0.35;
         tagHair(ant, `ant_${side > 0 ? "R" : "L"}`);
       }
     }
@@ -932,7 +932,7 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
       tagHair(horn, `horn_${side > 0 ? "R" : "L"}`);
     }
     if ((sc.showFaceGem ?? 1) > 0.5) {
-      const gem = new THREE.Mesh(
+    const gem = new THREE.Mesh(
         new THREE.SphereGeometry(0.04 * s, 16, 14),
         surf(look.accent ?? 0xab47bc, {
           roughness: 0.25,
@@ -949,7 +949,7 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
       gem.scale.set(sc.faceGemSx ?? 1, sc.faceGemSy ?? 1, sc.faceGemSz ?? 1);
       gem.userData.moldId = "gem";
       gem.userData.moldFamily = "face";
-      headG.add(gem);
+    headG.add(gem);
     }
   }
 }
@@ -972,7 +972,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     const hsx = sc.headSx || 1;
     const hsy = sc.headSy || 1;
     const hsz = sc.headSz || 1;
-    for (const side of [-1, 1]) {
+  for (const side of [-1, 1]) {
       const sideK = side > 0 ? "R" : "L";
       if (!dot) {
         const w = new THREE.Mesh(new THREE.SphereGeometry(wR * s * hk, 14, 12), whiteM);
@@ -981,7 +981,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
         w.rotation.z = side * (sc.eyeTilt || 0);
         w.userData.moldId = `eye_${sideK}_w`;
         w.userData.moldFamily = "eye";
-        headG.add(w);
+    headG.add(w);
       }
       const e = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk, 12, 10), eyeM);
       e.position.set(
@@ -993,7 +993,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
       e.rotation.z = side * (sc.eyeTilt || 0); // "Ojo inclin." también en tipo dot
       e.userData.moldId = `eye_${sideK}_i`;
       e.userData.moldFamily = "eye";
-      headG.add(e);
+    headG.add(e);
     }
   }
   if (sc.brow > 0.05) {
@@ -1414,15 +1414,15 @@ export function makeBody(altura, look, sculpt = {}) {
       torsoG.add(tail);
     }
   } else if (sc.showBelt > 0.5) {
-    const belt = new THREE.Mesh(
+  const belt = new THREE.Mesh(
       new THREE.TorusGeometry(sc.beltR * s, sc.beltThick * s, 10, 24),
       kit === "armor" || kit === "soldier" ? plateM : accent
-    );
-    belt.rotation.x = Math.PI / 2;
+  );
+  belt.rotation.x = Math.PI / 2;
     belt.position.y = 0.72 * s - waistY + ty + (sc.beltY || 0) * s;
     belt.userData.moldId = "belt";
     belt.userData.moldFamily = "cloth";
-    torsoG.add(belt);
+  torsoG.add(belt);
   }
 
   if (kit === "armor" || kit === "soldier") {

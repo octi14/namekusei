@@ -1,6 +1,11 @@
 import * as THREE from "three";
 import { MAP, BASE_Z, QUALITY, SHADOWS } from "./config.js";
 import { addShipBases, bindBaseWorld, inShipBase, shipSpawnPos, shipWalkHeight, BASE_INNER_R, BASE_PAD_R } from "./bases.js";
+import grassUrl from "./assets/terrain/grass.jpg?url";
+
+const _texLoader = new THREE.TextureLoader();
+let _grassFileTex = null;
+let _grassNamekTex = null;
 
 const BASE_R = BASE_INNER_R;
 export const patriarchHill = { x: 140, z: 0, baseY: 2 };
@@ -1163,19 +1168,13 @@ function addLandmarks(scene) {
   }
 }
 
-function grassTex(kind) {
-  const n = 2048;
+function rockTex() {
+  const n = 1024;
   const c = document.createElement("canvas");
   c.width = c.height = n;
   const ctx = c.getContext("2d", { willReadFrequently: true });
   const img = ctx.createImageData(n, n);
   const d = img.data;
-  const urban = kind === "city";
-  const rock = kind === "vegeta";
-  const earth = kind === "earth" || kind === true;
-  const br = urban ? 78 : rock ? 110 : earth ? 52 : 28;
-  const bg = urban ? 82 : rock ? 72 : earth ? 128 : 110;
-  const bb = urban ? 88 : rock ? 78 : earth ? 42 : 168;
   for (let y = 0; y < n; y++) {
     for (let x = 0; x < n; x++) {
       const n1 = Math.sin(x * 0.035 + y * 0.021) * 0.5 + Math.sin(x * 0.09 - y * 0.07) * 0.28;
@@ -1183,60 +1182,16 @@ function grassTex(kind) {
       const n3 = ((x * 13 + y * 37) & 255) / 255;
       const v = n1 * 0.45 + n2 * 0.3 + (n3 - 0.5) * 0.35;
       const i = (y * n + x) * 4;
-      d[i] = Math.max(0, Math.min(255, br + v * 42 + (n3 - 0.5) * 18));
-      d[i + 1] = Math.max(0, Math.min(255, bg + v * 48 + n2 * 16));
-      d[i + 2] = Math.max(0, Math.min(255, bb + v * 28 + (earth ? -n1 * 10 : n1 * 22)));
+      d[i] = Math.max(0, Math.min(255, 110 + v * 42 + (n3 - 0.5) * 18));
+      d[i + 1] = Math.max(0, Math.min(255, 72 + v * 48 + n2 * 16));
+      d[i + 2] = Math.max(0, Math.min(255, 78 + v * 28 + n1 * 22));
       d[i + 3] = 255;
     }
   }
   ctx.putImageData(img, 0, 0);
-  if (!urban && !rock) {
-    const blade = (x, y, w, h, col) => {
-      ctx.fillStyle = col;
-      ctx.fillRect(((x % n) + n) % n, ((y % n) + n) % n, w, h);
-    };
-    for (let i = 0; i < 90000; i++) {
-      const col = earth
-        ? `rgb(${36 + Math.random() * 70},${95 + Math.random() * 110},${22 + Math.random() * 48})`
-        : `rgb(${16 + Math.random() * 50},${85 + Math.random() * 90},${130 + Math.random() * 95})`;
-      const x = Math.random() * n;
-      const y = Math.random() * n;
-      const w = 1 + Math.random() * 2.2;
-      const h = 4 + Math.random() * 11;
-      blade(x, y, w, h, col);
-      if (x + w > n) blade(x - n, y, w, h, col);
-      if (y + h > n) blade(x, y - n, w, h, col);
-    }
-  }
-  for (let i = 0; i < (urban ? 4000 : 12000); i++) {
-    ctx.fillStyle = urban
-      ? `rgba(${90 + Math.random() * 40},${90 + Math.random() * 40},${90 + Math.random() * 40},0.28)`
-      : rock
-        ? `rgba(${140 + Math.random() * 40},${80 + Math.random() * 30},${70 + Math.random() * 25},0.32)`
-        : earth
-          ? `rgba(${90 + Math.random() * 50},${80 + Math.random() * 40},${40 + Math.random() * 30},0.35)`
-          : `rgba(${40 + Math.random() * 40},${70 + Math.random() * 40},${90 + Math.random() * 50},0.28)`;
+  for (let i = 0; i < 12000; i++) {
+    ctx.fillStyle = `rgba(${140 + Math.random() * 40},${80 + Math.random() * 30},${70 + Math.random() * 25},0.32)`;
     ctx.fillRect(Math.random() * n, Math.random() * n, 1 + Math.random() * 2, 1 + Math.random() * 2);
-  }
-  for (let i = 0; i < 90; i++) {
-    const rx = Math.random() * n;
-    const ry = Math.random() * n;
-    const rr = 18 + Math.random() * 55;
-    const g = ctx.createRadialGradient(rx, ry, 0, rx, ry, rr);
-    g.addColorStop(0, earth ? "rgba(120,90,40,0.22)" : "rgba(30,90,120,0.18)");
-    g.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(rx - rr, ry - rr, rr * 2, rr * 2);
-  }
-  for (let i = 0; i < 40; i++) {
-    ctx.strokeStyle = earth ? "rgba(60,45,25,0.18)" : "rgba(20,60,90,0.16)";
-    ctx.lineWidth = 2 + Math.random() * 4;
-    ctx.beginPath();
-    const x0 = Math.random() * n;
-    const y0 = Math.random() * n;
-    ctx.moveTo(x0, y0);
-    ctx.quadraticCurveTo(x0 + (Math.random() - 0.5) * 80, y0 + 40 + Math.random() * 60, x0 + (Math.random() - 0.5) * 40, y0 + 90);
-    ctx.stroke();
   }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -1247,6 +1202,66 @@ function grassTex(kind) {
   t.generateMipmaps = true;
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+function grassFileTex() {
+  if (_grassFileTex) return _grassFileTex;
+  const t = _texLoader.load(grassUrl);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(140, 140);
+  t.anisotropy = 16;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = true;
+  t.colorSpace = THREE.SRGBColorSpace;
+  _grassFileTex = t;
+  return t;
+}
+
+/** Misma textura con hue namekiano (teal/azul), sin el verde Tierra. */
+function grassNamekTex() {
+  if (_grassNamekTex) return _grassNamekTex;
+  const t = new THREE.Texture();
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(140, 140);
+  t.anisotropy = 16;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = true;
+  t.colorSpace = THREE.SRGBColorSpace;
+  _grassNamekTex = t;
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement("canvas");
+    c.width = img.width;
+    c.height = img.height;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    const id = ctx.getImageData(0, 0, c.width, c.height);
+    const d = id.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      const lum = r * 0.25 + g * 0.5 + b * 0.25;
+      // Remap: matar verde, empujar cyan/azul namek
+      d[i] = Math.max(0, Math.min(255, lum * 0.42 + b * 0.22 + 28));
+      d[i + 1] = Math.max(0, Math.min(255, lum * 0.55 + g * 0.12 + 72));
+      d[i + 2] = Math.max(0, Math.min(255, lum * 0.48 + b * 0.35 + g * 0.18 + 110));
+    }
+    ctx.putImageData(id, 0, 0);
+    t.image = c;
+    t.needsUpdate = true;
+  };
+  img.src = grassUrl;
+  return t;
+}
+
+/** Pasto real en mapas verdes; Namek teñido; procedural solo en vegeta. */
+function grassTex(kind) {
+  if (kind === "vegeta") return rockTex();
+  if (kind === "namek") return grassNamekTex();
+  return grassFileTex();
 }
 
 let sunLight;
@@ -1990,9 +2005,9 @@ export function createWorld(scene, id = "namek") {
           const rock = new THREE.Color(y > 32 ? 0x5d4037 : 0x8d6e63);
           cc.copy(g).lerp(rock, Math.min(1, amt * 0.92 + Math.max(0, y - 18) * 0.025));
         }
-      } else if (y < WATER_Y + 0.85) cc.setHex(0x66bb6a);
-      else if (y > 24) cc.setHex(0x1565c0);
-      else cc.setHex(0x81d4fa);
+      } else if (y < WATER_Y + 0.85) cc.setHex(0x80cbc4);
+      else if (y > 24) cc.setHex(0x1e88e5);
+      else cc.setHex(0x90caf9);
       cols[i * 3] = cc.r;
       cols[i * 3 + 1] = cc.g;
       cols[i * 3 + 2] = cc.b;
@@ -2002,6 +2017,7 @@ export function createWorld(scene, id = "namek") {
       geo,
       new THREE.MeshStandardMaterial({
         map: grassMap,
+        color: earth || cell || vegeta ? 0xffffff : 0xb3e5fc,
         vertexColors: true,
         roughness: vegeta ? 0.96 : 0.92,
         metalness: 0.02,
@@ -2122,7 +2138,7 @@ export function buildMapMaquette(id = "namek") {
       else if (y < WATER_Y + 2.4) hex = 0xc9b896;
       else hex = amt * 0.92 + Math.max(0, y - 18) * 0.025 > 0.55 ? (y > 32 ? 0x5d4037 : 0x8d6e63) : y > 4 ? 0x43a047 : 0x66bb6a;
     } else {
-      hex = y < WATER_Y + 0.85 ? 0x66bb6a : y > 24 ? 0x1565c0 : 0x81d4fa;
+      hex = y < WATER_Y + 0.85 ? 0x80cbc4 : y > 24 ? 0x1e88e5 : 0x90caf9;
     }
     cc.setHex(hex);
     cols[i * 3] = cc.r;

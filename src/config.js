@@ -5,11 +5,13 @@ export let FLY_MAX = 50;
 export let FLY_UP = 25;
 export let FLY_DOWN = 50;
 export let SUPER_KI = 0.7;
-export let SUPER_ATK2 = 28;
-export let SUPER_ATK3 = 32;
+export let SUPER_ATK2 = 27;
+export let SUPER_ATK3 = 30;
 export let MATCH_SEC = 20 * 60;
 export let STAT_FLOOR = 0.5; // Al morir, stats no bajan de orig * esto (0.5 = 50% del inicial)
-export let DEATH_MULT = 1; // Al morir, atk/def/vel/kiMax se multiplican por esto (1 = no se pierden; 0.9 = -10%)
+export let DEATH_MULT = 0.9; // def / kiMax al morir
+export let DEATH_MULT_ATK = 0.93; // ataque: pierde más (~7%)
+export let DEATH_MULT_VEL = 0.9; // velocidad: pierde más (~10%)
 export let HP_REGEN = 5;
 export let KI_REGEN = 18;
 export let KI_REGEN_PASSIVE = 2;

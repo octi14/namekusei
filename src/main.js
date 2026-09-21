@@ -540,6 +540,8 @@ document.addEventListener("pointerlockchange", () => {
 addEventListener("mousemove", (e) => {
   if (!locked) return;
   const sens = 0.00115 * MOUSE;
+  // Spectate 1ª: la mirada la lleva la IA; solo órbita en 3ª
+  if (spectating && !cam.third) return;
   if (spectating || cam.third) cam.orbit -= e.movementX * sens;
   else player.yaw -= e.movementX * sens;
   cam.pitch = Math.max(-1.45, Math.min(1.28, cam.pitch - e.movementY * 0.00135 * MOUSE));
@@ -722,7 +724,7 @@ function loop(now) {
       }
     }
     if (!spectating && player && cam.third && !player.dead && !(player.lockT > 0)) {
-      const neck = 0.72;
+      const neck = 0.56;
       if (Math.abs(cam.orbit) > neck) {
         const extra = cam.orbit - Math.sign(cam.orbit) * neck;
         const turn = extra * Math.min(1, dt * 7);
@@ -772,6 +774,7 @@ function loop(now) {
     balls.tick(dt);
   }
   const view = viewChar();
+  cam.followAiLook = spectating;
   cam.update(view, dt);
   {
     const t = !spectating && player.lockT > 0 && player.lockFoe && !player.lockFoe.dead ? player.lockFoe : null;
