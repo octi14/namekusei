@@ -1,6 +1,7 @@
 import * as THREE from "three";
-import { surfaceHeight } from "./world.js";
+import { surfaceHeight, groundHeight, WATER_Y } from "./world.js";
 import { CAM_ZOOM } from "./config.js";
+import { canSee } from "./combat.js";
 
 export class PlayerCamera {
   constructor(camera) {
@@ -86,15 +87,28 @@ export class PlayerCamera {
       const aim = new THREE.Vector3(Math.sin(yaw) * cy, Math.sin(pit), Math.cos(yaw) * cy);
       const right = new THREE.Vector3(f.z, 0, -f.x);
       const torso = p.pos().clone();
-      torso.y += 0.88 + b * 0.06;
-      const look = torso.clone().addScaledVector(aim, 14);
+      const wet = !!(p.inSwim?.() && (p.swim || 0) > 0.18);
+      torso.y += wet ? p.height * 0.42 : 0.88 + b * 0.06;
+      const look = wet ? torso.clone() : torso.clone().addScaledVector(aim, 14);
       const dist = CAM_ZOOM + b * 1.55;
       const dest = torso.clone().addScaledVector(aim, -dist);
-      dest.y += 0.28;
       dest.addScaledVector(right, this._bank * 0.85);
-      dest.y = Math.max(surfaceHeight(dest.x, dest.z) + 0.35, dest.y);
+      if (wet) {
+        dest.set(torso.x - Math.sin(yaw) * dist, torso.y - pit * 0.85, torso.z - Math.cos(yaw) * dist);
+        dest.addScaledVector(right, this._bank * 0.45);
+        for (let i = 0; i < 10 && groundHeight(dest.x, dest.z) > WATER_Y - 0.3; i++) {
+          dest.x += (torso.x - dest.x) * 0.28;
+          dest.z += (torso.z - dest.z) * 0.28;
+        }
+        const bed = groundHeight(dest.x, dest.z) + 0.32;
+        dest.y = THREE.MathUtils.clamp(torso.y - pit * 0.85, bed, WATER_Y - 0.45);
+      } else {
+        dest.y += 0.28;
+        dest.y = Math.max(surfaceHeight(dest.x, dest.z) + 0.35, dest.y);
+      }
       if (!this._cpos) this._cpos = dest.clone();
-      const chase = 8 + (1 - fly) * 10;
+      const chase = wet ? 22 : 8 + (1 - fly) * 10;
+      if (wet && this._cpos.y > WATER_Y - 0.05) this._cpos.y = dest.y;
       this._cpos.lerp(dest, 1 - Math.exp(-chase * dt));
       this.camera.position.copy(this._cpos);
       this.camera.lookAt(look.x, look.y, look.z);
@@ -169,25 +183,16 @@ export class PlayerCamera {
   }
 }
 
-const _fwd = new THREE.Vector3();
-const _to = new THREE.Vector3();
-
 export function updateSeenBars(camera, player, people) {
-  camera.getWorldDirection(_fwd);
-  const from = player.pos();
+  const wrap = { camera };
   for (const p of people) {
     const el = p.nameLabel?.element;
     const fill = p.hpFill;
     if (!el || !fill || !p.hpWrap) continue;
     let seen = false;
     if (p !== player && !p.dead) {
-      const dist = p.pos().distanceTo(from);
-      _to.copy(p.pos()).sub(camera.position);
-      const camD = _to.length();
-      _to.y *= 0.3;
-      if (_to.lengthSq() > 1e-8) _to.normalize();
       const maxD = p.faccion === player.faccion ? 96 : 68;
-      seen = dist > 0.9 && dist < maxD && camD > 1.05 && _to.dot(_fwd) > 0.08;
+      seen = canSee(player, p, maxD, wrap);
     }
     el.style.display = seen ? "" : "none";
     p.hpWrap.style.display = seen ? "block" : "none";

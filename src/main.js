@@ -10,12 +10,13 @@ import { setScenario, current } from "./scenario.js";
 import { Personaje, resolvePeople } from "./personaje.js";
 import { DragonBalls, resolveBallCollisions } from "./dragonBalls.js";
 import { Match } from "./match.js";
-import { Combat } from "./combat.js";
+import { Combat, canSee, eyeAim } from "./combat.js";
 import { PlayerCamera, updateSeenBars } from "./camera.js";
 import { aiTick } from "./ai.js";
 import { renderHud } from "./ui.js";
 import { setAudioListener, playSfx, stopSfxLoop, atPos } from "./sfx.js";
 import { powerStyle } from "./powers.js";
+import { healerSpec } from "./stats.js";
 import { preloadGoku } from "./gokuRig.js";
 import { hydratePack } from "./pack.js";
 import { toggleCharEditor, charEditorOpen, setCharEditor } from "./charEditor.js";
@@ -607,22 +608,38 @@ addEventListener("mousedown", (e) => {
 });
 addEventListener("contextmenu", (e) => e.preventDefault());
 
+{
+  const healBtn = document.getElementById("btn-heal");
+  const holdHeal = (on) => {
+    if (on) keys.add("KeyY");
+    else keys.delete("KeyY");
+  };
+  healBtn?.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    healBtn.setPointerCapture(e.pointerId);
+    holdHeal(true);
+  });
+  healBtn?.addEventListener("pointerup", () => holdHeal(false));
+  healBtn?.addEventListener("pointercancel", () => holdHeal(false));
+}
+
 function lockOn() {
   const maxD = (powerStyle(player.nombre, player.faccion).range || 55) * 0.85;
+  const dir = eyeAim(player, cam, new THREE.Vector3());
   let best = null;
-  let bestD = maxD + 8;
-  const origin = player.pos();
-  const f = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
+  let bestS = 1e9;
   for (const o of people) {
     if (o === player || o.faccion === player.faccion || o.dead) continue;
-    const to = o.pos().clone().sub(origin);
+    if (!canSee(player, o, maxD, cam, true)) continue;
+    const to = o.pos().clone().sub(player.pos());
     const d = to.length();
-    if (d > maxD || d < 1.2) continue;
-    to.y = 0;
+    if (d < 1.2) continue;
+    to.y = o.pos().y + o.height * 0.55 - (player.pos().y + player.height * 0.72);
+    if (to.lengthSq() < 1e-8) continue;
     to.normalize();
-    const score = d + (to.dot(f) > 0.2 ? 0 : 22);
-    if (score < bestD) {
-      bestD = score;
+    const s = d * 0.2 + (1 - to.dot(dir)) * 36;
+    if (s < bestS) {
+      bestS = s;
       best = o;
     }
   }
@@ -700,7 +717,7 @@ function loop(now) {
         else player.duckHold();
       }
       player.guard(keys.has("ControlLeft") || keys.has("ControlRight") || keys.has("KeyX"), dt);
-      combat.healNearest(player, people);
+      if (keys.has("KeyY") && healerSpec(player.nombre)) combat.healBeam(player, people, dt);
       if (keys.has("KeyF")) {
         if (player.superHold !== -99) {
           if (!player._sfxSuper) {
@@ -736,7 +753,7 @@ function loop(now) {
       if (spectating || p !== player) aiTick(p, people, balls, combat, match, dt);
       p.camLook = !spectating && p === player && cam.third && !p.dead;
       p.lookOrbit = p.camLook ? cam.orbit : 0;
-      p.lookPitch = p.camLook ? cam.pitch : 0;
+      p.lookPitch = !spectating && p === player && !p.dead ? cam.pitch : 0;
       p.lookWorld = null;
       if (!p.dead) {
         const pos = p.pos();

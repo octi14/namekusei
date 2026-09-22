@@ -5,6 +5,51 @@ import { clipOnceDuration } from "./capsuleAnim.js";
 import { powerStyle, makePowerMesh, alignBeam, spawnBurst, spawnClash, spawnHit, spawnMuzzle, spawnMeleeArc, spawnImpactRing, spawnTelegraph } from "./powers.js";
 import { playSfx, atPos, stopSfxLoop } from "./sfx.js";
 import { healerSpec } from "./stats.js";
+import { blockedSight } from "./world.js";
+
+const _eye = new THREE.Vector3();
+const _seeTo = new THREE.Vector3();
+
+/** Dirección de los ojos / cámara (no el rumbo del cuerpo). */
+export function eyeAim(at, cam, out = _eye) {
+  if (cam?.camera && at.controller === "humano") {
+    cam.camera.getWorldDirection(out);
+    if (out.lengthSq() > 1e-6) return out.normalize();
+  }
+  const yaw = at.yaw + (at.camLook ? at.lookOrbit || 0 : at._lookY || 0);
+  const pit = at.controller === "humano" ? at.lookPitch || 0 : at._lookX || 0;
+  const cy = Math.cos(pit);
+  out.set(Math.sin(yaw) * cy, Math.sin(pit), Math.cos(yaw) * cy);
+  if (out.lengthSq() > 1e-6) return out.normalize();
+  return out.copy(fwd(at.yaw));
+}
+
+/** En el cono de visión (cámara / ojos) y sin pared/colina en medio. */
+export function canSee(at, t, maxD = 1e9, cam, tight = false) {
+  if (!at || !t || t === at || t.dead) return false;
+  const ax = at.pos().x;
+  const ay = at.pos().y + at.height * 0.72;
+  const az = at.pos().z;
+  const tx = t.pos().x;
+  const ty = t.pos().y + t.height * 0.55;
+  const tz = t.pos().z;
+  const dist = Math.hypot(tx - ax, ty - ay, tz - az);
+  if (dist > maxD) return false;
+  if (dist < 1.15) return true;
+  if (cam?.camera && at.controller === "humano") {
+    _seeTo.set(tx, ty, tz).applyMatrix4(cam.camera.matrixWorldInverse);
+    if (_seeTo.z > -0.35) return false;
+    _seeTo.set(tx, ty, tz).project(cam.camera);
+    const pad = tight ? 0.26 : 0.02;
+    if (_seeTo.z > 1 || _seeTo.z < -1 || Math.abs(_seeTo.x) > 1 - pad || Math.abs(_seeTo.y) > 1 - pad) return false;
+  } else {
+    _seeTo.set(tx - ax, ty - ay, tz - az);
+    _seeTo.multiplyScalar(1 / dist);
+    if (_seeTo.dot(eyeAim(at, cam)) < (tight ? 0.84 : 0.7)) return false;
+  }
+  if (blockedSight(ax, ay, az, tx, ty, tz)) return false;
+  return true;
+}
 
 function meleeYOk(at, t) {
   const ay = at.pos().y + at.height * 0.55;
@@ -271,9 +316,9 @@ export class Combat {
     const rng = (style.range || 55) * (snipe ? 2.4 : 1) * (superOn ? 2.7 + rank * 0.35 : 1);
     const life = (style.life || 1.4) * (snipe ? 1.5 : 1) * (superOn ? 2.15 + rank * 0.28 : 1);
     const locked =
-      at.lockFoe && !at.lockFoe.dead && (at.lockT || 0) > 0
+      at.lockFoe && !at.lockFoe.dead && (at.lockT || 0) > 0 && canSee(at, at.lockFoe, rng, this.cam, true)
         ? at.lockFoe
-        : this.pickLock(at, dir, people, rng, superOn || snipe ? 0.38 : 0.62);
+        : this.pickLock(at, dir, people, rng);
     const lockD = locked ? at.pos().distanceTo(locked.pos()) : 80;
     const spawnFwd = superOn ? 2.4 : THREE.MathUtils.clamp(lockD * 0.28, 0.32, 1.4);
     const mesh = makePowerMesh(style, superOn, rank);
@@ -322,64 +367,54 @@ export class Combat {
     return true;
   }
 
-  heal(at, t) {
-    const spec = healerSpec(at.nombre);
-    if (!spec || !t || at.dead || t.dead || at === t) return false;
-    if (t.faccion !== at.faccion || at.cooldown > 0 || (at.stun || 0) > 0) return false;
-    if (at.s.ki < spec.ki || t.s.hp >= t.s.hpMax * 0.94) return false;
-    if (at.pos().distanceTo(t.pos()) > spec.range) return false;
-    if (!meleeYOk(at, t)) return false;
-    at.s.ki -= spec.ki;
-    at.cooldown = 1.2;
-    t.s.hp = Math.min(t.s.hpMax, t.s.hp + t.s.hpMax * spec.hp);
-    const pos = t.pos().clone();
-    pos.y += t.height * 0.55;
-    spawnBurst(this.scene, pos, 0x69f0ae, this.fx);
-    spawnMuzzle(this.scene, pos, 0xb9f6ca, this.fx);
-    return true;
-  }
-
-  healNearest(at, people) {
-    const spec = healerSpec(at.nombre);
-    if (!spec || at.dead || at.cooldown > 0) return false;
+  pickHealAlly(at, dir, people, maxD, cone = 0.48) {
+    if (!people) return null;
     let best = null;
-    let worst = 1;
+    let bestS = -1e9;
+    const origin = at.pos();
     for (const t of people) {
       if (t === at || t.dead || t.faccion !== at.faccion) continue;
-      const frac = t.s.hp / Math.max(1, t.s.hpMax);
-      if (frac >= 0.94) continue;
-      if (at.pos().distanceTo(t.pos()) > spec.range) continue;
-      if (!meleeYOk(at, t)) continue;
-      if (frac < worst) {
-        worst = frac;
+      const to = t.pos().clone().sub(origin);
+      const dist = to.length();
+      if (dist > maxD || dist < 0.35) continue;
+      to.normalize();
+      if (to.dot(dir) < cone) continue;
+      const need = t.s.hpMax - t.s.hp;
+      const s = need * 0.02 - dist;
+      if (s > bestS) {
+        bestS = s;
         best = t;
       }
     }
-    return best ? this.heal(at, best) : false;
+    return best;
+  }
+
+  /** Canaliza cura: hay que apuntar al aliado. Gasta ki/s y sube su HP_REGEN. */
+  healBeam(at, people, dt) {
+    const spec = healerSpec(at.nombre);
+    if (!spec || at.dead || (at.stun || 0) > 0) return false;
+    if ((at.posePunch || 0) > 0 || (at.poseBlast || 0) > 0.05) return false;
+    if (at.s.ki < spec.ki * dt) return false;
+    const dir = this.shotDir(at);
+    const t = this.pickHealAlly(at, dir, people, spec.range);
+    if (!t) return false;
+    at.s.ki = Math.max(0, at.s.ki - spec.ki * dt);
+    at._healing = true;
+    t._healBoost = Math.max(t._healBoost || 1, spec.boost);
+    at.lookWorld = { x: t.pos().x, y: t.pos().y + t.height * 0.58, z: t.pos().z };
+    at._healFxT = (at._healFxT || 0) - dt;
+    if (at._healFxT <= 0) {
+      at._healFxT = 0.2;
+      const pos = t.pos().clone();
+      pos.y += t.height * 0.52;
+      spawnMuzzle(this.scene, pos, 0x69f6ae, this.fx);
+    }
+    return true;
   }
 
   shotDir(at) {
-    if (at.controller === "humano" && this.cam?.camera) {
-      const d = new THREE.Vector3();
-      this.cam.camera.getWorldDirection(d);
-      if (d.lengthSq() > 1e-6) return d.normalize();
-    }
-    const yaw = at.yaw + (at._lookY || 0);
-    const pit = at._lookX || 0;
-    const cy = Math.cos(pit);
-    const eye = new THREE.Vector3(Math.sin(yaw) * cy, Math.sin(pit), Math.cos(yaw) * cy);
-    const tgt = at.lookWorld;
-    if (tgt) {
-      const ox = at.pos().x;
-      const oy = at.pos().y + at.height * 0.72;
-      const oz = at.pos().z;
-      const to = new THREE.Vector3(tgt.x - ox, tgt.y - oy, tgt.z - oz);
-      if (to.lengthSq() > 1e-6) {
-        to.normalize();
-        eye.lerp(to, 0.72);
-      }
-    }
-    if (eye.lengthSq() > 1e-6) return eye.normalize();
+    const d = eyeAim(at, this.cam, new THREE.Vector3());
+    if (d.lengthSq() > 1e-6) return d;
     return fwd(at.yaw);
   }
 
@@ -403,21 +438,26 @@ export class Combat {
     }
   }
 
-  pickLock(at, dir, people, maxD = 55, cone = 0.62) {
+  pickLock(at, dir, people, maxD = 55) {
     if (!people) return null;
     let best = null;
-    let bestD = maxD;
-    const origin = at.pos();
+    let bestS = 1e9;
     for (const t of people) {
       if (t.faccion === at.faccion || t === at || t.dead) continue;
-      const to = t.pos().clone().sub(origin);
-      const dist = to.length();
-      if (dist > maxD || dist < 0.2) continue;
-      to.normalize();
-      const need = dist < 16 ? THREE.MathUtils.lerp(cone * 0.35, cone, dist / 16) : cone;
-      if (to.dot(dir) < need) continue;
-      if (dist < bestD) {
-        bestD = dist;
+      if (!canSee(at, t, maxD, this.cam, true)) continue;
+      const ox = at.pos().x;
+      const oy = at.pos().y + at.height * 0.72;
+      const oz = at.pos().z;
+      const tx = t.pos().x;
+      const ty = t.pos().y + t.height * 0.55;
+      const tz = t.pos().z;
+      const dist = Math.hypot(tx - ox, ty - oy, tz - oz);
+      _seeTo.set(tx - ox, ty - oy, tz - oz);
+      if (_seeTo.lengthSq() < 1e-8) continue;
+      _seeTo.normalize();
+      const s = dist * 0.12 + (1 - _seeTo.dot(dir)) * 42;
+      if (s < bestS) {
+        bestS = s;
         best = t;
       }
     }
@@ -555,6 +595,8 @@ export class Combat {
       const s = this.shots[i];
       s.life -= dt;
       if (s.lock) {
+        if (s.lock.dead || !s.atk || !canSee(s.atk, s.lock, 1e9, this.cam, false)) s.lock = null;
+        else {
         const aim = s.lock.pos().clone();
         aim.y += s.lock.height * 0.7;
         const to = aim.sub(s.mesh.position);
@@ -562,12 +604,13 @@ export class Combat {
         if (dist > 0.15) {
           to.normalize();
           const near = THREE.MathUtils.clamp((24 - dist) / 24, 0, 1);
-          const minDot = THREE.MathUtils.lerp(0.15, -0.25, near * near);
+          const minDot = THREE.MathUtils.lerp(0.42, 0.12, near * near);
           if (to.dot(s.dir) > minDot) {
             const pull = s.home * (1 + near * near * 7);
             s.dir.lerp(to, Math.min(1, pull * dt * 60));
             s.dir.normalize();
           }
+        }
         }
       }
       _shotPrev.copy(s.mesh.position);

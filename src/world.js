@@ -12,27 +12,164 @@ export const patriarchHill = { x: 140, z: 0, baseY: 2 };
 const PAT_H = 50;
 const PAT_R = 36;
 
-export function pickDryLand(minBase = 220) {
+/** Seed del mapa: misma “familia” de terreno, pero crestas/props distintos cada partida. */
+export let worldSeed = 1;
+const terrain = { ox: 0, oz: 0, px: 0, pz: 0, sx: 1, sz: 1 };
+
+function mulberry32(a) {
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function applyTerrainSeed(seed) {
+  worldSeed = seed >>> 0 || 1;
+  const r = mulberry32(worldSeed);
+  terrain.ox = (r() - 0.5) * 420;
+  terrain.oz = (r() - 0.5) * 420;
+  terrain.px = r() * Math.PI * 2;
+  terrain.pz = r() * Math.PI * 2;
+  terrain.sx = 0.88 + r() * 0.24;
+  terrain.sz = 0.88 + r() * 0.24;
+  return r;
+}
+
+function snapTerrain() {
+  return { ...terrain, seed: worldSeed };
+}
+
+function restoreTerrain(s) {
+  worldSeed = s.seed;
+  terrain.ox = s.ox;
+  terrain.oz = s.oz;
+  terrain.px = s.px;
+  terrain.pz = s.pz;
+  terrain.sx = s.sx;
+  terrain.sz = s.sz;
+}
+
+export function pickDryLand(minBase = 220, avoid = null, minSep = 0) {
+  return pickLandSpot({ minBase, avoid, minSep, dryAbove: 1.2 });
+}
+
+/** Spawn de esferas: seco de verdad, lejos de bases y de otras esferas. */
+export function pickBallLand(n = 1, avoid = null) {
+  const m = MAP / 2 - 80;
+  const slice = ((n - 1) / 7) * Math.PI * 2 + Math.random() * 0.35;
+  const preferR = 220 + (n % 3) * 140 + Math.random() * 160;
+  const prefer = {
+    x: Math.cos(slice) * preferR * (0.85 + Math.random() * 0.3),
+    z: Math.sin(slice) * preferR * 0.72 * (0.85 + Math.random() * 0.3),
+  };
+  prefer.x = Math.max(-m, Math.min(m, prefer.x));
+  prefer.z = Math.max(-m * 0.82, Math.min(m * 0.82, prefer.z));
+  const p = pickLandSpot({
+    minBase: 200,
+    avoid,
+    minSep: MAP * 0.1,
+    dryAbove: 2.4,
+    prefer,
+    preferR: 280,
+    tries: 1400,
+  });
+  if (!isWater(p.x, p.z) && groundHeight(p.x, p.z) > WATER_Y + 1.6) return p;
+  // Último recurso: caminar desde prefer hacia tierra alta
+  for (let i = 0; i < 600; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 20 + Math.random() * 520;
+    const x = Math.max(-m, Math.min(m, prefer.x + Math.cos(a) * r));
+    const z = Math.max(-m * 0.82, Math.min(m * 0.82, prefer.z + Math.sin(a) * r));
+    if (Math.hypot(x, z + BASE_Z) < 180 || Math.hypot(x, z - BASE_Z) < 180) continue;
+    if (insideObst(x, z, 2.4)) continue;
+    if (isWater(x, z)) continue;
+    if (groundHeight(x, z) <= WATER_Y + 2.2) continue;
+    if (avoid?.some((o) => Math.hypot(x - o.x, z - o.z) < MAP * 0.08)) continue;
+    return { x, z };
+  }
+  return p;
+}
+
+function pickLandSpot({
+  minBase = 220,
+  avoid = null,
+  minSep = 0,
+  dryAbove = 1.2,
+  prefer = null,
+  preferR = 0,
+  tries = 0,
+} = {}) {
   const m = MAP / 2 - 50;
-  const tries = mapId === "city" ? 420 : 220;
-  for (let i = 0; i < tries; i++) {
-    let x = (Math.random() * 2 - 1) * m;
-    let z = (Math.random() * 2 - 1) * (m * 0.82);
+  const wetMap = mapId === "namek" || mapId === "earth" || mapId === "cell";
+  const dryNeed = mapId === "city" || mapId === "vegeta" ? -1e9 : WATER_Y + dryAbove;
+  const nTry = tries || (mapId === "city" ? 420 : wetMap ? 1100 : 280);
+  const okSep = (x, z) => {
+    if (!avoid?.length || minSep <= 0) return true;
+    for (const o of avoid) {
+      if (Math.hypot(x - o.x, z - o.z) < minSep) return false;
+    }
+    return true;
+  };
+  const okDry = (x, z) => {
+    if (mapId === "city" || mapId === "vegeta") return true;
+    if (isWater(x, z)) return false;
+    return groundHeight(x, z) > dryNeed;
+  };
+  for (let i = 0; i < nTry; i++) {
+    let x;
+    let z;
+    if (prefer && i < nTry * 0.55) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * preferR;
+      x = prefer.x + Math.cos(a) * r;
+      z = prefer.z + Math.sin(a) * r;
+      if (Math.abs(x) > m || Math.abs(z) > m * 0.82) continue;
+    } else {
+      x = (Math.random() * 2 - 1) * m;
+      z = (Math.random() * 2 - 1) * (m * 0.82);
+    }
     if (mapId === "city" && i < 180 && !cityRoad(x, z) && !cityWalk(x, z)) continue;
     if (Math.hypot(x, z + BASE_Z) < minBase || Math.hypot(x, z - BASE_Z) < minBase) continue;
     if (insideObst(x, z, 2.8)) continue;
-    if (mapId === "city" || mapId === "vegeta" || groundHeight(x, z) > WATER_Y + 3.5) return { x, z };
+    if (!okSep(x, z)) continue;
+    if (!okDry(x, z)) continue;
+    return { x, z };
   }
   if (mapId === "city") {
     const p = { x: (Math.floor(Math.random() * 5) - 2) * CITY_AVE, z: (Math.random() * 2 - 1) * m * 0.65 };
     pushOutObst(p, 3.2);
     return p;
   }
-  const mid = CELL_ISLANDS.filter((isl) => Math.abs(isl.z) < BASE_Z - 280);
-  const isl = mid[Math.floor(Math.random() * mid.length)] || CELL_ISLANDS[2];
+  if (mapId === "cell") {
+    const mid = cellIslands.filter((isl) => Math.abs(isl.z) < BASE_Z - 280);
+    const isl = mid[Math.floor(Math.random() * mid.length)] || cellIslands[2];
+    for (let k = 0; k < 80; k++) {
+      const fb = {
+        x: isl.x + (Math.random() - 0.5) * isl.rx * 0.55,
+        z: isl.z + (Math.random() - 0.5) * isl.rz * 0.55,
+      };
+      if (isWater(fb.x, fb.z)) continue;
+      pushOutObst(fb, 3.2);
+      return fb;
+    }
+  }
+  for (let i = 0; i < 800; i++) {
+    const x = (Math.random() * 2 - 1) * m;
+    const z = (Math.random() * 2 - 1) * (m * 0.82);
+    if (Math.hypot(x, z + BASE_Z) < minBase * 0.55 || Math.hypot(x, z - BASE_Z) < minBase * 0.55) continue;
+    if (insideObst(x, z, 2.4)) continue;
+    if (!okDry(x, z)) continue;
+    if (!okSep(x, z)) continue;
+    return { x, z };
+  }
+  // Nunca devolver agua: usar meseta de base (borde) si hace falta
+  const side = Math.random() < 0.5 ? -1 : 1;
   const fb = {
-    x: isl.x + (Math.random() - 0.5) * isl.rx * 0.45,
-    z: isl.z + (Math.random() - 0.5) * isl.rz * 0.45,
+    x: (Math.random() - 0.5) * 90,
+    z: side * (BASE_Z - 140 - Math.random() * 40),
   };
   pushOutObst(fb, 3.2);
   return fb;
@@ -57,10 +194,12 @@ export function pickPatriarchHill() {
 }
 
 function namekSine(x, z) {
+  const X = x * terrain.sx + terrain.ox;
+  const Z = z * terrain.sz + terrain.oz;
   return (
-    Math.sin(x * 0.012) * Math.cos(z * 0.01) * 9 +
-    Math.sin(x * 0.028 + 1.7) * Math.sin(z * 0.022) * 5.5 +
-    Math.cos((x + z) * 0.008) * 3.5
+    Math.sin(X * 0.012 + terrain.px) * Math.cos(Z * 0.01 + terrain.pz * 0.35) * 9 +
+    Math.sin(X * 0.028 + 1.7 + terrain.pz) * Math.sin(Z * 0.022) * 5.5 +
+    Math.cos((X + Z) * 0.008 + terrain.px * 0.4) * 3.5
   );
 }
 
@@ -90,7 +229,7 @@ function baseLandH(x, z) {
 
 export let mapId = "namek";
 
-const EARTH_PLATEAUS = [
+const EARTH_PLATEAUS_BASE = [
   { x: 390, z: -80, r: 310, w: 70, h: 18 },
   { x: -340, z: 160, r: 270, w: 62, h: 14 },
   { x: 210, z: 430, r: 230, w: 52, h: 12 },
@@ -102,24 +241,50 @@ const EARTH_PLATEAUS = [
   { x: 720, z: -420, r: 180, w: 42, h: 14 },
   { x: -90, z: 300, r: 160, w: 40, h: 9 },
 ];
+const EARTH_LAKES_BASE = [
+  { x: -260, z: 90, r: 110, d: 12 },
+  { x: 80, z: -360, r: 78, d: 10 },
+  { x: -480, z: 380, r: 88, d: 11 },
+  { x: 40, z: 220, r: 62, d: 8 },
+];
+let earthPlateaus = EARTH_PLATEAUS_BASE.map((p) => ({ ...p }));
+let earthLakes = EARTH_LAKES_BASE.map((p) => ({ ...p }));
+
+function layoutEarthSeed() {
+  earthPlateaus = EARTH_PLATEAUS_BASE.map((P) => ({
+    ...P,
+    x: P.x + (Math.random() - 0.5) * 260,
+    z: P.z + (Math.random() - 0.5) * 260,
+    r: P.r * (0.82 + Math.random() * 0.36),
+    h: P.h * (0.88 + Math.random() * 0.28),
+  }));
+  earthLakes = EARTH_LAKES_BASE.map((L) => ({
+    ...L,
+    x: L.x + (Math.random() - 0.5) * 200,
+    z: L.z + (Math.random() - 0.5) * 200,
+    r: L.r * (0.8 + Math.random() * 0.4),
+  }));
+}
 
 function earthPlateauH(x, z) {
   let h = 0;
-  for (const P of EARTH_PLATEAUS) {
+  for (const P of earthPlateaus) {
     const d = Math.hypot(x - P.x, z - P.z);
     if (d >= P.r) continue;
     const inner = P.r - P.w;
     let u = d <= inner ? 1 : 1 - (d - inner) / P.w;
     u = u * u * (3 - 2 * u);
-    h = Math.max(h, (P.h + Math.sin(x * 0.018 + z * 0.014) * 1.4) * u);
+    h = Math.max(h, (P.h + Math.sin(x * 0.018 + z * 0.014 + terrain.px) * 1.4) * u);
   }
   return h;
 }
 
 function earthMountAmt(x, z) {
-  const m1 = x * 0.00062 + z * 0.00034 + Math.sin(x * 0.0038) * 0.22 + Math.cos(z * 0.0044) * 0.16;
-  const m2 = -x * 0.00048 + z * 0.0004 + Math.cos(x * 0.0028) * 0.2;
-  const m3 = Math.sin(x * 0.002 + z * 0.0017) * 0.52 + 0.18;
+  const X = x + terrain.ox * 0.55;
+  const Z = z + terrain.oz * 0.55;
+  const m1 = X * 0.00062 + Z * 0.00034 + Math.sin(X * 0.0038 + terrain.px) * 0.22 + Math.cos(Z * 0.0044) * 0.16;
+  const m2 = -X * 0.00048 + Z * 0.0004 + Math.cos(X * 0.0028 + terrain.pz) * 0.2;
+  const m3 = Math.sin(X * 0.002 + Z * 0.0017 + terrain.px) * 0.52 + 0.18;
   let t = Math.max(0, (m1 - 0.06) / 0.52);
   t = Math.max(t, (m2 - 0.1) / 0.5);
   t = Math.max(t, (m3 - 0.28) * 1.35);
@@ -133,25 +298,21 @@ function earthMountAmt(x, z) {
 
 function earthHeight(x, z) {
   const amt = earthMountAmt(x, z);
+  const X = x * terrain.sx + terrain.ox * 0.25;
+  const Z = z * terrain.sz + terrain.oz * 0.25;
   const plains =
-    Math.sin(x * 0.0055) * Math.cos(z * 0.0048) * 1.6 +
-    Math.sin((x + z) * 0.003) * 0.7 +
+    Math.sin(X * 0.0055 + terrain.px) * Math.cos(Z * 0.0048) * 1.6 +
+    Math.sin((X + Z) * 0.003 + terrain.pz) * 0.7 +
     0.9;
   const mounts =
-    Math.abs(Math.sin(x * 0.014) * Math.cos(z * 0.012)) * 28 +
-    Math.sin(x * 0.032 + 1.4) * Math.sin(z * 0.028) * 12 +
-    Math.sin(x * 0.08 + z * 0.045) * 6 +
-    Math.cos(z * 0.065) * 5 +
+    Math.abs(Math.sin(X * 0.014 + terrain.px) * Math.cos(Z * 0.012)) * 28 +
+    Math.sin(X * 0.032 + 1.4 + terrain.pz) * Math.sin(Z * 0.028) * 12 +
+    Math.sin(X * 0.08 + Z * 0.045) * 6 +
+    Math.cos(Z * 0.065 + terrain.px) * 5 +
     8;
   let h = plains * (1 - amt) + mounts * amt;
   h = Math.max(h, plains + earthPlateauH(x, z));
-  const lakes = [
-    { x: -260, z: 90, r: 110, d: 12 },
-    { x: 80, z: -360, r: 78, d: 10 },
-    { x: -480, z: 380, r: 88, d: 11 },
-    { x: 40, z: 220, r: 62, d: 8 },
-  ];
-  for (const L of lakes) {
+  for (const L of earthLakes) {
     const d = Math.hypot(x - L.x, z - L.z);
     if (d >= L.r) continue;
     const u = 1 - d / L.r;
@@ -160,7 +321,7 @@ function earthHeight(x, z) {
   return h;
 }
 
-const CELL_ISLANDS = [
+const CELL_ISLANDS_BASE = [
   { x: 50, z: -280, rx: 240, rz: 100, h: 16, peak: 22, hills: 1 },
   { x: -70, z: 240, rx: 210, rz: 85, h: 15, hills: 1 },
   { x: -400, z: -480, rx: 150, rz: 72, h: 14, peak: 18, hills: 1 },
@@ -225,6 +386,25 @@ const CELL_ISLANDS = [
   { x: 260, z: -300, rx: 58, rz: 70, h: 12 },
   { x: -260, z: 300, rx: 60, rz: 68, h: 12 },
 ];
+let cellIslands = CELL_ISLANDS_BASE.map((p) => ({ ...p }));
+
+function layoutCellSeed() {
+  const m = MAP / 2 - 60;
+  cellIslands = CELL_ISLANDS_BASE.map((isl) => {
+    let x = isl.x + (Math.random() - 0.5) * 200;
+    let z = isl.z + (Math.random() - 0.5) * 200;
+    x = Math.max(-m, Math.min(m, x));
+    z = Math.max(-m, Math.min(m, z));
+    return {
+      ...isl,
+      x,
+      z,
+      rx: isl.rx * (0.82 + Math.random() * 0.4),
+      rz: isl.rz * (0.82 + Math.random() * 0.4),
+      h: isl.h * (0.9 + Math.random() * 0.25),
+    };
+  });
+}
 
 function cellIslandH(x, z, isl) {
   // islas más grandes → menos agua entre ellas
@@ -258,7 +438,7 @@ function cellHeight(x, z) {
   let h = -14;
   h = Math.max(h, cellIslandH(x, z, { x: 0, z: -BASE_Z, rx: 168, rz: 132, h: 17, hills: 1 }));
   h = Math.max(h, cellIslandH(x, z, { x: 0, z: BASE_Z, rx: 162, rz: 126, h: 17, hills: 1 }));
-  for (const isl of CELL_ISLANDS) h = Math.max(h, cellIslandH(x, z, isl));
+  for (const isl of cellIslands) h = Math.max(h, cellIslandH(x, z, isl));
   return h;
 }
 
@@ -339,8 +519,8 @@ function layoutVegeta() {
   ];
   for (let i = 0; i < nC; i++) {
     const [u, v, n] = seeds[i];
-    const x = u * m;
-    const z = v * m;
+    const x = u * m + (Math.random() - 0.5) * 55;
+    const z = v * m + (Math.random() - 0.5) * 55;
     if (nearBase(x, z, 95)) continue;
     vegetaClusters.push({ x, z, n, spread: 24 + n * 2.1 });
   }
@@ -361,8 +541,8 @@ function layoutVegeta() {
     [0.05, -0.38, 165, 25],
   ];
   for (const [u, v, r, h] of duneSeeds) {
-    const x = u * m;
-    const z = v * m;
+    const x = u * m + (Math.random() - 0.5) * 70;
+    const z = v * m + (Math.random() - 0.5) * 70;
     if (blocked(x, z, r)) continue;
     vegetaDunes.push({ x, z, r: r + MAP * 0.02, h });
   }
@@ -419,12 +599,14 @@ function vegetaOnLandform(x, z) {
 }
 
 function vegetaHeight(x, z) {
+  const X = x * terrain.sx + terrain.ox * 0.35;
+  const Z = z * terrain.sz + terrain.oz * 0.35;
   let h =
     2.55 +
-    Math.sin(x * 0.0031) * Math.cos(z * 0.0027) * 7.2 +
-    Math.sin((x + z) * 0.002) * 5.4 +
-    Math.sin(x * 0.007) * Math.cos(z * 0.006) * 1.4 +
-    Math.sin((x + z) * 0.014) * 0.4;
+    Math.sin(X * 0.0031 + terrain.px) * Math.cos(Z * 0.0027) * 7.2 +
+    Math.sin((X + Z) * 0.002 + terrain.pz) * 5.4 +
+    Math.sin(X * 0.007) * Math.cos(Z * 0.006) * 1.4 +
+    Math.sin((X + Z) * 0.014) * 0.4;
   for (const d of vegetaDunes) {
     const u = 1 - Math.hypot(x - d.x, z - d.z) / d.r;
     if (u <= 0) continue;
@@ -590,6 +772,29 @@ function hitObst(x, z, pad, minH = 2.4, skipRoof = false) {
   return null;
 }
 
+/** True si terreno o un obstáculo tapa la línea de ojos. */
+export function blockedSight(ax, ay, az, bx, by, bz) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const dz = bz - az;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 2.8) return false;
+  const n = Math.min(16, Math.max(4, (dist / 7) | 0));
+  for (let i = 1; i < n; i++) {
+    const u = i / n;
+    const x = ax + dx * u;
+    const y = ay + dy * u;
+    const z = az + dz * u;
+    if (groundHeight(x, z) > y - 0.45) return true;
+    const o = hitObst(x, z, 0.15, 1.8, false);
+    if (!o) continue;
+    const top = (o.y || 0) + o.h;
+    const bot = o.y || 0;
+    if (y < top - 0.35 && y > bot + 0.15) return true;
+  }
+  return false;
+}
+
 export function insideObst(x, z, pad = 2.2) {
   return !!hitObst(x, z, pad, 2.4, true);
 }
@@ -647,6 +852,61 @@ export function surfaceHeight(x, z) {
   if (ship > -1e8) h = Math.max(h, ship);
   if (roof > h) h = roof;
   return h;
+}
+
+function terrainHex(x, z) {
+  const y = groundHeight(x, z);
+  if (mapId === "city") {
+    if (roofAt(x, z) > 3.2) return 0x90a4ae;
+    return cityRoad(x, z) > 1 ? 0x1a1a1a : cityRoad(x, z) ? 0x2a2a2a : cityWalk(x, z) ? 0xb0bec5 : 0x7cb342;
+  }
+  if (mapId === "vegeta") return y > 22 ? 0x4e342e : y > 12 ? 0x6d4c41 : y > 6 ? 0x8d6e63 : 0xa1887f;
+  if (mapId === "cell") {
+    if (y < WATER_Y + 0.4) return 0x0277bd;
+    if (y < WATER_Y + 9.2) return 0xc4a574;
+    return Math.sin(x * 0.035) * Math.cos(z * 0.03) > 0.28 ? 0x33691e : 0x9ccc65;
+  }
+  if (mapId === "earth") {
+    const amt = earthMountAmt(x, z);
+    if (y < WATER_Y + 0.9) return 0x81d4fa;
+    if (y < WATER_Y + 2.4) return 0xc9b896;
+    return amt * 0.92 + Math.max(0, y - 18) * 0.025 > 0.55 ? (y > 32 ? 0x5d4037 : 0x8d6e63) : y > 4 ? 0x43a047 : 0x66bb6a;
+  }
+  return y < WATER_Y + 0.85 ? 0x80cbc4 : y > 24 ? 0x1e88e5 : 0x90caf9;
+}
+
+let mapThumb = null;
+export function getMapThumb() {
+  return mapThumb;
+}
+
+export function bakeMapThumb(size = 256) {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d", { alpha: false });
+  const img = ctx.createImageData(size, size);
+  const d = img.data;
+  const cc = new THREE.Color();
+  const step = MAP / size;
+  for (let j = 0; j < size; j++) {
+    const z = j * step - MAP / 2;
+    for (let i = 0; i < size; i++) {
+      const x = i * step - MAP / 2;
+      cc.setHex(terrainHex(x, z));
+      const lum = cc.r * 0.3 + cc.g * 0.5 + cc.b * 0.2;
+      cc.r = lum * 0.62 + cc.r * 0.22 + 0.28;
+      cc.g = lum * 0.62 + cc.g * 0.22 + 0.28;
+      cc.b = lum * 0.62 + cc.b * 0.22 + 0.3;
+      const k = (j * size + i) * 4;
+      d[k] = (cc.r * 255) | 0;
+      d[k + 1] = (cc.g * 255) | 0;
+      d[k + 2] = (cc.b * 255) | 0;
+      d[k + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  mapThumb = c;
+  return c;
 }
 
 function addEarthTrees(scene, thick) {
@@ -1949,9 +2209,15 @@ export function createWorld(scene, id = "namek") {
   cityShadowFloor = null;
   windTrees.length = 0;
   cloudGroups.length = 0;
+  const rng = applyTerrainSeed((Math.random() * 0xffffffff) >>> 0);
+  const prevRand = Math.random;
+  Math.random = rng;
+  try {
   pickPatriarchHill();
   refreshBasePads();
   layoutVegeta();
+  layoutEarthSeed();
+  layoutCellSeed();
   const earth = id === "earth";
   const cell = id === "cell";
   const city = id === "city";
@@ -2085,6 +2351,10 @@ export function createWorld(scene, id = "namek") {
   scene.add(sunLight);
   scene.add(sunLight.target);
   scene.add(new THREE.AmbientLight(vegeta ? 0xf48fb1 : city ? 0x90a4ae : earth || cell ? 0x81c784 : 0x4a7aaa, vegeta ? 0.55 : earth || cell ? 0.48 : 0.4));
+  bakeMapThumb();
+  } finally {
+    Math.random = prevRand;
+  }
 }
 
 export function inOwnBase(pos, faccion) {
@@ -2104,12 +2374,22 @@ export function clampMap(p) {
 export function buildMapMaquette(id = "namek") {
   const prevId = mapId;
   const prevW = WATER_Y;
+  const prevT = snapTerrain();
   const hill = { x: patriarchHill.x, z: patriarchHill.z, baseY: patriarchHill.baseY };
   mapId = id;
   WATER_Y = waterYFor(id);
-  pickPatriarchHill();
-  refreshBasePads();
-  layoutVegeta();
+  applyTerrainSeed((id.charCodeAt(0) * 9973 + (MAP | 0) * 131) >>> 0);
+  const prevRand = Math.random;
+  Math.random = mulberry32(worldSeed ^ 0xa5a5a5a5);
+  try {
+    pickPatriarchHill();
+    refreshBasePads();
+    layoutVegeta();
+    layoutEarthSeed();
+    layoutCellSeed();
+  } finally {
+    Math.random = prevRand;
+  }
   const cell = id === "cell";
   const earth = id === "earth";
   const city = id === "city";
@@ -2125,22 +2405,7 @@ export function buildMapMaquette(id = "namek") {
     const z = pos.getZ(i);
     const y = groundHeight(x, z);
     pos.setY(i, y);
-    let hex;
-    if (city) {
-      hex = cityRoad(x, z) > 1 ? 0x1a1a1a : cityRoad(x, z) ? 0x242424 : cityWalk(x, z) ? 0x9e9e9e : 0x7cb342;
-    } else if (vegeta) {
-      hex = y > 22 ? 0x4e342e : y > 12 ? 0x6d4c41 : y > 6 ? 0x8d6e63 : 0xa1887f;
-    } else if (cell) {
-      hex = y < WATER_Y + 0.4 ? 0x0277bd : y < WATER_Y + 9.2 ? 0xc4a574 : Math.sin(x * 0.035) * Math.cos(z * 0.03) > 0.28 ? 0x33691e : 0x9ccc65;
-    } else if (earth) {
-      const amt = earthMountAmt(x, z);
-      if (y < WATER_Y + 0.9) hex = 0x81d4fa;
-      else if (y < WATER_Y + 2.4) hex = 0xc9b896;
-      else hex = amt * 0.92 + Math.max(0, y - 18) * 0.025 > 0.55 ? (y > 32 ? 0x5d4037 : 0x8d6e63) : y > 4 ? 0x43a047 : 0x66bb6a;
-    } else {
-      hex = y < WATER_Y + 0.85 ? 0x80cbc4 : y > 24 ? 0x1e88e5 : 0x90caf9;
-    }
-    cc.setHex(hex);
+    cc.setHex(terrainHex(x, z));
     cols[i * 3] = cc.r;
     cols[i * 3 + 1] = cc.g;
     cols[i * 3 + 2] = cc.b;
@@ -2234,6 +2499,7 @@ export function buildMapMaquette(id = "namek") {
   }
   mapId = prevId;
   WATER_Y = prevW;
+  restoreTerrain(prevT);
   patriarchHill.x = hill.x;
   patriarchHill.z = hill.z;
   patriarchHill.baseY = hill.baseY;

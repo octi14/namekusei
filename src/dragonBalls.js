@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { MAP, BASE_Z } from "./config.js";
 import { log } from "./log.js";
-import { surfaceHeight, groundHeight, WATER_Y, isWater, pickDryLand, pushOutObst } from "./world.js";
+import { surfaceHeight, groundHeight, WATER_Y, isWater, pickBallLand, pushOutObst } from "./world.js";
 import { shipBallSlot } from "./bases.js";
 
 const BALL_R = 0.72;
@@ -57,7 +57,8 @@ export class DragonBalls {
   }
 
   spawn(n) {
-    const p = pickDryLand(260);
+    const placed = this.items.map((b) => ({ x: b.mesh.position.x, z: b.mesh.position.z }));
+    const p = pickBallLand(n, placed);
     const x = p.x;
     const z = p.z;
     const g = new THREE.Group();
@@ -127,9 +128,10 @@ export class DragonBalls {
       if (b.held || b.cold > 0) continue;
       if (b.inBase === personaje.faccion) continue;
       const wetB = isWater(b.mesh.position.x, b.mesh.position.z);
-      const yMax = wetP || wetB ? 6.2 : 3.6;
+      const xzD = Math.hypot(b.mesh.position.x - p.x, b.mesh.position.z - p.z);
+      const yMax = wetP || wetB ? Math.min(38, 3.2 + xzD * 1.15) : 3.6;
       if (Math.abs(p.y - b.mesh.position.y) > yMax) continue;
-      const xz = wetP || wetB ? 3.4 : 2.2;
+      const xz = wetP || wetB ? 3.6 : 2.2;
       if (Math.hypot(b.mesh.position.x - p.x, b.mesh.position.z - p.z) < xz) return b;
     }
     return null;
@@ -228,7 +230,8 @@ export function resolveBallCollisions(people, balls) {
         p.mesh.position.z += Math.sin(a0) * 0.02;
         d = 0.02;
       }
-      const push = (minD - d) * 1.05;
+      const deep = by < WATER_Y - 1.2;
+      const push = (minD - d) * (deep ? 0.38 : 1.05);
       p.mesh.position.x += (dx / d) * push;
       p.mesh.position.z += (dz / d) * push;
     }

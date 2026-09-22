@@ -10,7 +10,7 @@ export let SUPER_ATK3 = 30;
 export let MATCH_SEC = 20 * 60;
 export let STAT_FLOOR = 0.5; // Al morir, stats no bajan de orig * esto (0.5 = 50% del inicial)
 export let DEATH_MULT = 0.9; // def / kiMax al morir
-export let DEATH_MULT_ATK = 0.93; // ataque: pierde más (~7%)
+export let DEATH_MULT_ATK = 0.95; // ataque: pierde más (~7%)
 export let DEATH_MULT_VEL = 0.9; // velocidad: pierde más (~10%)
 export let HP_REGEN = 5;
 export let KI_REGEN = 18;

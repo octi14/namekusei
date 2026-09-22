@@ -2,6 +2,9 @@ import { superRank, MAP, BASE_Z } from "./config.js";
 import { logLines, logVersion } from "./log.js";
 import { current } from "./scenario.js";
 import { powerStyle } from "./powers.js";
+import { getMapThumb } from "./world.js";
+import { healerSpec } from "./stats.js";
+import { canSee } from "./combat.js";
 
 function paintNames(text, people) {
   if (!people?.length) return text;
@@ -27,8 +30,12 @@ function drawMinimap(p, people, balls) {
   if (!c || !people) return;
   const ctx = c.getContext("2d");
   const w = c.width;
-  ctx.fillStyle = "#1a2214";
-  ctx.fillRect(0, 0, w, w);
+  const thumb = getMapThumb();
+  if (thumb) ctx.drawImage(thumb, 0, 0, w, w);
+  else {
+    ctx.fillStyle = "#1a2214";
+    ctx.fillRect(0, 0, w, w);
+  }
   ctx.fillStyle = "#c6282844";
   const [zx, zz] = mmap(ctx, 0, -BASE_Z);
   const [fx, fz] = mmap(ctx, 0, BASE_Z);
@@ -45,12 +52,12 @@ function drawMinimap(p, people, balls) {
     if (o.dead) continue;
     const foe = o.faccion !== p.faccion;
     if (foe && o.esfera == null) {
-      let spotted = o.pos().distanceTo(p.pos()) <= visMe;
+      let spotted = canSee(p, o, visMe);
       if (!spotted) {
         for (const a of people) {
           if (a === o || a.dead || a.faccion !== p.faccion) continue;
           const vis = powerStyle(a.nombre, a.faccion).range || 50;
-          if (o.pos().distanceTo(a.pos()) <= vis) {
+          if (canSee(a, o, vis)) {
             spotted = true;
             break;
           }
@@ -59,23 +66,29 @@ function drawMinimap(p, people, balls) {
       if (!spotted) continue;
     }
     const [px, pz] = mmap(ctx, o.pos().x, o.pos().z);
-    const team = o.faccion === "z" ? "#ff5252" : "#40c4ff";
+    const team = o.faccion === "z" ? "#ff1744" : "#00e5ff";
     if (o === p) {
-      ctx.fillStyle = o.esfera != null ? team : "#eceff1";
-      ctx.fillRect(px - 2.5, pz - 2.5, 5, 5);
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(px - 2.5, pz - 2.5, 5, 5);
+      ctx.fillStyle = o.esfera != null ? team : "#fffde7";
+      ctx.fillRect(px - 3, pz - 3, 6, 6);
+      ctx.strokeStyle = "#111";
+      ctx.lineWidth = 1.4;
+      ctx.strokeRect(px - 3, pz - 3, 6, 6);
     } else if (o.esfera != null) {
       ctx.fillStyle = team;
       ctx.beginPath();
-      ctx.arc(px, pz, 3.4, 0, Math.PI * 2);
+      ctx.arc(px, pz, 3.6, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = "#111";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
     } else {
-      ctx.fillStyle = o.faccion === "z" ? "#ef9a9a" : "#90caf9";
+      ctx.fillStyle = team;
       ctx.beginPath();
-      ctx.arc(px, pz, 1.5, 0, Math.PI * 2);
+      ctx.arc(px, pz, 2.2, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = "#111";
+      ctx.lineWidth = 1;
+      ctx.stroke();
     }
   }
   if (balls) {
@@ -127,6 +140,8 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
   const hold = (p.superHold || 0) > 0 && p.superHold < 0.42 ? (p.superHold / 0.42) * 100 : 0;
   document.getElementById("ki-hold").style.width = `${hold}%`;
   document.getElementById("pl-super").classList.toggle("on", superOk);
+  const healBtn = document.getElementById("btn-heal");
+  if (healBtn) healBtn.classList.toggle("show", !p.dead && !!healerSpec(p.nombre));
   document.getElementById("pl-ball").textContent = p.esfera ?? "—";
   document.getElementById("pl-fly").textContent = p.dead
     ? "KO"

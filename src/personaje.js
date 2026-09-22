@@ -263,6 +263,20 @@ export class Personaje {
     this.kiBubble.visible = false;
     this.mesh.add(this.kiBubble);
     this._kiBubbleT = 0;
+    this.healBubble = new THREE.Mesh(
+      new THREE.CapsuleGeometry(this.height * 0.3, this.height * 0.52, 5, 14),
+      new THREE.MeshBasicMaterial({
+        color: 0x69f0ae,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      })
+    );
+    this.healBubble.position.y = this.height * 0.48;
+    this.healBubble.visible = false;
+    this.mesh.add(this.healBubble);
     this._kiCharge = false;
     this._kiPulse = 0;
     this.animT = 0;
@@ -383,7 +397,7 @@ export class Personaje {
     this.lookHairC = look.hairC ?? this.lookHairC;
     const extras = [
       this.ballMark, this.nameLabel, this.kiAura, this.kiHalo, this.ssjGlow, this.ssjHalo,
-      this.chargeGlow, this.chargeHalo, this.blastBall, this.blastBallHalo, this.hitGlow, this.kiBubble,
+      this.chargeGlow, this.chargeHalo, this.blastBall, this.blastBallHalo, this.hitGlow, this.kiBubble, this.healBubble,
     ].filter(Boolean);
     for (const e of extras) this.mesh.remove(e);
     const pos = this.mesh.position.clone();
@@ -557,7 +571,8 @@ export class Personaje {
     } else if (this.hitGlow?.visible) {
       this.hitGlow.visible = false;
     }
-    if (this.s.ki > 0) this.s.hp = Math.min(this.s.hpMax, this.s.hp + HP_REGEN * dt);
+    const healBoost = this._healBoost || 1;
+    if (this.s.ki > 0 || healBoost > 1.02) this.s.hp = Math.min(this.s.hpMax, this.s.hp + HP_REGEN * healBoost * dt);
     const regen = this.s.kiRegen || KI_REGEN;
     const passive = KI_REGEN_PASSIVE * (regen / KI_REGEN);
     this.s.ki = Math.min(this.s.kiMax, this.s.ki + passive * dt);
@@ -570,9 +585,10 @@ export class Personaje {
     this._kiChargeHold = Math.max(0, (this._kiChargeHold || 0) - dt);
     if (this._kiCharge) this._kiChargeHold = 0.15;
     const charging = this._kiCharge || this._kiChargeHold > 0;
+    const healing = this._healing || (this._healBoost || 1) > 1.05;
     const firing = (this.poseBlast || 0) > 0.05 && (this.superHold || 0) <= 0.04 && !this.poseBlastTwo;
     const superPose = (this.superHold || 0) > 0.04 || (!!this.poseBlastTwo && (this.poseBlast || 0) > 0.05);
-    const on = charging || (this.superHold || 0) > 0.04 || (this.poseBlast || 0) > 0.05 || this.ssj;
+    const on = charging || healing || (this.superHold || 0) > 0.04 || (this.poseBlast || 0) > 0.05 || this.ssj;
     const supering = (this.superHold || 0) > 0.04;
     this.kiAura.visible = on && !superPose && !firing;
     this.kiHalo.visible = on && !superPose && !firing;
@@ -602,13 +618,13 @@ export class Personaje {
     }
     // Glow sprite de carga (R) — visible aunque bloom afecte los Points
     if (this.chargeGlow) {
-      const showCharge = charging && !this._fpCam;
+      const showCharge = (charging || healing) && !this._fpCam;
       this.chargeGlow.visible = showCharge;
       this.chargeHalo.visible = showCharge;
       if (showCharge) {
         const p = 1 + Math.sin(this._kiPulse * 4.2) * 0.18;
-        this.chargeGlow.material.color.setHex(this.ssj ? 0xffe082 : 0x4dd0e1);
-        this.chargeHalo.material.color.setHex(this.ssj ? 0xfff59d : 0xe0f7fa);
+        this.chargeGlow.material.color.setHex(healing ? 0x69f0ae : this.ssj ? 0xffe082 : 0x4dd0e1);
+        this.chargeHalo.material.color.setHex(healing ? 0xb9f6ca : this.ssj ? 0xfff59d : 0xe0f7fa);
         this.chargeGlow.material.opacity = 0.22;
         this.chargeHalo.material.opacity = 0.1;
         this.chargeGlow.scale.set(this.height * 1.35 * p, this.height * 1.85 * p, 1);
@@ -704,6 +720,15 @@ export class Personaje {
       this.kiBubble.material.opacity = 0.32 * u;
       this.kiBubble.scale.setScalar(1.05 + (1 - u) * 0.55);
     } else if (this.kiBubble) this.kiBubble.visible = false;
+    if (this.healBubble) {
+      const onHeal = (this._healBoost || 1) > 1.05 && !this._fpCam && !this.dead;
+      this.healBubble.visible = onHeal;
+      if (onHeal) {
+        const p = 1 + Math.sin(this._kiPulse * 3.4) * 0.06;
+        this.healBubble.material.opacity = 0.22 + Math.sin(this._kiPulse * 4.1) * 0.08;
+        this.healBubble.scale.set(p, 1 + (p - 1) * 0.35, p);
+      }
+    }
     if ((this.hitstop || 0) <= 0) {
       if (!this.didMove) {
         const damp = Math.exp(-(this.inSwim() ? 2.6 : this.flyAlt > 0.2 ? 1.8 : 11) * dt);
@@ -732,8 +757,10 @@ export class Personaje {
     this.stickY();
     this.animate(dt);
     this.mesh.userData.syncRig?.();
-    this._kiSlow = this._kiCharge;
+    this._kiSlow = this._kiCharge || this._healing;
     this._kiCharge = false;
+    this._healing = false;
+    this._healBoost = 1;
     if (!this._kiSlow) {
       if (this._sfxKi) {
         stopSfxLoop(`ki-${this.id}`);
@@ -1136,7 +1163,7 @@ export class Personaje {
       this.didMove = false;
       return;
     }
-    if (this._kiCharge || (this.superHold || 0) > 0.04) {
+    if (this._kiCharge || this._healing || (this.superHold || 0) > 0.04) {
       this.animT += dt * 4.2;
       const wind =
         (this.superHold || 0) > 0.04 &&
@@ -1579,7 +1606,7 @@ export class Personaje {
     this.lift = 0;
     if (this.inSwim() && !(lift > 0 && this.swim <= 0.08)) {
       const maxD = Math.max(0, WATER_Y - groundHeight(this.mesh.position.x, this.mesh.position.z) - 0.5);
-      if (lift < 0) this.swim = Math.min(maxD, this.swim + 5.2 * dt);
+      if (lift < 0) this.swim = Math.min(maxD, this.swim + (this._grabbing ? 8.4 : 5.2) * dt);
       else if (lift > 0) this.swim = Math.max(0, this.swim - 6.2 * dt);
       this.vy = 0;
       this.flyAlt = 0;
@@ -1727,7 +1754,7 @@ export class Personaje {
    */
   move(dir, run, dt) {
     if (this.dead || this.stun > 0 || (this.hitstop || 0) > 0) return;
-    const charging = this._kiCharge || this._kiSlow || (this.superHold || 0) > 0.04;
+    const charging = this._kiCharge || this._kiSlow || this._healing || (this.superHold || 0) > 0.04;
     const punching = (this.posePunch || 0) > 0;
     const elbowDash = punching && this.airMelee === "elbow";
     if (charging || (punching && !elbowDash)) run = false;
@@ -1743,7 +1770,7 @@ export class Personaje {
       run = false;
       mul *= 0.42;
     }
-    if (this._grabbing) mul *= 0.06;
+    if (this._grabbing) mul *= (this.grabT || 0) > 0.35 ? 0.06 : this.inSwim() ? 0.42 : 0.06;
     if (elbowDash) mul *= 1.18;
     else if (punching) mul *= 0.16;
     if (this.inSwim()) {
@@ -1887,13 +1914,26 @@ export class Personaje {
       this._grabBall = null;
       return;
     }
-    const b = balls.near(this);
-    if (!b) {
+    if (wet && !this._grabbing) {
+      const p = this.pos();
+      for (const cand of balls.items) {
+        if (cand.held || cand.cold > 0 || cand.inBase === this.faccion) continue;
+        const xz = Math.hypot(cand.mesh.position.x - p.x, cand.mesh.position.z - p.z);
+        if (xz > 5.5) continue;
+        if (p.y > cand.mesh.position.y + 0.85) {
+          this.descend();
+          break;
+        }
+      }
+    }
+    const b = balls.near(this) || (this._grabbing ? this._grabBall : null);
+    if (!b || b.held) {
       this.grabT = 0;
       this._grabbing = false;
       this._grabBall = null;
       return;
     }
+    if (wet && this.pos().y > b.mesh.position.y + 0.5) this.descend();
     this._grabbing = true;
     this._grabBall = b;
     if ((this.stun || 0) > 0 || (this.hitRecoil || 0) > 0.05) {
