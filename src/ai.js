@@ -229,7 +229,7 @@ function pickFoe(p, people, maxD, homeZ, cam) {
     const cap = sniping ? maxD : air ? maxD : Math.min(maxD, baseThreat || nearHome ? 130 : 110);
     if (d > cap) continue;
     if (!canSee(p, o, cap, cam)) continue;
-    const s = d - (o.esfera != null ? 40 : 0) - (dHome < 90 ? 35 : 0) - ((o.flyAlt || 0) > 5 ? 12 : 0);
+    const s = d - (o.esfera != null ? 65 : 0) - (dHome < 90 ? 35 : 0) - ((o.flyAlt || 0) > 5 ? 12 : 0);
     if (s < bestS) {
       bestS = s;
       best = o;
@@ -256,26 +256,26 @@ function pickBaseThreat(p, people, homeZ, r = 115) {
   return best;
 }
 
+function canSnipe(p) {
+  const r = powerStyle(p.nombre, p.faccion).range || 55;
+  return r >= 70 || seed(p) > 0.55;
+}
+
 function pickSnipeFoe(p, people, rng, cam) {
   let best = null;
   let bestS = 1e9;
   for (const o of people) {
     if (o.faccion === p.faccion || o.dead) continue;
     const d = o.pos().distanceTo(p.pos());
-    if (d < 32 || d > rng * 0.95) continue;
+    if (d < 22 || d > rng * 1.05) continue;
     if (!canSee(p, o, rng, cam)) continue;
-    const s = d * 0.35 - (o.esfera != null ? 50 : 0) - ((o.flyAlt || 0) > 4 ? 18 : 0);
+    const s = d * 0.28 - (o.esfera != null ? 70 : 0) - ((o.flyAlt || 0) > 4 ? 18 : 0);
     if (s < bestS) {
       bestS = s;
       best = o;
     }
   }
   return best;
-}
-
-function canSnipe(p) {
-  const r = powerStyle(p.nombre, p.faccion).range || 55;
-  return r >= 88 || seed(p) > 0.84;
 }
 
 function pickNest(p, foe) {
@@ -549,7 +549,8 @@ function steerHome(px, pz, homeZ) {
 function ensureLane(p) {
   if (p.aiLaneX == null) {
     const s = seed(p);
-    p.aiLaneX = (s > 0.5 ? 1 : -1) * (240 + s * 320);
+    // Carriles más abiertos (evitar el centro del mapa)
+    p.aiLaneX = (s > 0.5 ? 1 : -1) * (320 + s * 380);
   }
   return p.aiLaneX;
 }
@@ -586,7 +587,7 @@ function sideSteer(p, gx, gz) {
     wz = gz;
   }
   // Penalizar seguir pegado al eje
-  if (Math.abs(wx) < 70 && zDist > 55) wx = Math.sign(lane || 1) * 160;
+  if (Math.abs(wx) < 110 && zDist > 55) wx = Math.sign(lane || 1) * 200;
   return _normDir(wx - px, wz - pz);
 }
 
@@ -743,6 +744,7 @@ function utilBest(p, ctx) {
     raidCall,
     idleish,
     hideOk,
+    snipeOk,
     medic,
     medicDist,
     teamHurt,
@@ -759,6 +761,7 @@ function utilBest(p, ctx) {
     if (m === "fight") return 25;
     if (m === "deliver") return 28;
     if (m === "hide") return 16;
+    if (m === "snipe") return 18;
     if (m === "heal") return 22;
     if (m === "healPost") return 26;
     return 20;
@@ -774,6 +777,8 @@ function utilBest(p, ctx) {
     if (enemyCarrier && enemyDist < 80) fight += 36;
     if (enemyDist < 50 && mood.ki > 0.12) fight += 22 + agg * 8;
     if (enemyDist < 25 && mood.ki > 0.08) fight += 20;
+    // Portador vs portador: no se dejan pasar
+    if (carrying && enemyCarrier) fight += 58 + Math.max(0, 55 - enemyDist) * 0.4;
     if (defend || defendCall) {
       fight += 40 + (enemyCarrier ? 22 : 10) + Math.max(0, 0.55 - agg) * 18;
       if (inHomeAir) fight += 16;
@@ -783,16 +788,25 @@ function utilBest(p, ctx) {
     if (lowHp && !enemyCarrier && !carrying) fight -= 22;
     if (carrying) {
       // AJUSTE: pelear con esfera — solo si está cerca y el estilo lo permite
-      if (p.aiCarryStyle === "rush") fight -= 35;
-      else if (p.aiCarryStyle === "sneak") fight -= 28;
+      if (p.aiCarryStyle === "rush" && !enemyCarrier) fight -= 35;
+      else if (p.aiCarryStyle === "sneak" && !enemyCarrier) fight -= 28;
       else fight += 6 + agg * 10; // fight style
-      if (enemyDist > 28) fight -= 22;
+      if (enemyDist > 28 && !enemyCarrier) fight -= 22;
       if (enemyDist < 16) fight += 18;
       if ((p.aiCarryHold || 0) > 0) fight += 20;
       if (mood.ki < 0.12) fight -= 14;
     }
   }
   rows.push(["fight", fight]);
+  let snipeS = -40;
+  if (snipeOk && !critHp) {
+    snipeS = 24 + sticky("snipe") + (enemyCarrier ? 42 : 8) + (role === "aggro" ? 10 : 0);
+    if (mood.ki > 0.45) snipeS += 10;
+    if (carrying && !enemyCarrier) snipeS -= 50;
+    if (carrying && enemyCarrier && enemyDist > 28) snipeS += 18;
+    if (defend || defendCall) snipeS -= 12;
+  }
+  rows.push(["snipe", snipeS]);
   let hideS = -40;
   if (
     hideOk ||
@@ -1221,17 +1235,17 @@ function tickStuck(p, dt) {
   p._stkAcc = 0;
   const hovering = (p.flyAlt || 0) > 0.45;
   const nearShip = !!nearAnyShip({ x, z }, 22);
-  const lim = hovering ? 5.5 : nearShip ? 9 : 3.2;
+  // AJUSTE: lim más bajo = más permisivo (hace falta menos avance para “no estar atascado”)
+  const lim = hovering ? 3.2 : nearShip ? 5.5 : 1.85;
   if (prog < lim) p._stkT = (p._stkT || 0) + window;
-  else p._stkT = Math.max(0, (p._stkT || 0) - window * 1.35);
+  else p._stkT = Math.max(0, (p._stkT || 0) - window * 1.8);
 }
 
 function pickUnstick(p, balls) {
   const homeZ = p.faccion === "z" ? -BASE_Z : BASE_Z;
   const baseDist = Math.hypot(p.pos().x, p.pos().z - homeZ);
-  // AJUSTE: segundos que dura el plan de desatasco (5.5-8) antes de volver a
-  // pensar normal. aiBreak elige el tipo de escape: home/land/ball/leave.
-  p.aiUnstick = 5.5 + seed(p) * 2.5;
+  // AJUSTE: duración corta del desatasco para no pisar planes útiles
+  p.aiUnstick = 2.6 + seed(p) * 1.4;
   p.aiFight = 0;
   p.aiCharge = false;
   p.aiRaid = 0;
@@ -1360,8 +1374,13 @@ function runUnstick(p, people, balls, combat, match, dt) {
 export function aiTick(p, people, balls, combat, match, dt) {
   if (p.controller !== "ia" || p.dead) return;
   tickStuck(p, dt);
-  // AJUSTE: 2.0 = segundos sin avanzar que se toleran antes de forzar desatasco.
-  if ((p._stkT || 0) > 2.0 && (p.aiUnstick || 0) <= 0) pickUnstick(p, balls);
+  // AJUSTE: más tolerancia + no interrumpir pelea/entrega/snipe
+  const busyPlan =
+    (p.aiMode === "fight" && p.aiFoe && !p.aiFoe.dead) ||
+    (p.aiMode === "deliver" && p.esfera != null) ||
+    p.aiMode === "snipe" ||
+    p.aiMode === "hide";
+  if ((p._stkT || 0) > 4.5 && (p.aiUnstick || 0) <= 0 && !busyPlan) pickUnstick(p, balls);
   if ((p.aiUnstick || 0) > 0) {
     runUnstick(p, people, balls, combat, match, dt);
     p.aiDbg = {
@@ -1389,11 +1408,6 @@ export function aiTick(p, people, balls, combat, match, dt) {
   p.aiRaid = Math.max(0, (p.aiRaid || 0) - dt);
   p.aiCarry = Math.max(0, (p.aiCarry || 0) - dt);
   p.aiModeT = Math.max(0, (p.aiModeT || 0) - dt);
-  // Reset modos viejos que ya no usa la IA simple
-  if (p.aiMode === "snipe" || p.aiMode === "hide") {
-    p.aiMode = "wander";
-    p.aiModeT = 0;
-  }
   const mood = temper(p);
   p.aiHeat = THREE.MathUtils.damp(p.aiHeat || 0, 0, 0.07, dt);
   const agg = seed(p);
@@ -1482,30 +1496,54 @@ export function aiTick(p, people, balls, combat, match, dt) {
       !critHp &&
       (inHomeAir || baseDist < 300 || role === "guard" || (threat && threat.esfera != null && baseDist < 300))
     );
-  const snipeFoe = sniper && kiFrac > 0.38 && !critHp && nSnipe < 2 ? pickSnipeFoe(p, people, powerStyle(p.nombre, p.faccion).range || 90, combat.cam) : null;
-  // AJUSTE foeRange con esfera: rush ve poco; fight/aggro más lejos.
+  const snipeFoe =
+    sniper && kiFrac > 0.28 && !critHp && nSnipe < 3
+      ? pickSnipeFoe(p, people, powerStyle(p.nombre, p.faccion).range || 90, combat.cam)
+      : null;
+  // AJUSTE foeRange: ver portadores más lejos; con esfera propia también si el rival porta
   const foeRange = carrying
     ? p.aiCarryStyle === "fight" || role === "aggro" || mood.front > 0.2
-      ? 42
+      ? 72
       : p.aiCarryStyle === "sneak"
-        ? 22
-        : 18
-    : p.aiMode === "fight" || defend
-      ? 130
+        ? 48
+        : 55
+    : p.aiMode === "fight" || defend || p.aiMode === "snipe"
+      ? 150
       : inHomeAir
-        ? 95
-        : 100;
+        ? 110
+        : 120;
   let enemy = pickFoe(p, people, foeRange, homeZ, combat.cam) || (p.aiMode === "snipe" ? snipeFoe : null);
+  // Priorizar portador enemigo visible aunque no sea el más cercano
+  {
+    let seenCarry = null;
+    let bestCd = 1e9;
+    for (const o of people) {
+      if (o.dead || o.faccion === p.faccion || o.esfera == null) continue;
+      const d = o.pos().distanceTo(p.pos());
+      if (d > 160) continue;
+      if (!canSee(p, o, 160, combat.cam)) continue;
+      if (d < bestCd) {
+        bestCd = d;
+        seenCarry = o;
+      }
+    }
+    if (seenCarry) {
+      p.aiMemCx = seenCarry.pos().x;
+      p.aiMemCz = seenCarry.pos().z;
+      p.aiMemT = 7.5;
+      if (!enemy || enemy.esfera == null || bestCd < enemy.pos().distanceTo(p.pos()) + 18) enemy = seenCarry;
+    }
+  }
   if (threat && defend && canSee(p, threat, foeRange, combat.cam)) {
     const td = threat.pos().distanceTo(p.pos());
     if (!enemy || threat.esfera != null || td < (enemy ? enemy.pos().distanceTo(p.pos()) : 1e9) + 25) enemy = threat;
-  } else if (!enemy && (p.aiMemT || 0) > 0 && p.aiMemCx != null && !carrying) {
-    // Memoria: último portador visto → perseguir zona
+  } else if (!enemy && (p.aiMemT || 0) > 0 && p.aiMemCx != null) {
+    // Memoria: último portador visto → perseguir / sniping zona
     const md = Math.hypot(p.aiMemCx - p.pos().x, p.aiMemCz - p.pos().z);
-    if (md < 140) {
+    if (md < 180) {
       for (const o of people) {
         if (o.dead || o.faccion === p.faccion || o.esfera == null) continue;
-        if (o.pos().distanceTo(p.pos()) < 110 && canSee(p, o, 110, combat.cam)) {
+        if (o.pos().distanceTo(p.pos()) < 150 && canSee(p, o, 150, combat.cam)) {
           enemy = o;
           break;
         }
@@ -1515,7 +1553,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
   if (enemy && enemy.esfera != null) {
     p.aiMemCx = enemy.pos().x;
     p.aiMemCz = enemy.pos().z;
-    p.aiMemT = 5;
+    p.aiMemT = 7.5;
   }
   const enemyDist = enemy ? enemy.pos().distanceTo(p.pos()) : snipeFoe ? snipeFoe.pos().distanceTo(p.pos()) : 1e9;
   const enemyCarrier = !!(enemy && enemy.esfera != null);
@@ -1613,9 +1651,10 @@ export function aiTick(p, people, balls, combat, match, dt) {
   const hard =
     (carrying && pick === "deliver" && p.aiMode !== "deliver" && p.aiMode !== "fight" && p.aiMode !== "hide") ||
     (pick === "deliver" && carrying) ||
-    (hardFight && (carrying ? enemyDist < 22 : enemyCarrier && enemyDist < 58)) ||
+    (hardFight && (carrying ? enemyDist < 36 || enemyCarrier : enemyCarrier && enemyDist < 95)) ||
     (hardFight && enemyDist < 15) ||
     (defend && hardFight && enemyDist < 32) ||
+    (pick === "snipe" && snipeOk) ||
     (pick === "hide" && carrying && enemy) ||
     (pick === "heal" && critHp && medic) ||
     (pick === "ball" && role === "baller" && ballCand && (p.aiMode === "wander" || p.aiMode === "charge"));
@@ -1770,12 +1809,25 @@ export function aiTick(p, people, balls, combat, match, dt) {
         }
       }
     } else {
-      // rush (default)
+      // rush: camino lateral hasta el tramo final (no solo el eje central)
       const nav = steerShipNav(p.pos().x, p.pos().z, p.faccion, "deposit");
-      if (nav) dir.set(nav.x, 0, nav.z);
-      else {
-        const home = steerHome(p.pos().x, p.pos().z, homeZ);
-        dir.set(home.x, 0, home.z);
+      const zNear = Math.abs(p.pos().z - homeZ) < 140;
+      if (nav && zNear) dir.set(nav.x, 0, nav.z);
+      else if (nav && Math.abs(p.pos().x) < 90 && Math.random() < 0.35) {
+        const side = sideSteer(p, 0, homeZ);
+        dir.set(side.x * 0.65 + nav.x * 0.35, 0, side.z * 0.65 + nav.z * 0.35);
+      } else {
+        const side = sideSteer(p, 0, homeZ);
+        dir.set(side.x, 0, side.z);
+      }
+      // Hostigar portador enemigo visto de paso
+      if (enemy && enemy.esfera != null && enemyDist < 95 && mood.ki > 0.2 && (p.cooldown || 0) <= 0) {
+        const rng = powerStyle(p.nombre, p.faccion).range || 55;
+        if (enemyDist < rng * 1.05 && canSee(p, enemy, rng, combat.cam) && Math.random() < 0.035 * dt * 60) {
+          faceLock(p, enemy, dt, 2.2);
+          p.lookWorld = { x: enemy.pos().x, y: enemy.pos().y + enemy.height * 0.62, z: enemy.pos().z };
+          combat.blast(p, false, people, enemyDist > 40);
+        }
       }
       if (kiFrac > 0.22 && shipDist(p.pos(), p.faccion) > BASE_INNER_R + 80) {
         const avoid = heatAvoid(p, people, dir);
@@ -1797,7 +1849,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
     if (nd > 7) dir.set(p.aiNestX - p.pos().x, 0, p.aiNestZ - p.pos().z);
     else dir.set(0, 0, 0);
     faceLock(p, foe, dt, 1.8);
-    if (nd < 9 && dist > 28 && dist < (powerStyle(p.nombre, p.faccion).range || 90) * 1.05 && p.s.ki > 24 && Math.random() < 0.018 * dt * 60) {
+    if (nd < 9 && dist > 24 && dist < (powerStyle(p.nombre, p.faccion).range || 90) * 1.08 && p.s.ki > 18 && Math.random() < 0.045 * dt * 60) {
       combat.blast(p, false, people, true);
     }
   } else if (p.aiMode === "hide") {
@@ -1889,13 +1941,17 @@ export function aiTick(p, people, balls, combat, match, dt) {
     }
     const dist = foe.pos().distanceTo(p.pos());
     const rng = powerStyle(p.nombre, p.faccion).range || 55;
-    // AJUSTE: con ki > 32% prefiere pelear a distancia (tirar ki) antes que entrar.
-    const preferKi = !huntingCarrier && mood.ki > 0.32 && p.s.ki > 14 && (p.cooldown || 0) <= 0;
+    // AJUSTE: preferir ki también vs portador a media/larga; melee si está muy cerca
+    const preferKi =
+      mood.ki > 0.28 &&
+      p.s.ki > 14 &&
+      (p.cooldown || 0) <= 0 &&
+      (!huntingCarrier || dist > 10 || mood.ki > 0.4);
     // AJUSTE `hold` = distancia a la que se planta (deja de acercarse).
     // Con preferKi se queda lejos; en cuerpo a cuerpo 2.6 ≈ alcance del puño
     // (el melee de combat.js llega a ~3). Subirlo hace que peguen al aire.
     const hold = preferKi
-      ? Math.min(12, rng * (mood.front < 0 ? 0.22 : 0.16))
+      ? Math.min(huntingCarrier ? 16 : 14, rng * (mood.front < 0 ? 0.28 : 0.2))
       : huntingCarrier
         ? 3.2
         : mood.ki < 0.2
@@ -1947,10 +2003,12 @@ export function aiTick(p, people, balls, combat, match, dt) {
     }
     // AJUSTE: chance de ki. onSight = mira al rival, no hace falta encare perfecto.
     const blastOdds =
-      (onSight ? 1.2 : 0.45) *
-      (mood.front < 0 ? 0.22 : 0.16) *
-      (mood.ki > 0.42 ? 1.1 : mood.ki > 0.28 ? 0.7 : 0.28) *
-      ((p.flyAlt || 0) > 2 ? 0.7 : 0.95);
+      (onSight ? 1.35 : 0.5) *
+      (mood.front < 0 ? 0.28 : 0.22) *
+      (mood.ki > 0.42 ? 1.2 : mood.ki > 0.28 ? 0.85 : 0.4) *
+      ((p.flyAlt || 0) > 2 ? 0.75 : 1) *
+      (huntingCarrier || enemyCarrier ? 1.55 : 1) *
+      (preferKi ? 1.25 : 0.85);
     const rank = superRank(p.s.ki, p.s.kiMax, p.s.ataque);
     const canSuper = rank >= 1;
     // AJUSTE: chance por frame de tirar el especial (necesita rank >= 1, ver
@@ -2065,11 +2123,39 @@ export function aiTick(p, people, balls, combat, match, dt) {
         p.aiWanderZ = wt.z;
         p.aiWander = 7 + seed(p) * 5;
       }
-      dir.set(p.aiWanderX - p.pos().x, 0, p.aiWanderZ - p.pos().z);
+      {
+        const wx = p.aiWanderX;
+        const wz = p.aiWanderZ;
+        if (Math.abs(p.pos().x) < 120 && Math.hypot(wx - p.pos().x, wz - p.pos().z) > 40) {
+          const wp = sideWaypoint(p, wx, wz);
+          dir.set(wp.x - p.pos().x, 0, wp.z - p.pos().z);
+        } else dir.set(wx - p.pos().x, 0, wz - p.pos().z);
+      }
       if (dir.lengthSq() < 140) p.aiWander = 0;
       else if ((mood.front < -0.28 || lowHp) && !huntCarrier) {
         const home = sideSteer(p, 0, homeZ);
         dir.set(home.x, 0, home.z);
+      }
+      // Memoria de portador: tiros de hostigamiento sin entrar en fight
+      if (
+        !carrying &&
+        (p.aiMemT || 0) > 0 &&
+        mood.ki > 0.25 &&
+        (p.cooldown || 0) <= 0
+      ) {
+        for (const o of people) {
+          if (o.dead || o.faccion === p.faccion || o.esfera == null) continue;
+          const d = o.pos().distanceTo(p.pos());
+          const rng = powerStyle(p.nombre, p.faccion).range || 55;
+          if (d < 28 || d > rng * 1.05) continue;
+          if (!canSee(p, o, rng, combat.cam)) continue;
+          if (Math.random() < 0.028 * dt * 60) {
+            faceLock(p, o, dt, 1.8);
+            p.lookWorld = { x: o.pos().x, y: o.pos().y + o.height * 0.62, z: o.pos().z };
+            combat.blast(p, false, people, true);
+          }
+          break;
+        }
       }
     }
   }

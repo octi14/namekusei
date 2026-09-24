@@ -220,6 +220,108 @@ function buildOpts(host, tabsEl, live) {
 
 buildOpts(document.getElementById("boot-opts"), document.getElementById("boot-tabs"), false);
 buildOpts(document.getElementById("menu-opts"), document.getElementById("menu-tabs"), true);
+buildOpts(document.getElementById("title-opts"), document.getElementById("title-opts-tabs"), true);
+
+const frontEl = document.getElementById("front");
+let frontScreen = "splash";
+
+function showFront(id) {
+  frontScreen = id;
+  if (frontEl) frontEl.hidden = false;
+  for (const s of document.querySelectorAll("#front .screen")) {
+    s.classList.toggle("on", s.id === `screen-${id}`);
+  }
+  mqLive = id === "setup";
+  if (id === "setup") {
+    sizeMaquette();
+    paintBootMap();
+  }
+}
+
+function hideFront() {
+  if (frontEl) frontEl.hidden = true;
+  frontScreen = "";
+  mqLive = false;
+  stopTrailer();
+}
+
+const splashEl = document.getElementById("screen-splash");
+let trailerTimers = [];
+let trailerDone = false;
+
+function clearTrailerTimers() {
+  for (const t of trailerTimers) clearTimeout(t);
+  trailerTimers = [];
+}
+
+function stopTrailer() {
+  clearTrailerTimers();
+  trailerDone = true;
+}
+
+function trailerAt(ms, fn) {
+  trailerTimers.push(setTimeout(fn, ms));
+}
+
+function runTrailer() {
+  if (!splashEl) return;
+  clearTrailerTimers();
+  trailerDone = false;
+  splashEl.className = "screen on";
+  trailerAt(120, () => {
+    splashEl.classList.add("tr-lit", "tr-flash-on");
+    playSfx("auraBurst", 0, 1, 2, 0.4);
+  });
+  trailerAt(450, () => {
+    splashEl.classList.remove("tr-flash-on");
+    splashEl.classList.add("tr-rush", "tr-balls-on");
+    playSfx("chargingKiInit", 0, 1, 2, 0.28);
+  });
+  trailerAt(1300, () => {
+    splashEl.classList.add("tr-flash-on", "tr-title-on");
+    playSfx("superHitsLand", 0, 1, 2, 0.35);
+  });
+  trailerAt(1650, () => {
+    splashEl.classList.remove("tr-flash-on", "tr-rush");
+    splashEl.classList.add("tr-arena-on");
+    playSfx("fullKi", 0, 1, 2, 0.3);
+  });
+  trailerAt(2200, () => splashEl.classList.add("tr-tag-on"));
+  trailerAt(2700, () => {
+    splashEl.classList.add("tr-ready");
+    trailerDone = true;
+  });
+}
+
+function finishTrailerToTitle() {
+  stopTrailer();
+  if (splashEl) {
+    splashEl.classList.add("tr-lit", "tr-balls-on", "tr-title-on", "tr-arena-on", "tr-tag-on", "tr-ready");
+  }
+  showFront("title");
+}
+
+function skipSplash() {
+  if (frontScreen !== "splash") return;
+  if (!trailerDone) {
+    finishTrailerToTitle();
+    return;
+  }
+  showFront("title");
+}
+
+document.getElementById("tr-skip")?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  skipSplash();
+});
+splashEl?.addEventListener("click", (e) => {
+  if (e.target?.closest?.("#tr-skip")) return;
+  skipSplash();
+});
+document.querySelectorAll("#front [data-go]").forEach((b) => {
+  b.addEventListener("click", () => showFront(b.dataset.go));
+});
+
 function dumpGroup(g) {
   g.traverse((o) => {
     o.geometry?.dispose();
@@ -294,11 +396,11 @@ mqWrap.addEventListener("pointercancel", () => {
 addEventListener("resize", sizeMaquette);
 
 fillHeroes();
-document.querySelectorAll("#boot [data-map]").forEach((b) => {
+document.querySelectorAll("#front [data-map]").forEach((b) => {
   b.classList.toggle("on", b.dataset.map === bootMap);
   b.onclick = () => {
     bootMap = b.dataset.map;
-    document.querySelectorAll("#boot [data-map]").forEach((x) => x.classList.toggle("on", x === b));
+    document.querySelectorAll("#front [data-map]").forEach((x) => x.classList.toggle("on", x === b));
     b.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
     fillHeroes();
     paintBootMap();
@@ -306,7 +408,10 @@ document.querySelectorAll("#boot [data-map]").forEach((b) => {
 });
 document.getElementById("btn-play").onclick = () => startGame(bootMap);
 applyGfx();
+showFront("splash");
+runTrailer();
 paintBootMap();
+mqLive = false;
 
 function applyLabels() {
   document.getElementById("sc-f-lab").textContent = current.fShort;
@@ -429,10 +534,9 @@ async function startGame(id, opts = {}) {
   fillMenu();
   applyLabels();
   worldReady = true;
-  mqLive = false;
+  hideFront();
   dumpGroup(mqPivot);
   mqRenderer.dispose();
-  document.getElementById("boot").style.display = "none";
   document.getElementById("click-msg").style.display = "flex";
 }
 
@@ -569,7 +673,17 @@ addEventListener("keydown", (e) => {
     }
     return;
   }
-  if (!worldReady) return;
+  if (!worldReady) {
+    if (frontScreen === "splash") {
+      skipSplash();
+      return;
+    }
+    if (e.code === "Escape" && (frontScreen === "setup" || frontScreen === "opts")) {
+      e.preventDefault();
+      showFront("title");
+    }
+    return;
+  }
   if (e.code === "KeyM") {
     e.preventDefault();
     setMenu(!menuOpen);

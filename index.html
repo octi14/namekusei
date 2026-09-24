@@ -3,11 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Namekusei</title>
+    <title>Dragon Ball: Arena</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Russo+One&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Lilita+One&family=Outfit:wght@400;600;700&family=Russo+One&family=Teko:wght@500;600;700&display=swap" rel="stylesheet" />
     <style>
+      @font-face {
+        font-family: "Saiyan Sans";
+        src: url("/src/assets/fonts/Saiyan-Sans.ttf") format("truetype");
+        font-weight: normal;
+        font-style: normal;
+        font-display: swap;
+      }
       * { box-sizing: border-box; }
       html, body { margin: 0; height: 100%; overflow: hidden; font-family: "Russo One", Impact, sans-serif; }
       #c { display: block; width: 100%; height: 100%; }
@@ -202,135 +209,426 @@
       }
       #click-msg {
         position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
-        background: rgba(0,0,0,.5); pointer-events: auto; cursor: pointer; font-size: 28px;
-        letter-spacing: 0.12em;
+        flex-direction: column; gap: 10px;
+        background: radial-gradient(ellipse at center, #0a1218cc 0%, #020508ee 100%);
+        pointer-events: auto; cursor: pointer; z-index: 8;
       }
-      #boot {
+      #click-msg .cm-kicker {
+        font-family: "Teko", sans-serif; font-weight: 600; font-size: 14px;
+        letter-spacing: 0.42em; color: #7ec8a3; opacity: 0.85;
+      }
+      #click-msg .cm-main {
+        font-family: "Russo One", Impact, sans-serif; font-size: clamp(22px, 5vw, 34px);
+        letter-spacing: 0.18em; color: #fff8e7;
+        animation: cmPulse 1.8s ease-in-out infinite;
+      }
+      @keyframes cmPulse {
+        0%, 100% { opacity: 0.72; }
+        50% { opacity: 1; }
+      }
+      /* ——— Front / menús consola ——— */
+      #front {
         position: fixed; inset: 0; z-index: 30; pointer-events: auto;
-        display: flex; flex-direction: column; align-items: stretch;
+        color: #f4f7f5; overflow: hidden;
+        font-family: "Outfit", system-ui, sans-serif;
+        background: #061018;
+      }
+      #front[hidden] { display: none !important; }
+      #front .fx-bg {
+        position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+      }
+      #front .fx-bg::before {
+        content: ""; position: absolute; inset: -20%;
         background:
-          radial-gradient(ellipse at 50% 18%, #2e7d3266 0%, transparent 55%),
-          radial-gradient(ellipse at 80% 80%, #1565c033 0%, transparent 45%),
-          linear-gradient(165deg, #071208 0%, #0a1520 45%, #120a08 100%);
-        color: #fff; text-shadow: 0 2px 0 #000;
-        overflow: auto; padding: 18px 14px 28px;
+          radial-gradient(ellipse 70% 50% at 18% 30%, #1b6b4e55 0%, transparent 55%),
+          radial-gradient(ellipse 60% 45% at 88% 70%, #c45c1833 0%, transparent 50%),
+          radial-gradient(ellipse 50% 40% at 50% 100%, #0d3a5c44 0%, transparent 55%),
+          linear-gradient(165deg, #07141c 0%, #0a1a14 42%, #120e0a 100%);
+        animation: frontDrift 22s ease-in-out infinite alternate;
       }
-      #boot::before {
-        content: ""; position: absolute; inset: -10%;
-        background: repeating-linear-gradient(-18deg, transparent 0 28px, #fff1 28px 29px);
-        opacity: 0.35; pointer-events: none; animation: bootScan 18s linear infinite;
+      #front .fx-bg::after {
+        content: ""; position: absolute; inset: 0;
+        background:
+          repeating-linear-gradient(0deg, transparent 0 3px, #0001 3px 4px),
+          radial-gradient(ellipse at center, transparent 40%, #000a 100%);
+        opacity: 0.55;
       }
-      @keyframes bootScan { to { transform: translateY(40px); } }
-      #boot .boot-inner { position: relative; width: min(1180px, 100%); margin: 0 auto; }
+      @keyframes frontDrift {
+        from { transform: scale(1) translate(0, 0); }
+        to { transform: scale(1.06) translate(-2%, 1%); }
+      }
+      #front .screen {
+        position: absolute; inset: 0; display: none; flex-direction: column;
+        opacity: 0; transform: translateY(10px);
+        transition: opacity 0.45s ease, transform 0.45s ease;
+        padding: max(16px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+      }
+      #front .screen.on {
+        display: flex; opacity: 1; transform: none;
+        animation: screenIn 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      @keyframes screenIn {
+        from { opacity: 0; transform: translateY(14px); }
+        to { opacity: 1; transform: none; }
+      }
+      #front .screen-scroll {
+        position: relative; width: min(1120px, 100%); margin: 0 auto;
+        flex: 1; overflow: auto; -webkit-overflow-scrolling: touch;
+      }
+      /* Splash / mini-trailer */
+      #screen-splash {
+        align-items: center; justify-content: center; text-align: center; cursor: pointer;
+        background: #020308; overflow: hidden;
+      }
+      #screen-splash .tr-sky {
+        position: absolute; inset: 0; pointer-events: none;
+        background:
+          radial-gradient(ellipse 80% 50% at 50% 110%, #c45c1844 0%, transparent 55%),
+          radial-gradient(ellipse 60% 40% at 20% 20%, #1a4a8a33 0%, transparent 50%),
+          linear-gradient(180deg, #0a1628 0%, #1a0a08 55%, #050208 100%);
+        opacity: 0; transition: opacity 0.8s ease;
+      }
+      #screen-splash.tr-lit .tr-sky { opacity: 1; }
+      #screen-splash .tr-flash {
+        position: absolute; inset: 0; pointer-events: none; background: #fff;
+        opacity: 0; z-index: 6;
+      }
+      #screen-splash.tr-flash-on .tr-flash { animation: trFlash 0.45s ease-out; }
+      @keyframes trFlash {
+        0% { opacity: 0.95; }
+        100% { opacity: 0; }
+      }
+      #screen-splash .tr-speed {
+        position: absolute; inset: 0; pointer-events: none; z-index: 1; opacity: 0;
+        background: repeating-linear-gradient(90deg, transparent 0 40px, #fff1 40px 41px);
+        transform: skewX(-18deg) scale(1.2);
+      }
+      #screen-splash.tr-rush .tr-speed { opacity: 0.35; animation: trRush 0.55s linear; }
+      @keyframes trRush {
+        from { transform: skewX(-18deg) translateX(-30%) scale(1.2); opacity: 0.5; }
+        to { transform: skewX(-18deg) translateX(30%) scale(1.2); opacity: 0; }
+      }
+      #screen-splash .tr-balls {
+        position: absolute; left: 50%; top: 42%;
+        width: min(520px, 92vw); height: 120px;
+        transform: translate(-50%, -50%);
+        display: flex; justify-content: center; align-items: center; gap: clamp(4px, 1.5vw, 12px);
+        z-index: 3; opacity: 0; scale: 0.6;
+        transition: opacity 0.5s, scale 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      #screen-splash.tr-balls-on .tr-balls { opacity: 1; scale: 1; }
+      .dball {
+        position: relative; flex: 0 0 auto;
+        width: clamp(28px, 8vw, 52px); height: clamp(28px, 8vw, 52px);
+        border-radius: 50%;
+        background: radial-gradient(circle at 32% 28%, #ffe082, #ff8f00 45%, #e65100 78%, #bf360c);
+        box-shadow: 0 0 16px #ff6f0088, inset -4px -6px 10px #bf360c88;
+        opacity: 0; transform: translateY(24px) scale(0.5);
+      }
+      #screen-splash.tr-balls-on .dball {
+        opacity: 1; transform: none;
+        transition: opacity 0.35s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      #screen-splash.tr-balls-on .dball:nth-child(1) { transition-delay: 0.05s; }
+      #screen-splash.tr-balls-on .dball:nth-child(2) { transition-delay: 0.12s; }
+      #screen-splash.tr-balls-on .dball:nth-child(3) { transition-delay: 0.19s; }
+      #screen-splash.tr-balls-on .dball:nth-child(4) { transition-delay: 0.26s; }
+      #screen-splash.tr-balls-on .dball:nth-child(5) { transition-delay: 0.33s; }
+      #screen-splash.tr-balls-on .dball:nth-child(6) { transition-delay: 0.4s; }
+      #screen-splash.tr-balls-on .dball:nth-child(7) { transition-delay: 0.47s; }
+      .dball .star {
+        position: absolute; left: 50%; top: 50%; width: 22%; height: 22%;
+        margin: -11% 0 0 -11%;
+        background: #5d4037; clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+      }
+      .dball[data-n="1"] .star:nth-child(1) { transform: translate(0, 0); }
+      .dball[data-n="2"] .star:nth-child(1) { transform: translate(-70%, 0); }
+      .dball[data-n="2"] .star:nth-child(2) { transform: translate(70%, 0); }
+      .dball[data-n="3"] .star:nth-child(1) { transform: translate(0, -75%); }
+      .dball[data-n="3"] .star:nth-child(2) { transform: translate(-70%, 45%); }
+      .dball[data-n="3"] .star:nth-child(3) { transform: translate(70%, 45%); }
+      .dball[data-n="4"] .star:nth-child(1) { transform: translate(-65%, -65%); }
+      .dball[data-n="4"] .star:nth-child(2) { transform: translate(65%, -65%); }
+      .dball[data-n="4"] .star:nth-child(3) { transform: translate(-65%, 65%); }
+      .dball[data-n="4"] .star:nth-child(4) { transform: translate(65%, 65%); }
+      .dball[data-n="5"] .star:nth-child(1) { transform: translate(0, 0); }
+      .dball[data-n="5"] .star:nth-child(2) { transform: translate(-80%, -55%); }
+      .dball[data-n="5"] .star:nth-child(3) { transform: translate(80%, -55%); }
+      .dball[data-n="5"] .star:nth-child(4) { transform: translate(-80%, 55%); }
+      .dball[data-n="5"] .star:nth-child(5) { transform: translate(80%, 55%); }
+      .dball[data-n="6"] .star:nth-child(1) { transform: translate(-85%, 0); }
+      .dball[data-n="6"] .star:nth-child(2) { transform: translate(85%, 0); }
+      .dball[data-n="6"] .star:nth-child(3) { transform: translate(-45%, -80%); }
+      .dball[data-n="6"] .star:nth-child(4) { transform: translate(45%, -80%); }
+      .dball[data-n="6"] .star:nth-child(5) { transform: translate(-45%, 80%); }
+      .dball[data-n="6"] .star:nth-child(6) { transform: translate(45%, 80%); }
+      .dball[data-n="7"] .star:nth-child(1) { transform: translate(0, 0); }
+      .dball[data-n="7"] .star:nth-child(2) { transform: translate(-90%, 0); }
+      .dball[data-n="7"] .star:nth-child(3) { transform: translate(90%, 0); }
+      .dball[data-n="7"] .star:nth-child(4) { transform: translate(-50%, -85%); }
+      .dball[data-n="7"] .star:nth-child(5) { transform: translate(50%, -85%); }
+      .dball[data-n="7"] .star:nth-child(6) { transform: translate(-50%, 85%); }
+      .dball[data-n="7"] .star:nth-child(7) { transform: translate(50%, 85%); }
+      #screen-splash .tr-fight {
+        position: absolute; inset: 0; z-index: 2; pointer-events: none;
+        opacity: 0; transition: opacity 0.8s ease;
+      }
+      #screen-splash.tr-fight-on .tr-fight { opacity: 1; }
+      #screen-splash .tr-fight canvas {
+        display: block; width: 100%; height: 100%;
+        mask-image: radial-gradient(ellipse 70% 65% at 50% 55%, #000 20%, transparent 75%);
+        -webkit-mask-image: radial-gradient(ellipse 70% 65% at 50% 55%, #000 20%, transparent 75%);
+      }
+      #screen-splash .tr-vignette {
+        position: absolute; inset: 0; z-index: 3; pointer-events: none;
+        background:
+          radial-gradient(ellipse at center, transparent 30%, #020308cc 78%, #020308 100%),
+          linear-gradient(180deg, #02030888 0%, transparent 28%, transparent 62%, #020308ee 100%);
+      }
+      #screen-splash .tr-titles {
+        position: relative; z-index: 4; margin-top: min(28vh, 200px);
+        opacity: 0; transform: scale(1.35); filter: blur(6px);
+        transition: opacity 0.35s, transform 0.5s cubic-bezier(0.12, 0.9, 0.2, 1), filter 0.4s;
+        pointer-events: none;
+      }
+      #screen-splash.tr-title-on .tr-titles {
+        opacity: 1; transform: scale(1); filter: none;
+      }
+      .db-logo {
+        margin: 0; line-height: 0.95;
+        font-family: "Saiyan Sans", "Lilita One", Impact, sans-serif;
+        font-size: clamp(40px, 12vw, 92px);
+        letter-spacing: 0.02em;
+        color: #ffe566;
+        text-shadow:
+          -2px -2px 0 #b71c1c, 2px -2px 0 #b71c1c, -2px 2px 0 #b71c1c, 2px 2px 0 #b71c1c,
+          0 3px 0 #8b0000, 0 5px 0 #5d0000, 0 0 28px #ff6f0077;
+        text-transform: uppercase;
+      }
+      .db-arena {
+        margin: 6px 0 0;
+        font-family: "Saiyan Sans", "Lilita One", Impact, sans-serif;
+        font-size: clamp(30px, 9vw, 60px);
+        letter-spacing: 0.2em;
+        color: #fff;
+        text-shadow:
+          0 0 2px #c62828, 0 3px 0 #b71c1c, 0 5px 0 #6a0000,
+          0 0 24px #ff3d0044;
+        opacity: 0; transform: translateY(16px);
+        transition: opacity 0.4s 0.05s, transform 0.45s 0.05s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      #screen-splash.tr-arena-on .db-arena { opacity: 1; transform: none; }
+      #screen-splash .tr-tag {
+        position: relative; z-index: 4; margin: 18px 0 0;
+        font-family: "Teko", sans-serif; font-weight: 600;
+        font-size: clamp(14px, 3.5vw, 20px); letter-spacing: 0.42em; color: #ffcc80;
+        opacity: 0; transition: opacity 0.5s;
+      }
+      #screen-splash.tr-tag-on .tr-tag { opacity: 0.9; }
+      #screen-splash .tr-hint {
+        position: absolute; bottom: max(36px, env(safe-area-inset-bottom));
+        left: 0; right: 0; margin: 0; z-index: 5;
+        font-family: "Teko", sans-serif; font-weight: 500; font-size: 15px;
+        letter-spacing: 0.38em; color: #fff8e7cc;
+        opacity: 0; transition: opacity 0.4s;
+      }
+      #screen-splash.tr-ready .tr-hint { opacity: 1; animation: cmPulse 1.6s ease-in-out infinite; }
+      #screen-splash .tr-skip {
+        position: absolute; top: max(14px, env(safe-area-inset-top)); right: 14px; z-index: 7;
+        font-family: "Teko", sans-serif; font-weight: 600; font-size: 13px;
+        letter-spacing: 0.22em; color: #fff8; background: #0006;
+        border: 1px solid #fff3; padding: 8px 12px 6px; cursor: pointer;
+        opacity: 0; transition: opacity 0.3s;
+      }
+      #screen-splash.tr-lit .tr-skip { opacity: 0.7; }
+      #screen-splash .tr-skip:hover { opacity: 1; color: #fff; border-color: #ff9f3c; }
+      /* Title */
+      #screen-title {
+        justify-content: flex-end; padding-bottom: max(32px, 8vh);
+      }
+      #screen-title .title-hero {
+        position: absolute; inset: 0; display: flex; flex-direction: column;
+        justify-content: center; padding: 0 20px; pointer-events: none;
+      }
+      #screen-title .title-balls {
+        display: flex; gap: 6px; margin-bottom: 10px;
+      }
+      #screen-title .title-balls .dball {
+        width: 18px; height: 18px; opacity: 1; transform: none;
+        box-shadow: 0 0 8px #ff6f0066;
+      }
+      #screen-title .title-balls .dball .star { width: 28%; height: 28%; margin: -14% 0 0 -14%; }
+      #screen-title .title-kicker {
+        font-family: "Teko", sans-serif; font-weight: 600; font-size: 15px;
+        letter-spacing: 0.48em; color: #ffab40; margin: 0 0 6px;
+      }
+      #screen-title .title-logo.db-logo {
+        font-size: clamp(40px, 12vw, 92px);
+      }
+      #screen-title .title-arena {
+        font-family: "Saiyan Sans", "Lilita One", Impact, sans-serif;
+        font-size: clamp(26px, 7vw, 48px); letter-spacing: 0.22em; margin: 2px 0 0;
+        color: #fff; text-shadow: 0 3px 0 #b71c1c, 0 0 20px #ff3d0033;
+      }
+      #screen-title .title-tag {
+        margin: 14px 0 0; max-width: 28ch;
+        font-size: 15px; font-weight: 600; line-height: 1.45; color: #c5d4cc;
+        letter-spacing: 0.02em;
+      }
+      #screen-title .title-nav {
+        position: relative; width: min(420px, 100%);
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      .ux-btn {
+        appearance: none; border: 0; cursor: pointer; text-align: left;
+        font-family: "Teko", sans-serif; font-weight: 600; font-size: 22px;
+        letter-spacing: 0.18em; color: #f4f7f5;
+        padding: 14px 18px 12px; background: #0c1820cc;
+        border-left: 3px solid transparent;
+        clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+        transition: background 0.18s, border-color 0.18s, transform 0.18s, color 0.18s;
+      }
+      .ux-btn:hover, .ux-btn:focus-visible {
+        outline: none; background: #163028ee; border-left-color: #ff9f3c;
+        color: #fff; transform: translateX(4px);
+      }
+      .ux-btn.primary {
+        background: linear-gradient(90deg, #c45c18cc, #8b2e0acc);
+        border-left-color: #ffc107;
+      }
+      .ux-btn.primary:hover, .ux-btn.primary:focus-visible {
+        background: linear-gradient(90deg, #e06a1ecc, #a33810cc);
+      }
+      .ux-btn .ux-hint {
+        display: block; margin-top: 2px;
+        font-family: "Outfit", sans-serif; font-size: 11px; font-weight: 600;
+        letter-spacing: 0.08em; opacity: 0.55; text-transform: uppercase;
+      }
+      /* Setup */
+      .setup-head {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: 12px; margin-bottom: 12px; flex-wrap: wrap;
+      }
+      .setup-titles h2 {
+        margin: 0; font-family: "Russo One", Impact, sans-serif;
+        font-size: clamp(22px, 5vw, 34px); letter-spacing: 0.14em; color: #fff8e7;
+      }
+      .setup-titles p {
+        margin: 4px 0 0; font-family: "Teko", sans-serif; font-weight: 500;
+        font-size: 14px; letter-spacing: 0.28em; color: #7ec8a3;
+      }
+      .ux-back {
+        appearance: none; cursor: pointer;
+        font-family: "Teko", sans-serif; font-weight: 600; font-size: 16px;
+        letter-spacing: 0.2em; color: #c5d4cc;
+        background: #0c182099; border: 1px solid #ffffff22; padding: 10px 14px 8px;
+        clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px);
+      }
+      .ux-back:hover { color: #fff; border-color: #ff9f3c88; }
       .boot-pick { display: flex; flex-direction: column; gap: 12px; margin-bottom: 4px; }
       #map-preview-wrap {
-        overflow: hidden;
-        height: min(46vh, 340px);
-        border: 2px solid #ffeb3b66;
-        border-radius: 8px;
+        overflow: hidden; height: min(42vh, 300px);
+        border: 1px solid #7ec8a344; border-radius: 2px;
         background: #071208;
-        box-shadow: inset 0 0 24px #0008, 0 8px 24px #0006;
-        touch-action: none;
-        cursor: grab;
+        box-shadow: inset 0 0 32px #000a, 0 12px 40px #0006;
+        touch-action: none; cursor: grab;
       }
       #map-preview-wrap:active { cursor: grabbing; }
       #map-preview { display: block; width: 100%; height: 100%; }
       .map-preview-hint {
-        margin: 6px 0 0; font-family: "Barlow Condensed", sans-serif; font-weight: 700;
-        font-size: 11px; letter-spacing: 0.14em; opacity: 0.65; text-align: center;
+        margin: 6px 0 0; font-family: "Teko", sans-serif; font-weight: 500;
+        font-size: 12px; letter-spacing: 0.28em; opacity: 0.55; text-align: center;
       }
-      #boot .maps {
-        display: flex; gap: 10px; flex-wrap: nowrap; justify-content: flex-start;
+      #front .maps {
+        display: flex; gap: 8px; flex-wrap: nowrap; justify-content: flex-start;
         overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 2px 2px 8px;
         scroll-snap-type: x mandatory;
       }
-      #boot .maps button {
-        flex: 0 0 auto; width: min(220px, 78vw); max-width: none; min-height: 96px; padding: 12px 12px 10px; cursor: pointer;
-        border: 2px solid #ffeb3b55; color: #fff; text-align: left;
-        font: inherit; letter-spacing: 0.08em; font-size: 18px;
-        clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+      #front .maps button {
+        flex: 0 0 auto; width: min(210px, 78vw); min-height: 92px; padding: 12px;
+        cursor: pointer; border: 1px solid #ffffff22; color: #fff; text-align: left;
+        font-family: "Russo One", Impact, sans-serif; letter-spacing: 0.08em; font-size: 17px;
+        clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
         transition: transform 0.15s ease, border-color 0.15s, box-shadow 0.15s;
-        box-shadow: 0 8px 24px #0008; scroll-snap-align: start;
+        box-shadow: 0 8px 24px #0008; scroll-snap-align: start; background: #122018;
       }
       @media (min-width: 720px) {
-        .boot-pick { display: grid; grid-template-columns: minmax(360px, 1.7fr) minmax(220px, 0.7fr); align-items: stretch; gap: 16px; }
-        #map-preview-wrap { height: min(58vh, 560px); }
-        #boot .maps { flex-direction: column; overflow-x: hidden; overflow-y: auto; max-height: min(58vh, 560px); scroll-snap-type: y mandatory; }
-        #boot .maps button { width: 100%; }
+        .boot-pick { display: grid; grid-template-columns: minmax(340px, 1.7fr) minmax(210px, 0.7fr); align-items: stretch; gap: 16px; }
+        #map-preview-wrap { height: min(52vh, 480px); }
+        #front .maps { flex-direction: column; overflow-x: hidden; overflow-y: auto; max-height: min(52vh, 480px); scroll-snap-type: y mandatory; }
+        #front .maps button { width: 100%; }
+        #screen-title { justify-content: center; padding-left: min(8vw, 80px); }
+        #screen-title .title-hero { justify-content: center; padding-left: 0; max-width: 55%; }
+        #screen-title .title-nav { margin-left: auto; margin-right: min(6vw, 64px); }
       }
-      #boot h1 {
-        font-size: clamp(32px, 9vw, 64px); letter-spacing: 0.16em;
-        margin: 4px 0 4px; color: #fff59d; text-align: center;
-        text-shadow: 0 0 40px #ff6f0044, 0 4px 0 #3e2723;
+      #front button[data-map="namek"] {
+        background: linear-gradient(180deg, #fff2 0%, transparent 40%), linear-gradient(160deg, #1b5e20cc, #0d1f12ee);
       }
-      #boot .tagline {
-        font-family: "Barlow Condensed", sans-serif; font-weight: 700;
-        letter-spacing: 0.28em; font-size: 12px; opacity: 0.7; margin: 0 0 16px; text-transform: uppercase;
-        text-align: center;
+      #front button[data-map="earth"] {
+        background: linear-gradient(180deg, #fff2 0%, transparent 40%), linear-gradient(160deg, #1565c0cc, #0d2130ee);
       }
-      #boot button[data-map="namek"] {
-        background: linear-gradient(180deg, #fff3 0%, transparent 40%), linear-gradient(160deg, #1b5e20cc, #0d1f12ee);
+      #front button[data-map="cell"] {
+        background: linear-gradient(180deg, #fff2 0%, transparent 40%), linear-gradient(160deg, #2e5a3acc, #120818ee);
       }
-      #boot button[data-map="earth"] {
-        background: linear-gradient(180deg, #fff3 0%, transparent 40%), linear-gradient(160deg, #1565c0cc, #0d2130ee);
+      #front button[data-map="city"] {
+        background: linear-gradient(180deg, #fff2 0%, transparent 40%), linear-gradient(160deg, #546e7acc, #1a237eee);
       }
-      #boot button[data-map="cell"] {
-        background: linear-gradient(180deg, #fff3 0%, transparent 40%), linear-gradient(160deg, #4527a0cc, #120818ee);
+      #front button[data-map="vegeta"] {
+        background: linear-gradient(180deg, #fff2 0%, transparent 40%), linear-gradient(160deg, #ad1457cc, #3e1420ee);
       }
-      #boot button[data-map="city"] {
-        background: linear-gradient(180deg, #fff3 0%, transparent 40%), linear-gradient(160deg, #546e7acc, #1a237eee);
+      #front .maps button:hover, #front .maps button.on {
+        transform: translateY(-2px); border-color: #ff9f3c;
+        box-shadow: 0 12px 32px #ff6f0030, 0 0 16px #ffeb3b18;
       }
-      #boot button[data-map="vegeta"] {
-        background: linear-gradient(180deg, #fff3 0%, transparent 40%), linear-gradient(160deg, #ad1457cc, #4a148cee);
+      #front button .map-kicker {
+        display: block; font-family: "Teko", sans-serif; font-weight: 600;
+        font-size: 11px; letter-spacing: 0.28em; opacity: 0.7; margin-bottom: 4px;
       }
-      #boot .maps button:hover, #boot .maps button.on {
-        transform: translateY(-3px); border-color: #ffeb3b;
-        box-shadow: 0 12px 32px #ff6f0033, 0 0 16px #ffeb3b22;
+      #front button small {
+        display: block; margin-top: 6px; font-size: 12px; opacity: 0.8; letter-spacing: 0.04em;
+        font-family: "Outfit", sans-serif; font-weight: 600; line-height: 1.3;
       }
-      #boot button .map-kicker {
-        display: block; font-family: "Barlow Condensed", sans-serif; font-weight: 700;
-        font-size: 10px; letter-spacing: 0.24em; opacity: 0.65; margin-bottom: 6px;
-      }
-      #boot button small {
-        display: block; margin-top: 8px; font-size: 12px; opacity: 0.8; letter-spacing: 0.04em;
-        font-family: "Barlow Condensed", sans-serif; font-weight: 600; line-height: 1.3;
-      }
-      #boot .hero-row, #menu .hero-row {
+      #front .hero-row, #menu .hero-row {
         display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;
-        margin: 14px 0 8px; font-family: "Barlow Condensed", sans-serif; font-weight: 700;
+        margin: 14px 0 8px; font-family: "Teko", sans-serif; font-weight: 600;
       }
-      #boot .hero-row label, #menu .hero-row label { letter-spacing: 0.08em; font-size: 14px; }
-      #boot select, #menu select {
-        background: #111c; color: #fff; border: 1px solid #ffab4066; padding: 8px 10px;
-        font: inherit; min-width: 140px;
+      #front .hero-row label, #menu .hero-row label { letter-spacing: 0.14em; font-size: 16px; }
+      #front select, #menu select {
+        background: #0c1820; color: #fff; border: 1px solid #7ec8a355; padding: 10px 12px;
+        font-family: "Outfit", sans-serif; font-weight: 600; min-width: 160px; border-radius: 2px;
       }
       .boot-tabs, .menu-tabs {
         display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 10px;
-        font-family: "Barlow Condensed", sans-serif;
+        font-family: "Teko", sans-serif;
       }
       .boot-tabs button, .menu-tabs button {
         width: auto !important; min-height: 0 !important; clip-path: none !important;
-        background: #1118 !important; border: 1px solid #fff3 !important; padding: 8px 12px !important;
-        font-size: 13px !important; letter-spacing: 0.12em; font-weight: 800;
+        background: #0c182099 !important; border: 1px solid #ffffff22 !important; padding: 8px 14px 6px !important;
+        font-size: 15px !important; letter-spacing: 0.16em; font-weight: 600; color: #c5d4cc !important;
+        font-family: "Teko", sans-serif !important;
       }
-      .boot-tabs button.on, .menu-tabs button.on { border-color: #ffab40 !important; background: #bf360c66 !important; }
+      .boot-tabs button.on, .menu-tabs button.on {
+        border-color: #ff9f3c !important; background: #c45c1833 !important; color: #fff !important;
+      }
       .opts { display: grid; grid-template-columns: 1fr; gap: 8px; }
       @media (min-width: 640px) { .opts { grid-template-columns: 1fr 1fr; } }
       .opts label {
-        display: flex; flex-direction: column; gap: 4px;
-        font-family: "Barlow Condensed", sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 0.06em;
-        background: #0005; padding: 8px 10px; border: 1px solid #fff2;
+        display: flex; flex-direction: column; gap: 6px;
+        font-family: "Outfit", sans-serif; font-weight: 600; font-size: 13px; letter-spacing: 0.04em;
+        background: #0c1820aa; padding: 12px 14px; border: 1px solid #ffffff14;
       }
       .opts label.chk { flex-direction: row; align-items: center; gap: 8px; }
-      .opts input[type="range"] { width: 100%; accent-color: #ff8f00; }
-      .opts .val { color: #ffe082; font-variant-numeric: tabular-nums; }
+      .opts input[type="range"] { width: 100%; accent-color: #ff9f3c; }
+      .opts .val { color: #ffc107; font-variant-numeric: tabular-nums; }
       #btn-play {
-        display: block; width: 100%; margin: 16px 0 0; padding: 14px; cursor: pointer;
-        background: linear-gradient(180deg, #e65100, #bf360c); color: #fff;
-        border: 2px solid #ffab40; font: inherit; font-size: 22px; letter-spacing: 0.18em;
-        clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+        display: block; width: 100%; margin: 18px 0 8px; padding: 16px 14px 14px; cursor: pointer;
+        background: linear-gradient(90deg, #e06a1e, #a33810); color: #fff;
+        border: 1px solid #ffc10788; font-family: "Teko", sans-serif; font-weight: 700;
+        font-size: 26px; letter-spacing: 0.28em;
+        clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+        box-shadow: 0 10px 36px #c45c1844;
       }
-      #btn-play:hover { filter: brightness(1.1); }
+      #btn-play:hover { filter: brightness(1.08); }
       #menu-opts { margin-top: 12px; }
       #end {
         display: none; position: absolute; inset: 0; align-items: center; justify-content: center;
@@ -339,27 +637,27 @@
       }
       #end.show { display: flex; }
       .end-card {
-        padding: 28px 48px; min-width: 420px;
+        padding: 28px 48px; min-width: min(420px, 92vw);
         clip-path: polygon(16px 0, 100% 0, calc(100% - 16px) 100%, 0 100%);
-        border: 3px solid #ffeb3b;
-        background: linear-gradient(180deg, #1a1008ee, #050505ee);
-        box-shadow: 0 0 60px #ff6f0044;
+        border: 2px solid #ffc10788;
+        background: linear-gradient(180deg, #1a2018ee, #050805ee);
+        box-shadow: 0 0 60px #1b6b4e33;
       }
-      .end-card.z { border-color: #ff5252; box-shadow: 0 0 60px #e5393544; }
-      .end-card.f { border-color: #7e57c2; box-shadow: 0 0 60px #5e35b144; }
+      .end-card.z { border-color: #ff9f3c; box-shadow: 0 0 60px #c45c1844; }
+      .end-card.f { border-color: #7ec8a3; box-shadow: 0 0 60px #1b6b4e44; }
       .end-kicker {
-        font-family: Segoe UI, sans-serif; font-size: 12px; letter-spacing: 0.35em;
-        color: #fff59d; margin-bottom: 8px;
+        font-family: "Teko", sans-serif; font-size: 14px; letter-spacing: 0.4em;
+        color: #7ec8a3; margin-bottom: 8px;
       }
       .end-title {
-        font-size: 48px; letter-spacing: 0.12em; line-height: 1.05; color: #fff;
-        text-shadow: 0 0 24px #ffeb3b88;
+        font-family: "Russo One", Impact, sans-serif;
+        font-size: clamp(32px, 8vw, 48px); letter-spacing: 0.12em; line-height: 1.05; color: #fff8e7;
       }
       .end-sub {
-        font-family: Segoe UI, sans-serif; font-size: 16px; font-weight: 700;
+        font-family: "Outfit", sans-serif; font-size: 15px; font-weight: 600;
         margin-top: 14px; opacity: 0.95; max-width: 480px;
       }
-      .end-score { font-size: 28px; margin-top: 16px; color: #fff59d; letter-spacing: 0.2em; }
+      .end-score { font-size: 28px; margin-top: 16px; color: #ffc107; letter-spacing: 0.2em; font-family: "Teko", sans-serif; }
       #announce {
         display: none; position: absolute; inset: 0; align-items: center; justify-content: center;
         font-size: 140px; letter-spacing: 0.08em; pointer-events: none;
@@ -526,49 +824,75 @@
       .nametag.f { color: #40c4ff; text-shadow: 0 0 6px #000, 0 0 8px #2979ff; }
       .nametag.yo { font-size: 12px; color: #fff59d; }
       #menu {
-        display: none; position: absolute; inset: 0; pointer-events: auto;
-        background: radial-gradient(ellipse at center, #0008, #000c);
-        align-items: center; justify-content: center;
-        font-family: "Barlow Condensed", sans-serif; backdrop-filter: blur(4px);
+        display: none; position: absolute; inset: 0; pointer-events: auto; z-index: 12;
+        background: radial-gradient(ellipse at 30% 20%, #1b6b4e22 0%, transparent 45%),
+          radial-gradient(ellipse at center, #0a1218cc, #020508f2);
+        align-items: stretch; justify-content: flex-end;
+        font-family: "Outfit", system-ui, sans-serif; backdrop-filter: blur(8px);
+        padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
       }
-      #menu.open { display: flex; }
+      #menu.open { display: flex; animation: screenIn 0.35s ease; }
       #menu-box {
-        background:
-          linear-gradient(180deg, #2a1808ee 0%, #0d0d10f2 100%);
-        border: 2px solid #ff8f00; padding: 18px 16px;
-        width: min(720px, 96vw); max-height: 88vh; overflow: auto;
-        box-shadow: 0 0 60px #ff6f0044, inset 0 1px 0 #fff2;
-        clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+        background: linear-gradient(180deg, #122018f0 0%, #0a1218f5 100%);
+        border: 1px solid #7ec8a344; padding: 22px 18px;
+        width: min(520px, 100%); max-height: 100%; overflow: auto;
+        box-shadow: -20px 0 60px #0008, inset 0 1px 0 #fff1;
+        clip-path: polygon(16px 0, 100% 0, 100% 100%, 0 100%, 0 16px);
+        margin-left: auto;
+      }
+      #menu-box .menu-kicker {
+        margin: 0; font-family: "Teko", sans-serif; font-weight: 600;
+        font-size: 13px; letter-spacing: 0.4em; color: #7ec8a3;
       }
       #menu-box h2 {
-        margin: 0 0 4px; font-size: 32px; font-family: "Russo One", Impact, sans-serif;
-        letter-spacing: 0.16em; color: #ffcc80;
+        margin: 2px 0 8px; font-size: clamp(28px, 6vw, 40px);
+        font-family: "Russo One", Impact, sans-serif;
+        letter-spacing: 0.16em; color: #fff8e7;
       }
-      #menu-box .menu-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }
-      #menu-box button {
-        pointer-events: auto; cursor: pointer; margin: 0; padding: 10px 16px;
-        background: linear-gradient(180deg, #e65100, #bf360c); color: #fff;
-        border: 1px solid #ffab40; font-weight: 800; letter-spacing: 0.08em;
-        font-family: "Barlow Condensed", sans-serif; font-size: 15px;
-        clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+      #menu-box > p {
+        font-size: 13px; opacity: 0.7; font-weight: 600; letter-spacing: 0.04em; margin: 0 0 14px;
       }
-      #menu-box button:hover { filter: brightness(1.12); }
-      #menu-box button.ghost {
-        background: #1118; border-color: #fff4;
+      #menu-box .menu-actions { display: flex; flex-direction: column; gap: 8px; margin: 0 0 18px; }
+      #menu-box .menu-actions button {
+        pointer-events: auto; cursor: pointer; margin: 0; padding: 12px 16px 10px;
+        background: #0c1820cc; color: #f4f7f5; text-align: left;
+        border: 0; border-left: 3px solid transparent;
+        font-family: "Teko", sans-serif; font-weight: 600; font-size: 20px; letter-spacing: 0.16em;
+        clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+        transition: background 0.15s, border-color 0.15s, transform 0.15s;
       }
-      #menu-box .cols { display: flex; gap: 16px; flex-wrap: wrap; }
-      #menu-box .col { flex: 1; min-width: 200px; }
+      #menu-box .menu-actions button:hover {
+        background: #163028ee; border-left-color: #ff9f3c; transform: translateX(3px);
+      }
+      #menu-box .menu-actions button.primary {
+        background: linear-gradient(90deg, #c45c18cc, #8b2e0acc); border-left-color: #ffc107;
+      }
+      #menu-box .menu-actions .ux-hint {
+        display: block; margin-top: 2px;
+        font-family: "Outfit", sans-serif; font-size: 11px; font-weight: 600;
+        letter-spacing: 0.08em; opacity: 0.55; text-transform: uppercase;
+      }
+      #menu-box .menu-section {
+        margin-top: 8px; padding-top: 12px; border-top: 1px solid #ffffff14;
+      }
+      #menu-box .menu-section h3 {
+        margin: 0 0 8px; font-family: "Teko", sans-serif; font-weight: 600;
+        font-size: 14px; letter-spacing: 0.28em; color: #7ec8a3;
+      }
+      #menu-box .cols { display: flex; gap: 14px; flex-wrap: wrap; }
+      #menu-box .col { flex: 1; min-width: 160px; }
       #menu-box .col b {
-        display: block; margin-bottom: 6px; letter-spacing: 0.14em; font-size: 14px;
+        display: block; margin-bottom: 6px; letter-spacing: 0.14em; font-size: 13px;
+        font-family: "Teko", sans-serif; font-weight: 600;
       }
-      #menu-box .col.z b { color: #ffab40; }
-      #menu-box .col.f b { color: #b39ddb; }
+      #menu-box .col.z b { color: #ff9f3c; }
+      #menu-box .col.f b { color: #7ec8a3; }
       #menu-z button, #menu-f button {
-        background: #111a; border-color: #fff3; font-size: 13px; padding: 6px 10px; margin: 2px;
-        font-weight: 700;
+        background: #0c1820aa; border: 1px solid #ffffff18; color: #e8fff2;
+        font-size: 12px; padding: 6px 10px; margin: 2px; font-weight: 600;
+        font-family: "Outfit", sans-serif; cursor: pointer;
       }
-      #menu-z button:hover, #menu-f button:hover { border-color: #ffab40; background: #bf360c55; }
-      #menu-box p { font-size: 13px; opacity: 0.8; font-weight: 600; letter-spacing: 0.04em; }
+      #menu-z button:hover, #menu-f button:hover { border-color: #ff9f3c; background: #c45c1833; }
     </style>
   </head>
   <body>
@@ -576,7 +900,10 @@
     <div id="uw"></div>
     <div id="crosshair"></div>
     <div id="hud">
-      <div id="click-msg">CLICK PARA LUCHAR</div>
+      <div id="click-msg">
+        <span class="cm-kicker">PARTIDA LISTA</span>
+        <span class="cm-main">CLICK PARA EMPEZAR</span>
+      </div>
       <div id="scoreboard">
         <div class="side z"><span class="lab">Z</span><span class="n" id="sc-z">0</span></div>
         <div class="clock"><div id="clock">8:00</div><div class="balls" id="sc-orbs"></div></div>
@@ -634,45 +961,118 @@
       </div>
       <div id="menu">
         <div id="menu-box">
+          <p class="menu-kicker">PARTIDA EN CURSO</p>
           <h2>PAUSA</h2>
-          <p>M cierra · el combate se detiene</p>
+          <p>El combate está detenido · M para cerrar</p>
           <div class="menu-actions">
-            <button type="button" id="btn-continuar">CONTINUAR</button>
-            <button type="button" id="btn-spectate" class="ghost">SPECTEAR</button>
+            <button type="button" id="btn-continuar" class="primary">CONTINUAR</button>
+            <button type="button" id="btn-spectate">SPECTEAR<span class="ux-hint">← → cambia de personaje</span></button>
           </div>
-          <p>Spectate: ← → personaje · M menú</p>
-          <div class="menu-tabs" id="menu-tabs"></div>
-          <div id="menu-opts" class="opts"></div>
-          <div class="cols">
-            <div class="col z"><b>Guerreros Z</b><div id="menu-z"></div></div>
-            <div class="col f"><b id="menu-f-h">Freezer</b><div id="menu-f"></div></div>
+          <div class="menu-section">
+            <h3>AJUSTES</h3>
+            <div class="menu-tabs" id="menu-tabs"></div>
+            <div id="menu-opts" class="opts"></div>
+          </div>
+          <div class="menu-section">
+            <h3>CAMBIAR PERSONAJE</h3>
+            <div class="cols">
+              <div class="col z"><b>Guerreros Z</b><div id="menu-z"></div></div>
+              <div class="col f"><b id="menu-f-h">Freezer</b><div id="menu-f"></div></div>
+            </div>
           </div>
         </div>
       </div>
     </div>
-    <div id="boot">
-      <div class="boot-inner">
-        <!-- <h1>NAMEKUSEI</h1> -->
-        <p class="tagline">Seleccionar escenario</p>
-        <div class="boot-pick">
-          <div>
-            <div id="map-preview-wrap"><canvas id="map-preview"></canvas></div>
-            <p class="map-preview-hint">ARRASTRÁ PARA GIRAR LA MAQUETA</p>
-          </div>
-          <div class="maps">
-            <button type="button" data-map="namek"><span class="map-kicker">PLANETA</span>NAMEK<small>Z vs Freezer</small></button>
-            <button type="button" data-map="earth"><span class="map-kicker">SAGA SAIYAN</span>TIERRA<small>Z vs Saiyajin</small></button>
-            <button type="button" data-map="cell"><span class="map-kicker">SAGA CELL</span>ISLAS<small>Z vs Cell</small></button>
-            <button type="button" data-map="city"><span class="map-kicker">TRUNKS DEL FUTURO</span>CIUDAD<small>Z vs Androides</small></button>
-            <button type="button" data-map="vegeta"><span class="map-kicker">ERA SAIYAJIN</span>PLANETA VEGETA<small>Saiyajin vs Freezer</small></button>
-          </div>
+    <div id="front">
+      <div class="fx-bg" aria-hidden="true"></div>
+      <div id="screen-splash" class="screen on" tabindex="0">
+        <div class="tr-sky" aria-hidden="true"></div>
+        <div class="tr-vignette" aria-hidden="true"></div>
+        <div class="tr-speed" aria-hidden="true"></div>
+        <div class="tr-flash" aria-hidden="true"></div>
+        <div class="tr-balls" aria-hidden="true">
+          <span class="dball" data-n="1"><i class="star"></i></span>
+          <span class="dball" data-n="2"><i class="star"></i><i class="star"></i></span>
+          <span class="dball" data-n="3"><i class="star"></i><i class="star"></i><i class="star"></i></span>
+          <span class="dball" data-n="4"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span>
+          <span class="dball" data-n="5"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span>
+          <span class="dball" data-n="6"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span>
+          <span class="dball" data-n="7"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span>
         </div>
-        <div class="hero-row">
-          <label>Jugar como <select id="opt-hero"></select></label>
+        <div class="tr-titles">
+          <h1 class="db-logo">DRAGON BALL</h1>
+          <p class="db-arena">ARENA</p>
         </div>
-        <div class="boot-tabs" id="boot-tabs"></div>
-        <div id="boot-opts" class="opts"></div>
-        <button type="button" id="btn-play">JUGAR</button>
+        <p class="tr-hint">PULSÁ PARA CONTINUAR</p>
+        <button type="button" class="tr-skip" id="tr-skip">SALTAR</button>
+      </div>
+      <div id="screen-title" class="screen">
+        <div class="title-hero">
+          <div class="title-balls" aria-hidden="true">
+            <span class="dball" data-n="1"><i class="star"></i></span>
+            <span class="dball" data-n="2"><i class="star"></i><i class="star"></i></span>
+            <span class="dball" data-n="3"><i class="star"></i><i class="star"></i><i class="star"></i></span>
+            <span class="dball" data-n="4"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span>
+            <span class="dball" data-n="5"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span>
+            <span class="dball" data-n="6"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span>
+            <span class="dball" data-n="7"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span>
+          </div>
+          <p class="title-kicker">FAN GAME</p>
+          <h1 class="title-logo db-logo">DRAGON BALL</h1>
+          <p class="title-arena">ARENA</p>
+        </div>
+        <nav class="title-nav" aria-label="Menú principal">
+          <button type="button" class="ux-btn primary" data-go="setup">
+            Nueva partida
+          </button>
+          <button type="button" class="ux-btn" data-go="opts">
+            Opciones
+            <span class="ux-hint">Audio, gráficos, controles</span>
+          </button>
+        </nav>
+      </div>
+      <div id="screen-opts" class="screen">
+        <div class="screen-scroll">
+          <div class="setup-head">
+            <div class="setup-titles">
+              <h2>OPCIONES</h2>
+              <p>AJUSTES GLOBALES</p>
+            </div>
+            <button type="button" class="ux-back" data-go="title">← ATRÁS</button>
+          </div>
+          <div class="boot-tabs" id="title-opts-tabs"></div>
+          <div id="title-opts" class="opts"></div>
+        </div>
+      </div>
+      <div id="screen-setup" class="screen">
+        <div class="screen-scroll">
+          <div class="setup-head">
+            <div class="setup-titles">
+              <h2>NUEVA PARTIDA</h2>
+              <p>SELECCIONAR ESCENARIO</p>
+            </div>
+            <button type="button" class="ux-back" data-go="title">← ATRÁS</button>
+          </div>
+          <div class="boot-pick">
+            <div>
+              <div id="map-preview-wrap"><canvas id="map-preview"></canvas></div>
+              <p class="map-preview-hint">ARRASTRÁ PARA GIRAR LA MAQUETA</p>
+            </div>
+            <div class="maps">
+              <button type="button" data-map="namek"><span class="map-kicker">PLANETA</span>NAMEK<small>Z vs Freezer</small></button>
+              <button type="button" data-map="earth"><span class="map-kicker">SAGA SAIYAN</span>TIERRA<small>Z vs Saiyajin</small></button>
+              <button type="button" data-map="cell"><span class="map-kicker">SAGA CELL</span>ISLAS<small>Z vs Cell</small></button>
+              <button type="button" data-map="city"><span class="map-kicker">TRUNKS DEL FUTURO</span>CIUDAD<small>Z vs Androides</small></button>
+              <button type="button" data-map="vegeta"><span class="map-kicker">ERA SAIYAJIN</span>PLANETA VEGETA<small>Saiyajin vs Freezer</small></button>
+            </div>
+          </div>
+          <div class="hero-row">
+            <label>Jugar como <select id="opt-hero"></select></label>
+          </div>
+          <div class="boot-tabs" id="boot-tabs"></div>
+          <div id="boot-opts" class="opts"></div>
+          <button type="button" id="btn-play">JUGAR</button>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.js"></script>
