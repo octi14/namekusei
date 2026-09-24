@@ -684,11 +684,13 @@ export class Personaje {
         this._fxScratch.splice(i, 1);
       }
     }
-    // Viento fake en pelo / capa al cargar o SSJ
-    if (charging || this.ssj || (this.superHold || 0) > 0.04) {
-      const w = Math.sin(this._kiPulse * 5.5) * 0.07;
+    // Viento en pelo / capa (tela con pliegues, no tabla rígida)
+    {
+      const active = charging || this.ssj || (this.superHold || 0) > 0.04;
+      const boost = active ? 1 : 0.35;
+      const w = Math.sin(this._kiPulse * 5.5) * 0.07 * (active ? 1 : 0.25);
       const head = this.limbs?.headG;
-      if (head) {
+      if (head && active) {
         for (let i = 0; i < head.children.length; i++) {
           const c = head.children[i];
           if (!c.isMesh || c.geometry?.type === "SphereGeometry") continue;
@@ -696,10 +698,33 @@ export class Personaje {
           c.rotation.x = (c.userData._baseX ?? (c.userData._baseX = c.rotation.x)) + Math.sin(this._kiPulse * 4 + i) * 0.05;
         }
       }
+      const t = this._kiPulse;
       this.mesh.traverse((o) => {
-        if (o.userData?.wind) {
-          o.rotation.x = 0.08 + Math.sin(this._kiPulse * 3.4) * 0.12;
-          o.rotation.z = Math.sin(this._kiPulse * 2.6) * 0.08;
+        if (!o.userData?.wind) return;
+        if (o.userData.cloth && o.userData.clothBase && o.geometry?.attributes?.position) {
+          const pos = o.geometry.attributes.position;
+          const base = o.userData.clothBase;
+          const fall = o.userData.clothFall;
+          const amp = (o.userData.clothAmp || 0.02) * boost;
+          for (let i = 0; i < pos.count; i++) {
+            const v = fall ? fall[i] : 0.5;
+            const ix = i * 3;
+            const bx = base[ix];
+            const by = base[ix + 1];
+            const bz = base[ix + 2];
+            const wave =
+              Math.sin(t * 3.2 + bx * 8 + v * 4) * amp * v +
+              Math.sin(t * 2.1 + bx * 5) * amp * 0.45 * v * v;
+            const sway = Math.sin(t * 1.7) * amp * 0.6 * v;
+            pos.setXYZ(i, bx + sway * 0.35, by + wave * 0.25, bz + wave + Math.abs(sway) * 0.15);
+          }
+          pos.needsUpdate = true;
+          o.geometry.computeVertexNormals();
+          o.rotation.x = (o.userData._capeRx ?? (o.userData._capeRx = o.rotation.x)) + Math.sin(t * 1.4) * 0.04 * boost;
+          o.rotation.z = Math.sin(t * 1.1) * 0.03 * boost;
+        } else if (active) {
+          o.rotation.x = 0.08 + Math.sin(t * 3.4) * 0.12;
+          o.rotation.z = Math.sin(t * 2.6) * 0.08;
         }
       });
     }

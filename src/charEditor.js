@@ -2,6 +2,13 @@ import * as THREE from "three";
 import { makeBody, DEFAULT_SCULPT, SCULPT_SELECTS, saveSculpt, loadSavedSculpt, clearSavedSculpt, captureMolds } from "./body.js";
 import { LOOK, saveLook, loadSavedLook } from "./looks.js";
 import { flushPack } from "./pack.js";
+import {
+  createHandleRoot,
+  rebuildHandles,
+  syncHandlePositions,
+  pickHandle,
+  dragHandle,
+} from "./sculptHandles.js";
 
 const EDITOR_KEY = "namekusei.charEditor";
 const LOOK_COLORS = [
@@ -23,9 +30,12 @@ const LOOK_COLORS = [
   ["boots", "Botas", (l) => l.boots ?? 0x0d47a1],
   ["cape", "Capa", (l) => l.cape ?? 0xfafafa],
   ["turbanC", "Turbante", (l) => l.turbanC ?? l.cape ?? 0xf5f5f5],
-  ["suit", "Traje", (l) => l.suit ?? l.body],
-  ["trim", "Placa", (l) => l.trim ?? 0xeeeeee],
-  ["pads", "Hombreras", (l) => l.pads ?? l.trim ?? 0xeeeeee],
+  ["suit", "Traje interior / mangas", (l) => l.suit ?? l.body],
+  ["trim", "Placa pecho (fill)", (l) => l.trim ?? 0xeeeeee],
+  ["ribs", "Acanalado (hombros+abdomen)", (l) => l.ribs ?? l.pads ?? 0xffc107],
+  ["pads", "Hombreras (fallback)", (l) => l.pads ?? l.ribs ?? 0xffc107],
+  ["collar", "Cuello armadura", (l) => l.collar ?? 0xfafafa],
+  ["gold", "Filete dorado", (l) => l.gold ?? l.accent ?? 0xffc107],
   ["helm", "Casco", (l) => l.helm ?? 0x37474f],
   ["accent", "Acento", (l) => l.accent ?? 0x1565c0],
 ];
@@ -150,6 +160,35 @@ const SLIDERS = [
   ["plateSy", "Placa alto Y", 0.5, 2, 0.01],
   ["plateSz", "Placa prof. Z", 0.5, 2, 0.01],
   ["padY", "Hombreras Y", -0.4, 0.4, 0.005],
+  ["padX", "Hombreras sep.", -0.15, 0.2, 0.005],
+  ["padScale", "Hombreras escala", 0.35, 1.8, 0.02],
+  ["padTilt", "Hombreras inclinación", 0, 0.7, 0.01],
+  ["padPitch", "Hombreras pitch", -0.35, 0.45, 0.01],
+  ["padArch", "Hombreras cúpula", 0.15, 1.2, 0.02],
+  ["padBorder", "Hombreras borde", 0.02, 0.25, 0.005],
+  ["padLines", "Hombreras nervaduras", 0, 14, 1],
+  ["padLineW", "Hombreras grosor línea", 0.004, 0.035, 0.001],
+  ["plateBorder", "Pechera borde", 0.03, 0.2, 0.005],
+  ["plateRibs", "Pechera nervaduras", 3, 12, 1],
+  ["showPlate", "Placa on (otros kits)", 0, 1, 1],
+  ["showPads", "Hombreras on (otros kits)", 0, 1, 1],
+  ["showCape", "Capa on", 0, 1, 1],
+  ["showHipFlaps", "Faldones cadera on", 0, 1, 1],
+  ["hipFlapX", "Faldones sep.", -0.2, 0.25, 0.005],
+  ["hipFlapY", "Faldones Y", -0.35, 0.35, 0.005],
+  ["hipFlapZ", "Faldones Z", -0.2, 0.25, 0.005],
+  ["hipFlapSx", "Faldones ancho", 0.4, 2.2, 0.05],
+  ["hipFlapSy", "Faldones alto", 0.4, 2.2, 0.05],
+  ["hipFlapSz", "Faldones grosor", 0.4, 2.2, 0.05],
+  ["hipFlapTilt", "Faldones inclinación", 0, 0.7, 0.01],
+  ["showScouter", "Scouter on", 0, 1, 1],
+  ["showTail", "Cola on", 0, 1, 1],
+  ["tailLen", "Cola largo", 0.4, 2, 0.05],
+  ["tailThick", "Cola grosor", 0.4, 2, 0.05],
+  ["spots", "Manchas cuerpo", 0, 1, 1],
+  ["spotScale", "Manchas escala", 0.4, 2.2, 0.05],
+  ["clothDetail", "Arrugas tela", 0, 1.4, 0.05],
+  ["armorDetail", "Detalle armadura", 0, 1.4, 0.05],
   ["showUnder", "Interior on", 0, 1, 1],
   ["underX", "Interior X", -0.25, 0.25, 0.005],
   ["underY", "Interior Y", -0.4, 0.4, 0.005],
@@ -195,6 +234,13 @@ const SLIDERS = [
   ["eyeIrisR", "Iris", 0.008, 0.03, 0.001],
   ["eyeSx", "Ojo X", 0.5, 2, 0.05],
   ["eyeSy", "Ojo Y", 0.3, 1.3, 0.05],
+  ["lid", "Delineado", 0, 1.5, 0.05],
+  ["lidX", "Delineado X", -0.08, 0.08, 0.002],
+  ["lidY", "Delineado Y", -0.06, 0.08, 0.002],
+  ["lidZ", "Delineado Z", -0.06, 0.08, 0.002],
+  ["lidSx", "Delineado ancho", 0.4, 2, 0.05],
+  ["lidSy", "Delineado alto", 0.3, 2, 0.05],
+  ["lidTilt", "Delineado inclin.", -1.2, 1.2, 0.02],
   ["brow", "Cejas", 0, 1, 0.05],
   ["browX", "Ceja X", -0.08, 0.12, 0.002],
   ["browY", "Ceja Y", -0.04, 0.12, 0.002],
@@ -249,13 +295,56 @@ const SELECT_LABELS = {
   earType: "Tipo orejas",
   eyeType: "Tipo ojos",
   noseType: "Tipo nariz",
+  mouthType: "Tipo boca",
+  padType: "Tipo hombreras",
+  plateType: "Tipo placa",
+  bracerType: "Tipo brazales",
+  upperSuit: "Traje superior",
+  bootType: "Tipo calzado",
 };
 const SELECT_OPTS = {
   headType: { sphere: "Esfera", oval: "Óvalo", skull: "Cráneo", capsule: "Cápsula", pill: "Cápsula chata", block: "Angular" },
   pecType: { none: "Ninguno", sphere: "Esfera", flat: "Plano", split: "Split", armor: "Armadura" },
   earType: { none: "Ninguna", round: "Redonda", pointed: "Picuda", wide: "Ancha" },
-  eyeType: { anime: "Anime", dot: "Punto", narrow: "Estrecho", wide: "Ancho", none: "Ninguno" },
-  noseType: { none: "Ninguna", bulb: "Bulbo", hook: "Gancho", flat: "Plana", ridge: "Cresta", namek: "Namek" },
+  eyeType: {
+    anime: "Anime",
+    soft: "Suave",
+    sharp: "Afilado",
+    dot: "Punto",
+    narrow: "Estrecho",
+    wide: "Ancho",
+    none: "Ninguno",
+  },
+  noseType: {
+    none: "Ninguna",
+    anime: "Anime",
+    bulb: "Bulbo",
+    button: "Botón",
+    hook: "Gancho",
+    flat: "Plana",
+    ridge: "Cresta",
+    soft: "Suave",
+    namek: "Namek",
+  },
+  mouthType: {
+    none: "Ninguna",
+    line: "Línea",
+    smile: "Sonrisa",
+    frown: "Ceño",
+    open: "Abierta",
+    grit: "Dientes",
+    smirk: "Media sonrisa",
+  },
+  padType: { none: "Ninguna", sphere: "Esfera", spaulder: "Hombrera", spiked: "Con pincho", flat: "Plana", wing: "Ala (Zarbon)" },
+  plateType: { none: "Ninguna", dome: "Cúpula", flat: "Plana", ribbed: "Con nervios", split: "Doble", elite: "Freezer Force" },
+  bracerType: { none: "Ninguno", cuff: "Aro", plate: "Placa", wrap: "Venda" },
+  upperSuit: { none: "Ninguno", freezerElite: "Armadura batalla (completo)" },
+  bootType: {
+    tall: "Bota alta",
+    combat: "Zueco combate (gi)",
+    armor: "Bota armadura",
+    soft: "Suave / corta",
+  },
 };
 
 let open = false;
@@ -278,14 +367,17 @@ let moldStroke = false;
 let lastX = 0;
 let lastY = 0;
 let dirty = true;
-let viewMode = "mold"; // orbit | mold
+let viewMode = "vectores"; // orbit | mold | vectores
 let moldFamily = "all";
 let moldTool = "inflate";
 let brushR = 0.14;
 let brushStr = 0.04;
 let lastHitLocal = null;
 let moldTouched = new Set();
+let handleRoot = null;
+let handleDrag = null; // { def, axis }
 const _rc = new THREE.Raycaster();
+const _planeHit = new THREE.Vector3();
 const SKIP_LOOK = new Set(["Gokú", "Vegeta", "Nº19", "Dr. Gero"]);
 const PRESET_LABEL = {
   namek: "★ Genérico namekiano",
@@ -317,8 +409,8 @@ function dropSizeMolds(key) {
   const molds = sculpt.molds;
   if (!molds) return;
   const pats = [];
-    if (/^(torso|hips|chest|pec|waist|belt|cape|plate|under|pad|frost|sash)/.test(key)) {
-    pats.push(/^(torso|chest|pec|hips|belt|cloth_shirt|undershirt|armor|cape|frost|plate)/);
+    if (/^(torso|hips|chest|pec|waist|belt|cape|plate|under|pad|frost|sash|spot|tail|bracer)/.test(key)) {
+    pats.push(/^(torso|chest|pec|hips|belt|cloth_shirt|undershirt|armor|cape|frost|plate|spot|tail|bracer)/);
   }
   if (/arm|shoulder|hand|finger/i.test(key)) pats.push(/arm|band_/);
   if (/thigh|shin|hipX|hipY|foot|boot/i.test(key)) pats.push(/thigh|shin|boot|^hips/);
@@ -412,15 +504,16 @@ function ensureDom() {
     <div id="ce-body">
       <div id="ce-view">
         <canvas id="ce-canvas"></canvas>
-        <div id="ce-hint">Órbita: arrastrá · Moldear: clic+arrastre (Shift=tirar) · Alt+arrastre=órbita · rueda zoom</div>
+        <div id="ce-hint">Vectores: arrastrá puntos/ejes · Alt=órbita · Moldear=brocha · rueda zoom</div>
       </div>
       <div id="ce-panel">
-        <h2>Moldear (mouse)</h2>
+        <h2>Edición 3D</h2>
         <div class="row">
           <label>Modo
             <select id="ce-mode">
+              <option value="vectores" selected>Vectores (todo)</option>
+              <option value="mold">Moldear malla</option>
               <option value="orbit">Orbitar</option>
-              <option value="mold" selected>Moldear</option>
             </select>
           </label>
           <label>Herramienta<select id="ce-mold-tool"></select></label>
@@ -432,7 +525,7 @@ function ensureDom() {
           <label>Brocha<input id="ce-brush-r" type="range" min="0.04" max="0.4" step="0.01" /></label>
           <label>Fuerza<input id="ce-brush-s" type="range" min="0.005" max="0.1" step="0.001" /></label>
         </div>
-        <p style="font-size:11px;opacity:0.6;margin:0 0 8px">Inflar/desinflar = volumen. Empujar = normal. Agarrar = arrastrá. Suavizar = promedia. Alt=órbita.</p>
+        <p style="font-size:11px;opacity:0.6;margin:0 0 8px">Vectores: bolitas + ejes RGB = posición de cada pieza (ojos, placa, capa, hombros…). Moldear = vértices. Alt=órbita.</p>
         <h2>Look</h2>
         <div class="row">
           <label>Kit<select id="ce-kit"></select></label>
@@ -495,7 +588,15 @@ function ensureDom() {
   root.querySelector("#ce-mode").value = viewMode;
   root.querySelector("#ce-mode").addEventListener("change", (e) => {
     viewMode = e.target.value;
-    setStatus(viewMode === "mold" ? `Moldear: ${moldTool}` : "Modo órbita");
+    handleRoot.visible = viewMode === "vectores";
+    setStatus(
+      viewMode === "vectores"
+        ? "Vectores: arrastrá mangos"
+        : viewMode === "mold"
+          ? `Moldear: ${moldTool}`
+          : "Modo órbita"
+    );
+    dirty = true;
   });
   moldPart.addEventListener("change", (e) => {
     moldFamily = e.target.value;
@@ -634,13 +735,42 @@ function ensureDom() {
     if (orbiting) {
       drag = true;
       moldStroke = false;
-    } else {
+      handleDrag = null;
+      return;
+    }
+    if (viewMode === "vectores" && handleRoot?.visible) {
+      ndcFromEvent(e);
+      _rc.setFromCamera(_m, camera);
+      const hit = pickHandle(handleRoot, _rc);
+      if (hit) {
+        handleDrag = hit;
+        moldStroke = false;
+        drag = false;
+        setStatus(`Vector: ${hit.def.label}${hit.axis ? ` [${hit.axis}]` : ""}`);
+        return;
+      }
+    }
+    if (viewMode === "mold") {
       moldStroke = true;
       drag = false;
+      handleDrag = null;
       strokeMold(e);
+      return;
     }
+    drag = true;
   });
   canvas.addEventListener("pointermove", (e) => {
+    if (handleDrag && mesh) {
+      ndcFromEvent(e);
+      _rc.setFromCamera(_m, camera);
+      if (dragHandle(handleDrag.def, handleDrag.axis, sculpt, altura, mesh, _rc, camera)) {
+        dirty = true;
+        syncSculptUi();
+      }
+      lastX = e.clientX;
+      lastY = e.clientY;
+      return;
+    }
     if (drag) {
       yaw += (e.clientX - lastX) * 0.01;
       pitch = Math.max(-0.6, Math.min(0.8, pitch + (e.clientY - lastY) * 0.008));
@@ -655,15 +785,21 @@ function ensureDom() {
     if (moldStroke && mesh && moldTouched.size) {
       sculpt.molds = { ...(sculpt.molds || {}), ...captureMolds(mesh, moldTouched) };
     }
+    if (handleDrag) {
+      dropSizeMolds(handleDrag.def.id);
+      dirty = true;
+    }
     moldTouched.clear();
     drag = false;
     moldStroke = false;
+    handleDrag = null;
     lastHitLocal = null;
   });
   canvas.addEventListener("pointercancel", (e) => {
     if (canvas.hasPointerCapture?.(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
     drag = false;
     moldStroke = false;
+    handleDrag = null;
     lastHitLocal = null;
   });
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -882,6 +1018,9 @@ function ensureScene() {
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = 0;
   scene.add(ground);
+  handleRoot = createHandleRoot();
+  handleRoot.visible = viewMode === "vectores";
+  scene.add(handleRoot);
 }
 
 function rebuild() {
@@ -901,6 +1040,10 @@ function rebuild() {
   mesh = makeBody(altura, { ...look, who: presetName }, sculpt);
   mesh.position.y = 0;
   scene.add(mesh);
+  if (handleRoot) {
+    rebuildHandles(handleRoot, sculpt, altura, mesh);
+    handleRoot.visible = viewMode === "vectores";
+  }
   dirty = false;
 }
 
@@ -937,6 +1080,9 @@ function tick(now) {
     Math.cos(yaw) * Math.cos(pitch) * d
   );
   camera.lookAt(0, 1.0, 0);
+  if (handleRoot?.visible && mesh && !dirty) {
+    syncHandlePositions(handleRoot, sculpt, altura, mesh);
+  }
   renderer.render(scene, camera);
 }
 
