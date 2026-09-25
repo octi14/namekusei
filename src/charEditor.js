@@ -62,9 +62,8 @@ const MOLD_TOOLS = [
   ["grab", "Agarrar (arrastre)"],
 ];
 
-/** [key, label, min, max, step] — agrupados con null = separador h2 */
+/** [key, label, min, max, step] — string = sección plegable */
 const SLIDERS = [
-  null,
   "Brazos",
   ["upperArmR", "Brazo radio", 0.02, 0.2, 0.001],
   ["foreArmR", "Antebrazo radio", 0.02, 0.18, 0.001],
@@ -79,7 +78,6 @@ const SLIDERS = [
   ["armX", "Brazo X", -0.22, 0.22, 0.005],
   ["armY", "Brazo Y", -0.28, 0.28, 0.005],
   ["armZ", "Brazo Z", -0.22, 0.28, 0.005],
-  null,
   "Piernas",
   ["thighR", "Muslo radio", 0.02, 0.2, 0.001],
   ["shinR", "Pantorrilla radio", 0.02, 0.18, 0.001],
@@ -92,7 +90,6 @@ const SLIDERS = [
   ["hipX", "Cadera sep.", 0.05, 0.2, 0.005],
   ["hipY", "Pierna Y", 0.32, 1.05, 0.005],
   ["thighY", "Muslo Y", -0.18, 0.18, 0.005],
-  null,
   "Torso",
   ["torsoMul", "Torso radio", 0.04, 0.45, 0.005],
   ["hipsMul", "Cadera radio", 0.04, 0.45, 0.005],
@@ -121,6 +118,10 @@ const SLIDERS = [
   ["pecSx", "Pectoral X", 0.7, 1.8, 0.01],
   ["pecSy", "Pectoral Y esc.", 0.5, 2, 0.01],
   ["pecSz", "Pectoral Z esc.", 0.5, 1.8, 0.01],
+  "Ropa",
+  ["clothFit", "Ropa holgura", 1.0, 1.35, 0.01],
+  ["clothDetail", "Arrugas tela", 0, 1.4, 0.05],
+  ["armorDetail", "Detalle armadura", 0, 1.4, 0.05],
   ["beltR", "Cinturón radio", 0.1, 0.25, 0.005],
   ["beltThick", "Cinturón grosor", 0.01, 0.06, 0.001],
   ["beltY", "Cinturón placa Y", -0.35, 0.35, 0.005],
@@ -129,6 +130,56 @@ const SLIDERS = [
   ["showSashTail", "Listón fajín", 0, 1, 1],
   ["showLapels", "Solapas gi", 0, 1, 1],
   ["sashY", "Fajín Y", -0.2, 0.2, 0.005],
+  ["showUnder", "Interior on", 0, 1, 1],
+  ["underX", "Interior X", -0.25, 0.25, 0.005],
+  ["underY", "Interior Y", -0.4, 0.4, 0.005],
+  ["underZ", "Interior Z", -0.25, 0.25, 0.005],
+  ["underSx", "Interior ancho", 0.3, 3, 0.01],
+  ["underSy", "Interior alto", 0.3, 3, 0.01],
+  ["underSz", "Interior prof. Z", 0.3, 3, 0.01],
+  ["capeScale", "Capa escala", 0.5, 1.6, 0.05],
+  ["capeThick", "Capa grosor", 0.4, 2, 0.05],
+  ["capeX", "Capa X", -0.2, 0.2, 0.005],
+  ["capeY", "Capa Y", -0.25, 0.25, 0.005],
+  ["capeZ", "Capa Z", -0.22, 0.22, 0.005],
+  ["showCape", "Capa on", 0, 1, 1],
+  ["showHipFlaps", "Faldones cadera on", 0, 1, 1],
+  ["hipFlapX", "Faldones sep.", -0.2, 0.25, 0.005],
+  ["hipFlapY", "Faldones Y", -0.35, 0.35, 0.005],
+  ["hipFlapZ", "Faldones Z", -0.2, 0.25, 0.005],
+  ["hipFlapSx", "Faldones ancho", 0.4, 2.2, 0.05],
+  ["hipFlapSy", "Faldones alto", 0.4, 2.2, 0.05],
+  ["hipFlapSz", "Faldones grosor", 1.4, 4.2, 0.05],
+  ["hipFlapTilt", "Faldones inclinación", 0, 0.7, 0.01],
+  ["hipFlapArch", "Faldones cúpula", 0.05, 1.2, 0.02],
+  ["bootCuff", "Caña bota", 0.3, 2.2, 0.05],
+  ["showBoots", "Botas on", 0, 1, 1],
+  "Armadura",
+  ["plateX", "Placa armadura X", -0.25, 0.25, 0.005],
+  ["plateY", "Placa armadura Y", -0.3, 0.3, 0.005],
+  ["plateZ", "Placa armadura Z", -0.25, 0.25, 0.005],
+  ["plateSx", "Placa ancho X", 0.5, 2, 0.01],
+  ["plateSy", "Placa alto Y", 0.5, 2, 0.01],
+  ["plateSz", "Placa prof. Z", 0.5, 2, 0.01],
+  ["plateBorder", "Pechera borde", 0.03, 0.2, 0.005],
+  ["plateRibs", "Pechera nervaduras", 3, 12, 1],
+  ["platePecBot", "Pechera pecs (fin Y)", 0.28, 0.55, 0.005],
+  ["platePecSpan", "Pechera pecs ancho", 0.16, 0.45, 0.005],
+  ["plateAbsGap", "Abs gap bajo pecs", 0, 0.35, 0.005],
+  ["plateAbsW", "Abs ancho", 0.08, 0.35, 0.005],
+  ["plateAbsArch", "Abs arco (óvalo)", 0.02, 0.2, 0.005],
+  ["showPlate", "Placa on (otros kits)", 0, 1, 1],
+  ["padY", "Hombreras Y", -0.4, 0.4, 0.005],
+  ["padX", "Hombreras sep.", -0.15, 0.2, 0.005],
+  ["padZ", "Hombreras Z (prof.)", -0.35, 0.45, 0.005],
+  ["padScale", "Hombreras escala", 0.35, 1.8, 0.02],
+  ["padTilt", "Hombreras inclinación", 0, 0.7, 0.01],
+  ["padPitch", "Hombreras pitch", -0.35, 0.45, 0.01],
+  ["padArch", "Hombreras cúpula", 0.15, 1.2, 0.02],
+  ["padBorder", "Hombreras borde", 0.02, 0.25, 0.005],
+  ["padLines", "Hombreras nervaduras", 0, 14, 1],
+  ["padLineW", "Hombreras grosor línea", 0.004, 0.035, 0.001],
+  ["showPads", "Hombreras on (otros kits)", 0, 1, 1],
   ["frostLineX", "Frost línea X", -0.25, 0.25, 0.005],
   ["frostLineY", "Frost línea Y", -0.35, 0.35, 0.005],
   ["frostLineZ", "Frost línea Z", -0.25, 0.25, 0.005],
@@ -141,63 +192,7 @@ const SLIDERS = [
   ["frostGemSx", "Frost gema ancho", 0.3, 3, 0.01],
   ["frostGemSy", "Frost gema alto", 0.3, 3, 0.01],
   ["frostGemSz", "Frost gema prof.", 0.3, 3, 0.01],
-  ["showFaceGem", "Gema cara on", 0, 1, 1],
-  ["faceGemX", "Gema cara X", -0.2, 0.2, 0.005],
-  ["faceGemY", "Gema cara Y", -0.25, 0.25, 0.005],
-  ["faceGemZ", "Gema cara Z", -0.2, 0.25, 0.005],
-  ["faceGemSx", "Gema cara ancho", 0.2, 3, 0.01],
-  ["faceGemSy", "Gema cara alto", 0.2, 3, 0.01],
-  ["faceGemSz", "Gema cara prof.", 0.2, 3, 0.01],
-  ["capeScale", "Capa escala", 0.5, 1.6, 0.05],
-  ["capeThick", "Capa grosor", 0.4, 2, 0.05],
-  ["capeX", "Capa X", -0.2, 0.2, 0.005],
-  ["capeY", "Capa Y", -0.25, 0.25, 0.005],
-  ["capeZ", "Capa Z", -0.22, 0.22, 0.005],
-  ["plateX", "Placa armadura X", -0.25, 0.25, 0.005],
-  ["plateY", "Placa armadura Y", -0.3, 0.3, 0.005],
-  ["plateZ", "Placa armadura Z", -0.25, 0.25, 0.005],
-  ["plateSx", "Placa ancho X", 0.5, 2, 0.01],
-  ["plateSy", "Placa alto Y", 0.5, 2, 0.01],
-  ["plateSz", "Placa prof. Z", 0.5, 2, 0.01],
-  ["padY", "Hombreras Y", -0.4, 0.4, 0.005],
-  ["padX", "Hombreras sep.", -0.15, 0.2, 0.005],
-  ["padScale", "Hombreras escala", 0.35, 1.8, 0.02],
-  ["padTilt", "Hombreras inclinación", 0, 0.7, 0.01],
-  ["padPitch", "Hombreras pitch", -0.35, 0.45, 0.01],
-  ["padArch", "Hombreras cúpula", 0.15, 1.2, 0.02],
-  ["padBorder", "Hombreras borde", 0.02, 0.25, 0.005],
-  ["padLines", "Hombreras nervaduras", 0, 14, 1],
-  ["padLineW", "Hombreras grosor línea", 0.004, 0.035, 0.001],
-  ["plateBorder", "Pechera borde", 0.03, 0.2, 0.005],
-  ["plateRibs", "Pechera nervaduras", 3, 12, 1],
-  ["showPlate", "Placa on (otros kits)", 0, 1, 1],
-  ["showPads", "Hombreras on (otros kits)", 0, 1, 1],
-  ["showCape", "Capa on", 0, 1, 1],
-  ["showHipFlaps", "Faldones cadera on", 0, 1, 1],
-  ["hipFlapX", "Faldones sep.", -0.2, 0.25, 0.005],
-  ["hipFlapY", "Faldones Y", -0.35, 0.35, 0.005],
-  ["hipFlapZ", "Faldones Z", -0.2, 0.25, 0.005],
-  ["hipFlapSx", "Faldones ancho", 0.4, 2.2, 0.05],
-  ["hipFlapSy", "Faldones alto", 0.4, 2.2, 0.05],
-  ["hipFlapSz", "Faldones grosor", 0.4, 2.2, 0.05],
-  ["hipFlapTilt", "Faldones inclinación", 0, 0.7, 0.01],
-  ["showScouter", "Scouter on", 0, 1, 1],
-  ["showTail", "Cola on", 0, 1, 1],
-  ["tailLen", "Cola largo", 0.4, 2, 0.05],
-  ["tailThick", "Cola grosor", 0.4, 2, 0.05],
-  ["spots", "Manchas cuerpo", 0, 1, 1],
-  ["spotScale", "Manchas escala", 0.4, 2.2, 0.05],
-  ["clothDetail", "Arrugas tela", 0, 1.4, 0.05],
-  ["armorDetail", "Detalle armadura", 0, 1.4, 0.05],
-  ["showUnder", "Interior on", 0, 1, 1],
-  ["underX", "Interior X", -0.25, 0.25, 0.005],
-  ["underY", "Interior Y", -0.4, 0.4, 0.005],
-  ["underZ", "Interior Z", -0.25, 0.25, 0.005],
-  ["underSx", "Interior ancho", 0.3, 3, 0.01],
-  ["underSy", "Interior alto", 0.3, 3, 0.01],
-  ["underSz", "Interior prof. Z", 0.3, 3, 0.01],
-  null,
-  "Cabeza / cara",
+  "Cabeza",
   ["neckR", "Cuello radio", 0.03, 0.1, 0.001],
   ["neckLen", "Cuello largo", 0.05, 0.18, 0.005],
   ["neckY", "Cuello Y", -0.2, 0.25, 0.005],
@@ -211,6 +206,15 @@ const SLIDERS = [
   ["headBotSx", "Abajo X", 0.45, 1.7, 0.01],
   ["headBotSy", "Abajo Y", 0.45, 1.7, 0.01],
   ["headBotSz", "Abajo Z", 0.45, 1.7, 0.01],
+  ["earR", "Oreja radio", 0.015, 0.07, 0.001],
+  ["earX", "Oreja sep.", 0.01, 0.22, 0.005],
+  ["earSx", "Oreja X", 0.3, 1.2, 0.05],
+  ["earSy", "Oreja Y", 0.5, 1.5, 0.05],
+  ["earSz", "Oreja Z", 0.4, 1.5, 0.05],
+  ["antLen", "Antena largo", 0.08, 0.35, 0.01],
+  ["antR", "Antena radio", 0.006, 0.03, 0.001],
+  ["antSpread", "Antena sep.", 0.03, 0.1, 0.005],
+  "Cara",
   ["jaw", "Mandíbula", 0, 1, 0.05],
   ["jawX", "Mandíbula X", -0.12, 0.12, 0.002],
   ["jawY", "Mandíbula Y", -0.15, 0.15, 0.002],
@@ -218,11 +222,6 @@ const SLIDERS = [
   ["jawSx", "Mandíbula ancho", 0.3, 2.2, 0.01],
   ["jawSy", "Mandíbula alto", 0.3, 2.2, 0.01],
   ["jawSz", "Mandíbula prof. Z", 0.3, 2.2, 0.01],
-  ["earR", "Oreja radio", 0.015, 0.07, 0.001],
-  ["earX", "Oreja sep.", 0.1, 0.22, 0.005],
-  ["earSx", "Oreja X", 0.3, 1.2, 0.05],
-  ["earSy", "Oreja Y", 0.5, 1.5, 0.05],
-  ["earSz", "Oreja Z", 0.4, 1.5, 0.05],
   ["eyeSep", "Ojos sep.", 0.02, 0.13, 0.001],
   ["irisSep", "Iris sep.", 0.02, 0.13, 0.001],
   ["irisY", "Iris Y", -0.04, 0.1, 0.001],
@@ -255,16 +254,20 @@ const SLIDERS = [
   ["mouthY", "Boca Y", -0.12, 0.1, 0.002],
   ["mouthZ", "Boca Z", -0.1, 0.1, 0.002],
   ["thirdEye", "3er ojo", 0, 1, 1],
-  ["antLen", "Antena largo", 0.08, 0.35, 0.01],
-  ["antR", "Antena radio", 0.006, 0.03, 0.001],
-  ["antSpread", "Antena sep.", 0.03, 0.1, 0.005],
-  null,
+  ["showFaceGem", "Gema cara on", 0, 1, 1],
+  ["faceGemX", "Gema cara X", -0.2, 0.2, 0.005],
+  ["faceGemY", "Gema cara Y", -0.25, 0.25, 0.005],
+  ["faceGemZ", "Gema cara Z", -0.2, 0.25, 0.005],
+  ["faceGemSx", "Gema cara ancho", 0.2, 3, 0.01],
+  ["faceGemSy", "Gema cara alto", 0.2, 3, 0.01],
+  ["faceGemSz", "Gema cara prof.", 0.2, 3, 0.01],
   "Manos / pies",
   ["handScale", "Mano escala", 0.5, 1.8, 0.05],
   ["fingerLen", "Dedos largo", 0.4, 1.6, 0.05],
   ["handRx", "Puño rot X", -1.6, 1.6, 0.02],
   ["handRy", "Puño rot Y", -1.6, 1.6, 0.02],
   ["handRz", "Puño rot Z", -1.6, 1.6, 0.02],
+  ["showHands", "Manos on", 0, 1, 1],
   ["footScale", "Pie escala", 0.5, 1.8, 0.05],
   ["footLen", "Pie largo", 1.2, 4, 0.05],
   ["footSx", "Pie ancho", 0.6, 2.2, 0.05],
@@ -272,21 +275,23 @@ const SLIDERS = [
   ["footZ", "Pie adelante", -0.08, 0.18, 0.005],
   ["footY", "Pie Y", -0.12, 0.12, 0.005],
   ["footPitch", "Pie inclin.", -0.45, 0.55, 0.01],
-  ["bootCuff", "Caña bota", 0.3, 2.2, 0.05],
-  ["showHands", "Manos on", 0, 1, 1],
-  ["showBoots", "Botas on", 0, 1, 1],
-  null,
-  "Piel",
+  "Cabello",
+  ["hairSpikeR", "Pelo grosor", 0.4, 2, 0.05],
+  ["hairSpikeLen", "Pelo largo", 0.4, 2, 0.05],
+  ["hairY", "Pelo Y", -0.12, 0.16, 0.005],
+  "Piel / extras",
   ["bumpScale", "Arrugas", 0, 0.1, 0.001],
   ["sheen", "Sheen piel", 0, 1, 0.01],
   ["sheenRough", "Sheen rough", 0.2, 1, 0.01],
   ["skinRough", "Rough piel", 0.4, 1, 0.01],
   ["paleLift", "Palidez +L", 0, 0.15, 0.005],
   ["paleSat", "Palidez sat", 0.4, 1, 0.01],
-  ["clothFit", "Ropa holgura", 1.0, 1.35, 0.01],
-  ["hairSpikeR", "Pelo grosor", 0.4, 2, 0.05],
-  ["hairSpikeLen", "Pelo largo", 0.4, 2, 0.05],
-  ["hairY", "Pelo Y", -0.12, 0.16, 0.005],
+  ["spots", "Manchas cuerpo", 0, 1, 1],
+  ["spotScale", "Manchas escala", 0.4, 2.2, 0.05],
+  ["showScouter", "Scouter on", 0, 1, 1],
+  ["showTail", "Cola on", 0, 1, 1],
+  ["tailLen", "Cola largo", 0.4, 2, 0.05],
+  ["tailThick", "Cola grosor", 0.4, 2, 0.05],
 ];
 
 const SELECT_LABELS = {
@@ -485,6 +490,26 @@ function ensureDom() {
         font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
         opacity: 0.55; margin: 14px 0 8px;
       }
+      #ce-panel details.ce-sec {
+        border: 1px solid #30363d; border-radius: 8px;
+        margin: 0 0 8px; background: #0d1117;
+      }
+      #ce-panel details.ce-sec > summary {
+        list-style: none; cursor: pointer; user-select: none;
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 8px; padding: 10px 12px;
+        font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; color: #c9d1d9;
+      }
+      #ce-panel details.ce-sec > summary::-webkit-details-marker { display: none; }
+      #ce-panel details.ce-sec > summary::after {
+        content: "+"; font-size: 14px; opacity: 0.55; font-weight: 400;
+      }
+      #ce-panel details.ce-sec[open] > summary::after { content: "−"; }
+      #ce-panel details.ce-sec[open] > summary {
+        border-bottom: 1px solid #30363d; color: #58a6ff;
+      }
+      #ce-panel .ce-sec-body { padding: 10px 12px 6px; }
       #ce-json {
         width: 100%; min-height: 72px; font-size: 11px; font-family: ui-monospace, monospace;
         background: #0d1117; color: #8b949e; border: 1px solid #30363d; border-radius: 6px;
@@ -646,23 +671,35 @@ function ensureDom() {
   }
 
   const box = root.querySelector("#ce-sliders");
+  let secBody = null;
+  let secN = 0;
+  const openSec = new Set(["Cabeza", "Cara", "Torso"]);
   for (const row of SLIDERS) {
     if (row == null) continue;
     if (typeof row === "string") {
-      const h = document.createElement("h2");
-      h.textContent = row;
-      box.appendChild(h);
+      const det = document.createElement("details");
+      det.className = "ce-sec";
+      if (openSec.has(row) || secN === 0) det.open = true;
+      secN++;
+      const sum = document.createElement("summary");
+      sum.textContent = row;
+      det.appendChild(sum);
+      secBody = document.createElement("div");
+      secBody.className = "ce-sec-body";
+      det.appendChild(secBody);
+      box.appendChild(det);
       continue;
     }
+    const parent = secBody || box;
     const [key, label, min, max, step] = row;
     const lab = document.createElement("label");
     lab.innerHTML = `${label}<span class="v" data-k="${key}"></span>
       <input type="range" data-sculpt="${key}" min="${min}" max="${max}" step="${step}" />`;
-    box.appendChild(lab);
+    parent.appendChild(lab);
     if (key === "underSz") {
       const c = document.createElement("label");
       c.innerHTML = `Interior color<input type="color" data-lookc="undershirt" />`;
-      box.appendChild(c);
+      parent.appendChild(c);
     }
   }
 
@@ -678,6 +715,16 @@ function ensureDom() {
   });
   kit.addEventListener("change", () => {
     look.kit = kit.value;
+    // Sin kit frost: gema cara off por defecto (se puede volver a prender a mano)
+    if (kit.value !== "frost") {
+      sculpt.showFaceGem = 0;
+      const gemIn = box.querySelector('input[data-sculpt="showFaceGem"]');
+      if (gemIn) {
+        gemIn.value = "0";
+        const v = box.querySelector('span.v[data-k="showFaceGem"]');
+        if (v) v.textContent = "0.000";
+      }
+    }
     dirty = true;
   });
   hair.addEventListener("change", () => {

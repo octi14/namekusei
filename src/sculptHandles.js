@@ -393,14 +393,14 @@ export const VEC_HANDLES = [
     space: "torso",
     get: (sc) =>
       new THREE.Vector3(
-        -(0.14 + (sc.hipFlapX || 0)),
-        0.55 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0) + (sc.hipFlapY || 0),
-        0.06 + (sc.hipFlapZ || 0)
+        -(0.16 + (sc.hipFlapX || 0)),
+        0.52 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0) + (sc.hipFlapY || 0),
+        sc.hipFlapZ || 0
       ),
     set: (sc, p) => {
-      sc.hipFlapX = Math.abs(p.x) - 0.14;
-      sc.hipFlapY = p.y - (0.55 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0));
-      sc.hipFlapZ = p.z - 0.06;
+      sc.hipFlapX = Math.abs(p.x) - 0.16;
+      sc.hipFlapY = p.y - (0.52 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0));
+      sc.hipFlapZ = p.z;
       sc.showHipFlaps = 1;
     },
   },
@@ -411,14 +411,14 @@ export const VEC_HANDLES = [
     space: "torso",
     get: (sc) =>
       new THREE.Vector3(
-        0.14 + (sc.hipFlapX || 0),
-        0.55 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0) + (sc.hipFlapY || 0),
-        0.06 + (sc.hipFlapZ || 0)
+        0.16 + (sc.hipFlapX || 0),
+        0.52 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0) + (sc.hipFlapY || 0),
+        sc.hipFlapZ || 0
       ),
     set: (sc, p) => {
-      sc.hipFlapX = Math.abs(p.x) - 0.14;
-      sc.hipFlapY = p.y - (0.55 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0));
-      sc.hipFlapZ = p.z - 0.06;
+      sc.hipFlapX = Math.abs(p.x) - 0.16;
+      sc.hipFlapY = p.y - (0.52 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0));
+      sc.hipFlapZ = p.z;
       sc.showHipFlaps = 1;
     },
   },
