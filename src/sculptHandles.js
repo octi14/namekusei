@@ -284,13 +284,13 @@ export const VEC_HANDLES = [
     get: (sc) =>
       new THREE.Vector3(
         sc.plateX || 0,
-        1.0 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0) + (sc.plateY || 0),
-        sc.plateZ || 0
+        0.92 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0) + 0.12 + (sc.plateY || 0),
+        0.14 + (sc.plateZ || 0)
       ),
     set: (sc, p) => {
       sc.plateX = p.x;
-      sc.plateY = p.y - (1.0 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0));
-      sc.plateZ = p.z;
+      sc.plateY = p.y - (0.92 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0) + 0.12);
+      sc.plateZ = p.z - 0.14;
       sc.showPlate = 1;
     },
   },
@@ -420,6 +420,24 @@ export const VEC_HANDLES = [
       sc.hipFlapY = p.y - (0.52 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0));
       sc.hipFlapZ = p.z;
       sc.showHipFlaps = 1;
+    },
+  },
+  {
+    id: "frontFlap",
+    label: "Faldón front",
+    color: 0xffe082,
+    space: "torso",
+    get: (sc) =>
+      new THREE.Vector3(
+        sc.frontFlapX || 0,
+        0.5 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0) + (sc.frontFlapY || 0),
+        0.12 + (sc.frontFlapZ || 0)
+      ),
+    set: (sc, p) => {
+      sc.frontFlapX = p.x;
+      sc.frontFlapY = p.y - (0.5 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0));
+      sc.frontFlapZ = p.z - 0.12;
+      sc.showFrontFlap = 1;
     },
   },
   {

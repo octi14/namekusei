@@ -301,7 +301,7 @@ function wingPadAlbedoTex(fillHex, opts = {}) {
   const borderW = Math.max(0.02, Math.min(0.28, opts.borderW ?? 0.08));
   const lines = Math.max(0, Math.min(16, (opts.lines ?? 7) | 0));
   const lineW = Math.max(0.004, Math.min(0.04, opts.lineW ?? 0.012));
-  const key = `${fillHex >>> 0}|${borderW.toFixed(3)}|${lines}|${lineW.toFixed(3)}`;
+  const key = `wp2|${fillHex >>> 0}|${lines}|${lineW.toFixed(3)}`;
   if (_wingPadTexCache.has(key)) return _wingPadTexCache.get(key);
   const n = 256;
   const c = document.createElement("canvas");
@@ -336,12 +336,7 @@ function wingPadAlbedoTex(fillHex, opts = {}) {
   }
   ctx.restore();
 
-  ctx.strokeStyle = "#fafafa";
-  ctx.lineWidth = Math.max(2, borderW * n * 0.95);
-  ctx.beginPath();
-  ctx.arc(cx, cy, Math.max(2, r - ctx.lineWidth * 0.4), 0, Math.PI * 2);
-  ctx.stroke();
-
+  // Sin borde blanco pintado: el aro 3D lo pone addWingPad
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -356,7 +351,7 @@ function hipFlapAlbedoTex(fillHex, opts = {}) {
   const borderW = Math.max(0.02, Math.min(0.28, opts.borderW ?? 0.08));
   const lines = Math.max(0, Math.min(16, (opts.lines ?? 7) | 0));
   const lineW = Math.max(0.004, Math.min(0.04, opts.lineW ?? 0.012));
-  const key = `hf1|${fillHex >>> 0}|${borderW.toFixed(3)}|${lines}|${lineW.toFixed(3)}`;
+  const key = `hf2|${fillHex >>> 0}|${lines}|${lineW.toFixed(3)}`;
   if (_hipFlapTexCache.has(key)) return _hipFlapTexCache.get(key);
   const n = 256;
   const c = document.createElement("canvas");
@@ -398,11 +393,7 @@ function hipFlapAlbedoTex(fillHex, opts = {}) {
   }
   ctx.restore();
 
-  ctx.strokeStyle = "#fafafa";
-  ctx.lineWidth = Math.max(2.5, borderW * n * 0.95);
-  shape();
-  ctx.stroke();
-
+  // Sin borde blanco pintado — tubo 3D en addHipFlaps
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -464,6 +455,7 @@ export const DEFAULT_SCULPT = {
   torsoMul: 0.15,
   hipsMul: 0.17,
   torsoSx: 1.18,
+  torsoNeckSx: 1.05,
   torsoChestSx: 1.18,
   torsoWaistSx: 1.18,
   torsoSz: 1,
@@ -495,6 +487,9 @@ export const DEFAULT_SCULPT = {
   neckR: 0.06,
   neckLen: 0.1,
   neckY: 0,
+  collarY: 0,
+  collarThick: 1,
+  collarFit: 0.12,
   headR: 0.16,
   headSx: 1,
   headSy: 1,
@@ -549,6 +544,9 @@ export const DEFAULT_SCULPT = {
   mouthX: 0,
   mouthY: 0,
   mouthZ: 0,
+  mouthRx: 0,
+  mouthRy: 0,
+  mouthRz: 0,
   mouthType: "line",
   nose: 0,
   noseX: 0,
@@ -602,6 +600,7 @@ export const DEFAULT_SCULPT = {
   plateAbsGap: 0.22, // separación bajo pecs (más = abs más abajo)
   platePecBot: 0.38, // dónde terminan los pectorales (0–1 UV Y)
   platePecSpan: 0.28, // ancho total front de ambos pecs (fracción UV; no hacia costados)
+  platePecY: 0, // sube/baja solo el relieve de pecs (no la pechera entera)
   padType: "sphere", // none | sphere | spaulder | spiked | flat | wing
   plateType: "dome", // none | dome | flat | ribbed | split | elite
   bracerType: "none", // none | cuff | plate | wrap
@@ -620,6 +619,15 @@ export const DEFAULT_SCULPT = {
   hipFlapSz: 1,
   hipFlapTilt: 0.2,
   hipFlapArch: 0.35,
+  showFrontFlap: 0,
+  frontFlapX: 0,
+  frontFlapY: 0,
+  frontFlapZ: 0,
+  frontFlapSx: 1,
+  frontFlapSy: 1,
+  frontFlapSz: 1,
+  frontFlapTilt: 0.08,
+  frontFlapArch: 0.35,
   tailLen: 1,
   tailThick: 1,
   clothDetail: 0.55,
@@ -737,6 +745,7 @@ function migrateSculpt(j) {
   }
   if (out.torsoChestSx == null) out.torsoChestSx = out.torsoSx ?? 1.18;
   if (out.torsoWaistSx == null) out.torsoWaistSx = out.torsoSx ?? 1.18;
+  if (out.torsoNeckSx == null) out.torsoNeckSx = out.torsoChestSx ?? out.torsoSx ?? 1.05;
   if (out.altura == null && out.moldAltura != null) out.altura = out.moldAltura;
   return out;
 }
@@ -1521,7 +1530,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     const iR = (dot ? sc.eyeIrisR * 0.7 : sc.eyeIrisR) * (wide ? 1.15 : narrow ? 0.7 : sharp ? 1.15 : 1);
     const sy = sc.eyeSy * (narrow ? 0.5 : wide ? 1.2 : soft ? 1.05 : sharp ? 0.92 : 1);
     const sx = sc.eyeSx * (sharp ? 1.25 : soft ? 1.1 : 1);
-    for (const side of [-1, 1]) {
+  for (const side of [-1, 1]) {
       const sideK = side > 0 ? "R" : "L";
       const ex = side * sc.eyeSep * s * hsx * hk;
       const ey = sc.eyeY * s * hsy * hk;
@@ -1535,7 +1544,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
         w.userData.moldId = `eye_${sideK}_w`;
         w.userData.moldFamily = "eye";
         w.userData.faceHandle = `eye_${sideK}`;
-        headG.add(w);
+    headG.add(w);
         // Delineado / párpado superior (anime)
         if ((sc.lid ?? 0) > 0.05 && !dot) {
           const lAmt = sc.lid;
@@ -1576,7 +1585,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
       e.userData.moldId = `eye_${sideK}_i`;
       e.userData.moldFamily = "eye";
       e.userData.faceHandle = `iris_${sideK}`;
-      headG.add(e);
+    headG.add(e);
       if (!dot) {
         const pupil = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk * 0.42, GEO.pupil[0], GEO.pupil[1]), pupilM);
         pupil.position.set(ix, iy, iz + 0.008 * s);
@@ -1677,20 +1686,21 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     const mx = (sc.mouthX || 0) * s;
     const my = sc.eyeY * s - 0.055 * s + (sc.mouthY || 0) * s;
     const mz = sc.eyeZ * s + 0.015 * s + (sc.mouthZ || 0) * s;
+    const mrx = sc.mouthRx || 0;
+    const mry = sc.mouthRy || 0;
+    const mrz = sc.mouthRz || 0;
     const lip = surf(0x6d4c41, { roughness: 0.55 });
     const dark = surf(0x3e2723, { roughness: 0.5 });
     if (mt === "smile") {
-      for (const side of [-1, 1]) {
-        const arc = new THREE.Mesh(new THREE.TorusGeometry(0.028 * s * mw, 0.005 * s, 6, 12, Math.PI * 0.55), lineM);
-        arc.rotation.set(0.2, 0, side * 0.15 - Math.PI * 0.5);
-        arc.position.set(mx + side * 0.012 * s, my, mz);
-        arc.userData.moldId = `mouth_${side > 0 ? "R" : "L"}`;
-        arc.userData.moldFamily = "face";
-        headG.add(arc);
-      }
+      const arc = new THREE.Mesh(new THREE.TorusGeometry(0.03 * s * mw, 0.005 * s, 6, 14, Math.PI * 0.75), lineM);
+      arc.rotation.set(Math.PI + 0.15 + mrx, mry, mrz);
+      arc.position.set(mx, my + 0.004 * s, mz);
+      arc.userData.moldId = "mouth";
+      arc.userData.moldFamily = "face";
+      headG.add(arc);
     } else if (mt === "frown") {
       const arc = new THREE.Mesh(new THREE.TorusGeometry(0.03 * s * mw, 0.005 * s, 6, 14, Math.PI * 0.7), lineM);
-      arc.rotation.set(Math.PI + 0.15, 0, 0);
+      arc.rotation.set(0.15 + mrx, mry, mrz);
       arc.position.set(mx, my + 0.008 * s, mz);
       arc.userData.moldId = "mouth";
       arc.userData.moldFamily = "face";
@@ -1698,37 +1708,40 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     } else if (mt === "open") {
       const m = new THREE.Mesh(new THREE.SphereGeometry(0.022 * s * mw, 12, 10), dark);
       m.scale.set(1.35, 0.7, 0.55);
+      m.rotation.set(mrx, mry, mrz);
       m.position.set(mx, my, mz);
       m.userData.moldId = "mouth";
       m.userData.moldFamily = "face";
       headG.add(m);
       const lipT = new THREE.Mesh(new THREE.TorusGeometry(0.024 * s * mw, 0.004 * s, 6, 14), lip);
-      lipT.rotation.x = Math.PI / 2;
+      lipT.rotation.set(Math.PI / 2 + mrx, mry, mrz);
       lipT.position.set(mx, my, mz + 0.002 * s);
       lipT.scale.set(1.1, 0.7, 1);
       headG.add(lipT);
     } else if (mt === "grit") {
       const m = new THREE.Mesh(new THREE.BoxGeometry(0.05 * s * mw, 0.014 * s, 0.012 * s), dark);
+      m.rotation.set(mrx, mry, mrz);
       m.position.set(mx, my, mz);
       m.userData.moldId = "mouth";
       m.userData.moldFamily = "face";
       headG.add(m);
       for (let i = 0; i < 4; i++) {
         const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.008 * s, 0.008 * s, 0.006 * s), surf(0xf5f5f5, { roughness: 0.4 }));
+        tooth.rotation.set(mrx, mry, mrz);
         tooth.position.set(mx + (i - 1.5) * 0.012 * s * mw, my + 0.002 * s, mz + 0.004 * s);
         headG.add(tooth);
       }
     } else if (mt === "smirk") {
-      const arc = new THREE.Mesh(new THREE.TorusGeometry(0.026 * s * mw, 0.005 * s, 6, 12, Math.PI * 0.5), lineM);
-      arc.rotation.set(0.25, 0.15, -0.4);
-      arc.position.set(mx + 0.01 * s, my, mz);
+      const arc = new THREE.Mesh(new THREE.TorusGeometry(0.028 * s * mw, 0.005 * s, 6, 12, Math.PI * 0.45), lineM);
+      arc.rotation.set(Math.PI + 0.15 + mrx, mry, -0.35 + mrz);
+      arc.position.set(mx + 0.01 * s, my + 0.002 * s, mz);
       arc.userData.moldId = "mouth";
       arc.userData.moldFamily = "face";
       headG.add(arc);
     } else {
       // line
       const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.004 * s, 0.038 * s * mw, 4, 8), lineM);
-      m.rotation.z = Math.PI / 2;
+      m.rotation.set(mrx, mry, Math.PI / 2 + mrz);
       m.position.set(mx, my, mz);
       m.userData.moldId = "mouth";
       m.userData.moldFamily = "face";
@@ -2037,7 +2050,8 @@ function addArmorPlate(torsoG, s, waistY, ty, sc, plateM, force = false, extras 
   const pt = sc.plateType || "dome";
   if (pt === "none") return;
   if (!force && sc.showPlate < 0.5) return;
-  const y = 1.02 * s - waistY + ty + (sc.plateY || 0) * s;
+  const yBase = (pt === "elite" ? 0.92 : 1.02) * s - waistY + ty;
+  const y = yBase + (sc.plateY || 0) * s;
   const x = (sc.plateX || 0) * s;
   const z = (sc.plateZ || 0) * s;
   const sx = sc.plateSx ?? 1;
@@ -2113,7 +2127,8 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
   const absGapFrac = Math.max(0, Math.min(0.35, opts.absGap ?? 0.22));
   const pecBotFrac = Math.max(0.25, Math.min(0.6, opts.pecBot ?? 0.38));
   const pecSpanFrac = Math.max(0.14, Math.min(0.5, opts.pecSpan ?? 0.28));
-  const key = `wrap16|${fillHex >>> 0}|${ribHex >>> 0}|${borderW.toFixed(3)}|${ribs}|${absWFrac.toFixed(3)}|${absArchFrac.toFixed(3)}|${absGapFrac.toFixed(3)}|${pecBotFrac.toFixed(3)}|${pecSpanFrac.toFixed(3)}`;
+  const pecYShift = Math.max(-0.2, Math.min(0.2, opts.pecYShift ?? 0));
+  const key = `wrap18|${fillHex >>> 0}|${ribHex >>> 0}|${borderW.toFixed(3)}|${ribs}|${absWFrac.toFixed(3)}|${absArchFrac.toFixed(3)}|${absGapFrac.toFixed(3)}|${pecBotFrac.toFixed(3)}|${pecSpanFrac.toFixed(3)}|${pecYShift.toFixed(3)}`;
   if (_eliteChestTexCache.has(key)) return _eliteChestTexCache.get(key);
 
   const w = 1024;
@@ -2146,9 +2161,21 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
     const b = Math.min(255, (fillHex & 255) + 40);
     return `rgb(${r},${g},${b})`;
   })();
+  const shadeRib = (d) => {
+    const r = Math.max(0, Math.min(255, ((ribHex >> 16) & 255) + d));
+    const g = Math.max(0, Math.min(255, ((ribHex >> 8) & 255) + d));
+    const b = Math.max(0, Math.min(255, (ribHex & 255) + d));
+    return `rgb(${r},${g},${b})`;
+  };
   const rib = `#${(ribHex >>> 0).toString(16).padStart(6, "0")}`;
-  const ribDark = "#c79100";
-  const ribLite = "#ffe082";
+  const ribDark = shadeRib(-48);
+  const ribLite = shadeRib(52);
+  const ribHi = (() => {
+    const r = Math.min(255, ((ribHex >> 16) & 255) + 70);
+    const g = Math.min(255, ((ribHex >> 8) & 255) + 60);
+    const b = Math.min(255, (ribHex & 255) + 40);
+    return `rgba(${r},${g},${b},0.35)`;
+  })();
   const white = "#f5f5f5";
   const bw = Math.max(10, borderW * w * 0.85);
 
@@ -2195,13 +2222,7 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
       ctx.lineTo(x1, y);
       ctx.stroke();
     }
-    // Borde blanco donde el oro encuentra el azul
-    ctx.strokeStyle = white;
-    ctx.lineWidth = bw * 0.45;
-    ctx.beginPath();
-    ctx.moveTo(x0 < w * 0.5 ? x1 : x0, backY0);
-    ctx.lineTo(x0 < w * 0.5 ? x1 : x0, backY1);
-    ctx.stroke();
+    // Borde blanco donde el oro encuentra el azul — omitido (tubos 3D)
   };
   paintBackRibs(0, backSpan * 0.5);
   paintBackRibs(w - backSpan * 0.5, w);
@@ -2210,15 +2231,14 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
   const cx = w * 0.5;
   const fx0 = cx - w * pecSpanFrac * 0.5;
   const fx1 = cx + w * pecSpanFrac * 0.5;
-  const pecTopY = h * 0.1;
-  const pecBotY = h * pecBotFrac;
-  const strip = bw * 0.55;
+  const pecTopY = h * (0.1 - pecYShift * 0.85);
+  const pecBotY = h * (pecBotFrac - pecYShift * 0.85);
+  const strip = bw * 0.35;
 
   // Pecs primero (fondo recto: no bajan al abs)
   const drawPecHex = (side) => {
     const outer = side < 0 ? fx0 : fx1;
     const inn = side < 0 ? cx - strip * 0.35 : cx + strip * 0.35;
-    const midX = side < 0 ? fx0 + (cx - fx0) * 0.55 : fx1 - (fx1 - cx) * 0.55;
     const pts = [
       [inn, pecTopY + h * 0.02],
       [outer + side * w * 0.01, pecTopY + h * 0.04],
@@ -2227,54 +2247,22 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
       [inn, pecBotY],
       [inn, h * 0.18],
     ];
-    ctx.fillStyle = white;
-    ctx.beginPath();
-    ctx.moveTo(pts[0][0], pts[0][1]);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-    ctx.closePath();
-    ctx.fill();
-    const inset = bw * 0.72;
-    const shrink = (p, toward) => {
-      const dx = toward[0] - p[0];
-      const dy = toward[1] - p[1];
-      const len = Math.hypot(dx, dy) || 1;
-      return [p[0] + (dx / len) * inset * 0.35, p[1] + (dy / len) * inset * 0.35];
-    };
-    const center = [midX, (pecTopY + pecBotY) * 0.5];
-    const innerPts = pts.map((p) => shrink(p, center));
-    for (let i = 0; i < innerPts.length; i++) {
-      const ox = (center[0] - pts[i][0]) * 0.08;
-      const oy = (center[1] - pts[i][1]) * 0.08;
-      innerPts[i][0] += ox;
-      innerPts[i][1] += oy;
-      if (side < 0) innerPts[i][0] = Math.min(innerPts[i][0], cx - strip * 0.85);
-      else innerPts[i][0] = Math.max(innerPts[i][0], cx + strip * 0.85);
-    }
     const pecGrad = ctx.createLinearGradient(0, pecTopY, 0, pecBotY);
     pecGrad.addColorStop(0, fillLite);
     pecGrad.addColorStop(0.55, fill);
     pecGrad.addColorStop(1, fillDark);
     ctx.fillStyle = pecGrad;
     ctx.beginPath();
-    ctx.moveTo(innerPts[0][0], innerPts[0][1]);
-    for (let i = 1; i < innerPts.length; i++) ctx.lineTo(innerPts[i][0], innerPts[i][1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = "rgba(20,20,25,0.55)";
-    ctx.lineWidth = Math.max(2, bw * 0.12);
-    ctx.lineJoin = "round";
-    ctx.beginPath();
     ctx.moveTo(pts[0][0], pts[0][1]);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
     ctx.closePath();
-    ctx.stroke();
+    ctx.fill();
+    // Sin stroke blanco: borde = tubo 3D
   };
   drawPecHex(-1);
   drawPecHex(1);
 
-  // Franja central solo sobre pecs
-  ctx.fillStyle = white;
-  ctx.fillRect(cx - strip, pecTopY + h * 0.015, strip * 2, pecBotY - pecTopY);
+  // Sin franja central blanca (costura 3D)
 
   // Abs anclado abajo (casi en la base de la pechera)
   const absHalf = w * absWFrac * 0.5;
@@ -2304,18 +2292,16 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
     ctx.quadraticCurveTo(cx, bot + h * 0.018, L, bot);
     ctx.closePath();
   };
-  ctx.fillStyle = white;
-  absPath(-bw * 0.38);
-  ctx.fill();
+  // Abs sin marco blanco pintado (tubo 3D)
   const absGrad = ctx.createLinearGradient(0, absPeakY, 0, absBot);
   absGrad.addColorStop(0, ribLite);
   absGrad.addColorStop(0.4, rib);
   absGrad.addColorStop(1, ribDark);
   ctx.fillStyle = absGrad;
-  absPath(bw * 0.2);
+  absPath(0);
   ctx.fill();
   ctx.save();
-  absPath(bw * 0.2);
+  absPath(0);
   ctx.clip();
   // Nervaduras en TODO el abs (cima del óvalo → base), no solo la mitad baja
   const ribTop = absPeakY + bw * 0.15;
@@ -2327,7 +2313,7 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
     ctx.moveTo(absL + 8, y);
     ctx.lineTo(absR - 8, y);
     ctx.stroke();
-    ctx.strokeStyle = "rgba(255,236,160,0.35)";
+    ctx.strokeStyle = ribHi;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(absL + 8, y + 3);
@@ -2335,20 +2321,8 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
     ctx.stroke();
   }
   ctx.restore();
-  ctx.strokeStyle = "rgba(20,20,25,0.5)";
-  ctx.lineWidth = Math.max(2, bw * 0.1);
-  absPath(-bw * 0.38);
-  ctx.stroke();
 
-  // Collar
-  ctx.strokeStyle = white;
-  ctx.lineWidth = bw * 1.2;
-  ctx.beginPath();
-  ctx.moveTo(w * 0.34, h * 0.085);
-  ctx.quadraticCurveTo(cx, h * 0.16, w * 0.66, h * 0.085);
-  ctx.stroke();
-
-  // Escote alpha
+  // Escote alpha (sin collar blanco pintado — aro 3D en el cuello)
   ctx.globalCompositeOperation = "destination-out";
   ctx.beginPath();
   ctx.moveTo(w * 0.34, 0);
@@ -2356,13 +2330,6 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
   ctx.closePath();
   ctx.fill();
   ctx.globalCompositeOperation = "source-over";
-
-  ctx.strokeStyle = white;
-  ctx.lineWidth = bw * 1.15;
-  ctx.beginPath();
-  ctx.moveTo(w * 0.36, h * 0.09);
-  ctx.quadraticCurveTo(cx, h * 0.155, w * 0.64, h * 0.09);
-  ctx.stroke();
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -2383,75 +2350,103 @@ function lerpEliteProf(profile, t) {
   return profile[i] * (1 - f) + profile[i + 1] * f;
 }
 
+/** Punto local de la coraza (y ∈ [-0.5,0.5]); misma fórmula que la malla. */
+function eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang) {
+  const topW = neckW ?? pecW * 0.9;
+  let sx;
+  if (v < 0.2) {
+    const t = v / 0.2;
+    const e = t * t * (3 - 2 * t);
+    sx = topW + (pecW - topW) * e;
+  } else if (v <= 0.55) sx = pecW;
+  else {
+    const t = (v - 0.55) / 0.45;
+    const e = t * t * (3 - 2 * t);
+    sx = pecW + (absW - pecW) * e;
+  }
+  const sz = sx * 0.85 * torsoSz;
+  const r = Math.max(0.01, lerpEliteProf(profile, v) * inflate);
+  const pecC = 0.27 - pecVShift;
+  const pecShelfC = 0.22 - pecVShift;
+  const pecUnderC = 0.4 - pecVShift;
+  const pecBand = Math.exp(-((v - pecC) ** 2) / 0.032);
+  const pecShelf = Math.exp(-((v - pecShelfC) ** 2) / 0.02);
+  const pecUnder = Math.exp(-((v - pecUnderC) ** 2) / 0.028);
+  const absBand = Math.exp(-((v - 0.62) ** 2) / 0.08);
+  const cz = Math.cos(ang);
+  const sxn = Math.sin(ang);
+  const front = Math.max(0, cz);
+  const side = Math.abs(sxn);
+  let rx = r * sx;
+  let rz = r * sz;
+  if (front > 0.08 && pecBand > 0.04) {
+    const peakL = Math.exp(-((sxn + 0.4) ** 2) / 0.055) * Math.exp(-((cz - 0.86) ** 2) / 0.1);
+    const peakR = Math.exp(-((sxn - 0.4) ** 2) / 0.055) * Math.exp(-((cz - 0.86) ** 2) / 0.1);
+    const cleft = Math.exp(-(sxn * sxn) / 0.008) * front;
+    const pecVol = (peakL + peakR) * pecBand;
+    rz += r * pecW * (0.185 * pecVol + 0.045 * pecShelf * front - 0.06 * cleft * pecBand);
+    const vEdge = Math.max(0, 1 - Math.abs(sxn) * 1.6);
+    rz -= r * 0.045 * pecUnder * front * (0.35 + 0.65 * vEdge);
+    rx += r * pecW * 0.025 * pecBand * side * front;
+  }
+  rz += r * 0.035 * absBand * front;
+  if (v < 0.14 && front > 0.25) {
+    const cut = (1 - v / 0.14) * (front - 0.25);
+    const shrink = 1 - cut * 0.42;
+    rx *= shrink;
+    rz = rz * shrink - cut * r * 0.12;
+  }
+  if (v < 0.38 && side > 0.65) {
+    const arm = ((0.38 - v) / 0.38) * ((side - 0.65) / 0.35);
+    rx *= 1 - arm * 0.18;
+    rz *= 1 - arm * 0.08;
+  }
+  return new THREE.Vector3(sxn * rx, 0.5 - v, cz * rz);
+}
+
+function eliteSurfLifted(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang, ys, lift) {
+  const p = eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang);
+  p.y *= ys;
+  const pA = eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang + 0.02);
+  pA.y *= ys;
+  const pV = eliteSurfAt(
+    profile,
+    pecW,
+    absW,
+    torsoSz,
+    inflate,
+    neckW,
+    pecVShift,
+    Math.min(0.99, v + 0.012),
+    ang
+  );
+  pV.y *= ys;
+  const e1 = pA.clone().sub(p);
+  const e2 = pV.clone().sub(p);
+  const n = new THREE.Vector3().crossVectors(e1, e2).normalize();
+  const out = new THREE.Vector3(p.x, 0, p.z);
+  if (out.lengthSq() > 1e-8 && n.dot(out) < 0) n.negate();
+  if (n.lengthSq() < 1e-8) n.set(0, 0, 1);
+  return p.addScaledVector(n, lift);
+}
+
 /**
  * Coraza alta-poly que copia el loft del torso (mismo perfil + sx/sz del pecho).
  * v=0 cuello (arriba del loft), v=1 cintura — igual que PROF.torso.
  */
-function makeEliteCuirassGeo(profile, pecW, absW, torsoSz, inflate = 1.1) {
+function makeEliteCuirassGeo(profile, pecW, absW, torsoSz, inflate = 1.1, neckW = null, pecVShift = 0) {
   const segsU = 112;
   const segsV = Math.max(56, (profile.length - 1) * 12);
   const positions = [];
   const uvs = [];
   const indices = [];
-  const sxAt = (v) => {
-    const t = v <= 0.28 ? 0 : v >= 0.72 ? 1 : (v - 0.28) / 0.44;
-    const e = t * t * (3 - 2 * t);
-    return pecW + (absW - pecW) * e;
-  };
-  const szAt = (v) => sxAt(v) * 0.85 * torsoSz;
-
   for (let iv = 0; iv <= segsV; iv++) {
-    const v = iv / segsV; // 0 arriba → 1 abajo (como loft)
-    const r = Math.max(0.01, lerpEliteProf(profile, v) * inflate);
-    const sx = sxAt(v);
-    const sz = szAt(v);
-    const y = 0.5 - v;
-    // Banda pecho (más alta y marcada que abs)
-    const pecBand = Math.exp(-((v - 0.27) ** 2) / 0.032);
-    const pecShelf = Math.exp(-((v - 0.22) ** 2) / 0.02); // borde superior placa
-    const pecUnder = Math.exp(-((v - 0.4) ** 2) / 0.028); // borde inferior hacia abs
-    const absBand = Math.exp(-((v - 0.62) ** 2) / 0.08);
+    const v = iv / segsV;
     for (let iu = 0; iu <= segsU; iu++) {
       const u = iu / segsU;
       const ang = u * Math.PI * 2 + Math.PI;
-      const cz = Math.cos(ang); // +Z frente
-      const sxn = Math.sin(ang); // ±X
-      const front = Math.max(0, cz);
-      const side = Math.abs(sxn);
-      let rx = r * sx;
-      let rz = r * sz;
-
-      // Dos placas pecho hex (solo frente): picos L/R, canal, base en V
-      if (front > 0.08 && pecBand > 0.04) {
-        const peakL = Math.exp(-((sxn + 0.4) ** 2) / 0.055) * Math.exp(-((cz - 0.86) ** 2) / 0.1);
-        const peakR = Math.exp(-((sxn - 0.4) ** 2) / 0.055) * Math.exp(-((cz - 0.86) ** 2) / 0.1);
-        const cleft = Math.exp(-(sxn * sxn) / 0.008) * front;
-        const pecVol = (peakL + peakR) * pecBand;
-        rz += r * pecW * (0.185 * pecVol + 0.045 * pecShelf * front - 0.06 * cleft * pecBand);
-        // Base de placa en V: más volumen afuera, baja al centro
-        const vEdge = Math.max(0, 1 - Math.abs(sxn) * 1.6);
-        rz -= r * 0.045 * pecUnder * front * (0.35 + 0.65 * vEdge);
-        // Abrir poco hacia axila (evitar que el pec “circunde” al costado)
-        rx += r * pecW * 0.025 * pecBand * side * front;
-      }
-
-      // Abs suave adelante
-      rz += r * 0.035 * absBand * front;
-
-      // Escote arriba al frente
-      if (v < 0.14 && front > 0.25) {
-        const cut = (1 - v / 0.14) * (front - 0.25);
-        const shrink = 1 - cut * 0.42;
-        rx *= shrink;
-        rz = rz * shrink - cut * r * 0.12;
-      }
-      // Sisas (hundir costados arriba)
-      if (v < 0.38 && side > 0.65) {
-        const arm = ((0.38 - v) / 0.38) * ((side - 0.65) / 0.35);
-        rx *= 1 - arm * 0.18;
-        rz *= 1 - arm * 0.08;
-      }
-      positions.push(sxn * rx, y, cz * rz);
+      const p = eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang);
+      positions.push(p.x, p.y, p.z);
       uvs.push(u, 1 - v);
     }
   }
@@ -2470,24 +2465,38 @@ function makeEliteCuirassGeo(profile, pecW, absW, torsoSz, inflate = 1.1) {
   return geo;
 }
 
-/** Pechera batalla: misma silueta que el torso, por fuera, alta-poly. */
+/**
+ * Tubo 3D de borde de armadura (CatmullRom → TubeGeometry).
+ * pts = trayectoria ya en metros sobre la coraza; tubeR = grosor del cordón.
+ * closed=true une el último punto con el primero (óvalo abs / pecs).
+ */
+function makeArmorBorderTube(pts, tubeR, closed = true) {
+  if (!pts?.length || pts.length < 2) return null;
+  const curve = new THREE.CatmullRomCurve3(pts, closed, "catmullrom", 0.15);
+  const segs = Math.max(48, pts.length * 8);
+  return new THREE.TubeGeometry(curve, segs, tubeR, 10, closed);
+}
+
+/** Pechera batalla: coraza + bordes 3D. */
 function addEliteBreastplate(torsoG, s, x, y, z, sx, sy, sz, extras = {}) {
-  let fillHex = extras.plateHex ?? 0x1a3a6e;
-  const fr = ((fillHex >> 16) & 255) / 255;
-  const fg = ((fillHex >> 8) & 255) / 255;
-  const fb = (fillHex & 255) / 255;
-  // Solo blanco/crema → azul default; negro y saturados OK
-  if (0.2126 * fr + 0.7152 * fg + 0.0722 * fb > 0.72) fillHex = 0x1a3a6e;
-  const ribHex = extras.ribHex ?? 0xffc107;
-  const borderW = extras.plateBorder ?? 0.09;
+  let fillHex = extras.plateHex ?? 0x1a3a6e; //color de la coraza
+  const fr = ((fillHex >> 16) & 255) / 255; //rojo
+  const fg = ((fillHex >> 8) & 255) / 255; //verde
+  const fb = (fillHex & 255) / 255; //azul
+  if (0.2126 * fr + 0.7152 * fg + 0.0722 * fb > 0.72) fillHex = 0x1a3a6e; //si el color es muy claro, se pone el color original
+  const ribHex = extras.ribHex ?? 0xffc107; //color de las nervaduras
+  const borderW = extras.plateBorder ?? 0.09; //ancho del borde
+  const torsoLen = extras.torsoLen ?? 0.55; //altura del torso
+  const pecVShift = Math.max(-0.2, Math.min(0.2, extras.platePecY ?? 0));
   const map = eliteBreastplateTex(fillHex, ribHex, {
-    borderW,
-    ribs: extras.plateRibs ?? 7,
-    absW: extras.plateAbsW ?? 0.17,
-    absArch: extras.plateAbsArch ?? 0.085,
-    absGap: extras.plateAbsGap ?? 0.22,
-    pecBot: extras.platePecBot ?? 0.38,
-    pecSpan: extras.platePecSpan ?? 0.28,
+    borderW: 0.04, //ancho del borde
+    ribs: extras.plateRibs ?? 7, //número de nervaduras
+    absW: extras.plateAbsW ?? 0.17, //ancho del abs
+    absArch: extras.plateAbsArch ?? 0.085, //altura del abs
+    absGap: extras.plateAbsGap ?? 0.22, //gap del abs
+    pecBot: extras.platePecBot ?? 0.38, //ancho del pecho
+    pecSpan: extras.platePecSpan ?? 0.28, //ancho del pecho
+    pecYShift: pecVShift,
   });
   const mat = gearMat(0xffffff, {
     kind: "armor",
@@ -2496,34 +2505,99 @@ function addEliteBreastplate(torsoG, s, x, y, z, sx, sy, sz, extras = {}) {
     bumpMul: 0.55,
     roughness: 0.32,
     metalness: 0.28,
-  });
-  mat.side = THREE.DoubleSide;
+  }); //material de la coraza
+  mat.side = THREE.DoubleSide; //doble cara
   mat.transparent = true;
-  mat.alphaTest = 0.06;
+  mat.alphaTest = 0.96; //transparencia
+  const borderM = extras.borderM || gearMat(0xfafafa, { kind: "armor", detail: 0.2 }); //material del borde
 
-  const pecW = extras.pecW ?? 1.18;
-  const absW = extras.absW ?? pecW * 0.92;
+  const pecW = extras.pecW ?? 1.18; //ancho del pecho
+  const absW = extras.absW ?? pecW * 0.92; //ancho del abs
+  const neckW = extras.neckW ?? pecW * 0.9; //ancho del cuello
   const torsoSz = extras.torsoSz ?? 1;
-  const torsoMul = extras.torsoMul ?? 0.15;
+  const torsoMul = extras.torsoMul ?? 0.15; //multiplicador del torso
   const clothFit = extras.clothFit ?? 1.12;
-  const torsoLen = extras.torsoLen ?? 0.55;
-  // Un poco por encima de la capa de ropa/piel
-  const inflate = Math.max(1.08, clothFit) * 1.04;
+  const inflate = Math.max(1.08, clothFit) * 1.04; //inflado del torso
   const profile = mulProfile(PROF.torso, torsoMul * s);
+  const ys = torsoLen * s; //altura del torso
 
-  const g = new THREE.Group();
-  // Mismo centro vertical que el loft del torso (plate Y viene ~0.1s más alto)
-  g.position.set(x, y - 0.1 * s, z);
-  g.scale.set(sx, sy, sz);
+  const g = new THREE.Group(); 
+  g.position.set(x, y, z); //posición del torso
+  g.scale.set(sx, sy, sz); //escala del torso
 
   const shell = new THREE.Mesh(
-    makeEliteCuirassGeo(profile, pecW, absW, torsoSz, inflate),
+    makeEliteCuirassGeo(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift),
     mat
   );
-  shell.scale.set(1, torsoLen * s, 1);
+  shell.scale.set(1, ys, 1);
   shell.castShadow = true;
   shell.receiveShadow = true;
   g.add(tagCloth(shell, "armor_elite_shell"));
+
+  // Grosor del cordón 3D: plateBorder ↑ = tubo más gordo. lift lo despega de la malla.
+  const tubeR = 0.007 * s * (0.7 + borderW * 5);
+  const lift = tubeR * 0.85;
+  const args = [profile, pecW, absW, torsoSz, inflate, neckW, pecVShift];
+  // onSurf(v, ang): v = 0 cuello → 1 cintura; ang ≈ 0 centro pecho, ± a los lados.
+  const onSurf = (v, ang) => eliteSurfLifted(...args, v, ang, ys, lift);
+
+  const addTube = (pts, id, closed = true, r = tubeR) => {
+    if (pts.length < 4) return;
+    const geo = makeArmorBorderTube(pts, r, closed);
+    if (!geo) return;
+    g.add(tagCloth(new THREE.Mesh(geo, borderM), id));
+  };
+
+  // —— Pecs: rectángulo redondeado por placa (L/R). Moldear: ——
+  // pecTop / pecBot = alto del marco.
+  // platePecSpan → aOut = qué tan lejos del centro llega el borde lateral.
+  // aIn ≈ 0 = borde medial (costura). Cambiá los seg(n,…) si querés más/menos redondeo.
+  const pecTop = Math.max(0, 0.12 - pecVShift);
+  const pecBot = Math.min(0.42, 0.36 - pecVShift);
+  const span = extras.platePecSpan ?? 0.98;
+  for (const side of [-1, 1]) {
+    const aOut = side * Math.min(1, 0.8 + span); // extremo lateral del pec
+    const aIn = side * 0.005; // extremo medial (casi centro)
+    const pts = [];
+    const seg = (n, fn) => {
+      for (let i = 0; i <= n; i++) pts.push(fn(i / n));
+    };
+    seg(12, (t) => onSurf(pecTop, aIn + (aOut - aIn) * t)); // tope horizontal
+    seg(16, (t) => onSurf(pecTop + (pecBot - pecTop) * t, aOut)); // lado afuera
+    seg(12, (t) => onSurf(pecBot, aOut + (aIn - aOut) * t)); // fondo horizontal
+    seg(16, (t) => onSurf(pecBot + (pecTop - pecBot) * t, aIn)); // lado adentro
+    addTube(pts, `armor_elite_pec_rim_${side > 0 ? "R" : "L"}`);
+  }
+  // Costura vertical entre pecs (abierta; más fina).
+  {
+    const pts = [];
+    for (let i = 0; i <= 20; i++) pts.push(onSurf(pecTop + ((pecBot - pecTop) * i) / 20, 0));
+    addTube(pts, "armor_elite_seam", false, tubeR * 0.75);
+  }
+
+  // —— Abs: un óvalo cerrado sobre la coraza. Qué tocar para moldear: ——
+  // plateAbsW (absWFrac) → angH = ancho del óvalo (más ancho = más “panza”).
+  // v0 = dónde empieza bajo los pecs (pecBot+0.12); subir/bajar = mover el óvalo.
+  // v1 = v0+0.6 (tope 1) = qué tan largo llega hacia la cintura.
+  // vMid / vRy = centro y radio vertical del elipse; ang = cos(t)*angH horizontal.
+  // tubeR*0.9 al final = un poco más fino que el de pecs. NO toca plateAbsArch/Gap
+  // de la textura 2D: el tubo 3D se define solo aquí con v/ang.
+  {
+    const absWFrac = extras.plateAbsW ?? 0.17;
+    const angH = Math.min(0.5, absWFrac * Math.PI * 1.15);
+    const v0 = Math.min(0.78, pecBot + 0.12);
+    const v1 = Math.min(1, v0 + 0.6);
+    const vMid = (v0 + v1) * 0.5;
+    const vRy = (v1 - v0) * 0.5;
+    const pts = [];
+    for (let i = 0; i < 50; i++) {
+      const t = (i / 50) * Math.PI * 2;
+      const ang = Math.cos(t) * angH;
+      const v = vMid + Math.sin(t) * vRy;
+      pts.push(onSurf(v, ang));
+    }
+    addTube(pts, "armor_elite_abs_rim", true, tubeR * 0.9);
+  }
 
   torsoG.add(g);
 }
@@ -2621,7 +2695,7 @@ function addWingPad(torsoG, s, side, baseX, py, ps, extras, id) {
   const arch = extras.padArch ?? 0.55;
   const nLines = extras.padLines ?? 7;
   const lineW = extras.padLineW ?? 0.012;
-  const map = wingPadAlbedoTex(ribHex, { borderW, lines: nLines | 0, lineW });
+  const map = wingPadAlbedoTex(ribHex, { borderW: 0, lines: nLines | 0, lineW });
   const mat = gearMat(0xffffff, {
     kind: "armor",
     detail: 0.15,
@@ -2631,6 +2705,7 @@ function addWingPad(torsoG, s, side, baseX, py, ps, extras, id) {
   mat.side = THREE.DoubleSide;
   mat.transparent = true;
   mat.alphaTest = 0.15;
+  const borderM = extras.borderM || gearMat(0xfafafa, { kind: "armor", detail: 0.2 });
 
   const g = new THREE.Group();
   g.position.set(baseX, py, 0.03 * s + (extras.padZ || 0) * s);
@@ -2648,6 +2723,26 @@ function addWingPad(torsoG, s, side, baseX, py, ps, extras, id) {
   shell.rotation.x = -Math.PI / 2;
   shell.position.set(ox, 0, 0);
   g.add(tagCloth(shell, id));
+
+  // Borde un poco más adentro para adherirse a la cáscara
+  const tubeR = 0.0058 * s * (0.75 + borderW * 4);
+  const rimPts = [];
+  const nRim = 80;
+  for (let i = 0; i < nRim; i++) {
+    const a = (i / nRim) * Math.PI * 2;
+    const rr = 0.9;
+    const lx = Math.cos(a) * rr;
+    const ly = Math.sin(a) * rr;
+    const lz = arch * Math.sqrt(Math.max(0, 1 - rr * rr));
+    let x = lx * R * sx;
+    let y = ly * R * sz;
+    let z = lz * R * sx * 0.55;
+    const y2 = z;
+    const z2 = -y;
+    rimPts.push(new THREE.Vector3(ox + x, y2 + tubeR * 0.35, z2));
+  }
+  const rimGeo = makeArmorBorderTube(rimPts, tubeR, true);
+  if (rimGeo) g.add(tagCloth(new THREE.Mesh(rimGeo, borderM), `${id}_rim`));
 
   torsoG.add(g);
 }
@@ -2672,7 +2767,7 @@ function addFreezerEliteSuit(torsoG, s, waistY, ty, chestLocalY, sc, mats) {
     const baseX = side * (0.2 * s + px);
     addWingPad(torsoG, s, side, baseX, py, ps, padOpts, `armor_pad_${side > 0 ? "R" : "L"}`);
   }
-  const y = 1.0 * s - waistY + ty + (sc.plateY || 0) * s;
+  const y = 0.92 * s - waistY + ty + (sc.plateY || 0) * s;
   const x = (sc.plateX || 0) * s;
   const z = (sc.plateZ || 0) * s;
   addEliteBreastplate(
@@ -2692,22 +2787,50 @@ function addFreezerEliteSuit(torsoG, s, waistY, ty, chestLocalY, sc, mats) {
   }
 }
 
-/** Faldones cadera: miran a cada costado; semi-óvalo tope recto (estilo hombrera). */
+/** Contorno D del faldón, subido en Y para pegar al panel. */
+function addHipFlapRim(flap, shell, arch, sx, sy, sz, tubeR, borderM, id) {
+  const inset = 0.685; // ancho del faldón
+  const yLift = 0.18; // subir el aro sobre el eje Y local del faldón
+  const maxXAt = (y) => {
+    const y01 = (y + 1) * 0.5;
+    return y01 > 0.55 ? 1 : Math.sqrt(Math.max(0, 1 - ((y01 - 0.55) / 0.55) ** 2));
+  }; // función que define la forma del faldón
+  const at = (x, y) => {
+    const xi = x * inset;
+    // Remap Y: comprime y desplaza hacia arriba (−1..1 → más cerca del tope)
+    const yShifted = y * (1 - yLift * 0.5) + yLift + 0.16;
+    const yi = Math.max(-1, Math.min(1, yShifted * inset));
+    const y01 = (yi + 1) * 0.5;
+    const h = arch * Math.max(0, 1 - xi * xi) * (0.35 + 0.7 * (1 - y01));
+    return new THREE.Vector3(xi * sx, yi * sy, h * sz + tubeR * 0.4);
+  };
+  const pts = [];
+  
+  for (let i = 0; i <= 20; i++) pts.push(at(-1 + (2 * i) / 20, 1));
+  // superior
+  for (let i = 1; i <= 36; i++) {
+    const y = 1 - (2 * i) / 36;
+    pts.push(at(maxXAt(y), y));
+  }
+  // inferior
+  for (let i = 1; i < 36; i++) {
+    const y = -1 + (2 * i) / 36;
+    pts.push(at(-maxXAt(y), y));
+  }
+  const geo = makeArmorBorderTube(pts, tubeR, true);
+  if (geo) flap.add(tagCloth(new THREE.Mesh(geo, borderM), id));
+}
+
+/** Faldones cadera: laterales miran a cada costado; delantero opcional al frente. */
 function addHipFlaps(torsoG, s, waistY, ty, sc, mats = {}) {
-  if ((sc.showHipFlaps ?? 0) < 0.5) return;
+  const sideOn = (sc.showHipFlaps ?? 0) > 0.5;
+  const frontOn = (sc.showFrontFlap ?? 0) > 0.5;
+  if (!sideOn && !frontOn) return;
   const ribHex = mats.ribHex ?? 0xffc107;
   const borderW = sc.padBorder ?? 0.09;
   const nLines = sc.padLines ?? 7;
   const lineW = sc.padLineW ?? 0.012;
-  const fx = (sc.hipFlapX || 0) * s;
-  const fy = (sc.hipFlapY || 0) * s;
-  const fz = (sc.hipFlapZ || 0) * s;
-  const fsx = sc.hipFlapSx ?? 1;
-  const fsy = sc.hipFlapSy ?? 1;
-  const fsz = sc.hipFlapSz ?? 1;
-  const ftilt = sc.hipFlapTilt ?? 0.2;
-  const farch = sc.hipFlapArch ?? 0.35;
-  const map = hipFlapAlbedoTex(ribHex, { borderW, lines: nLines | 0, lineW });
+  const map = hipFlapAlbedoTex(ribHex, { borderW: 0, lines: nLines | 0, lineW });
   const mat = gearMat(0xffffff, {
     kind: "armor",
     detail: 0.15,
@@ -2717,14 +2840,63 @@ function addHipFlaps(torsoG, s, waistY, ty, sc, mats = {}) {
   mat.side = THREE.DoubleSide;
   mat.transparent = true;
   mat.alphaTest = 0.15;
-  for (const side of [-1, 1]) {
+  const borderM = mats.borderM || gearMat(0xfafafa, { kind: "armor", detail: 0.2 });
+  const tubeR = 0.0048 * s * (0.75 + borderW * 4);
+
+  if (sideOn) {
+    const fx = (sc.hipFlapX || 0) * s;
+    const fy = (sc.hipFlapY || 0) * s;
+    const fz = (sc.hipFlapZ || 0) * s;
+    const fsx = sc.hipFlapSx ?? 1;
+    const fsy = sc.hipFlapSy ?? 1;
+    const fsz = sc.hipFlapSz ?? 1;
+    const ftilt = sc.hipFlapTilt ?? 0.2;
+    const farch = sc.hipFlapArch ?? 0.35;
+    for (const side of [-1, 1]) {
+      const flap = new THREE.Group();
+      const sx = 0.09 * s * fsx;
+      const sy = 0.16 * s * fsy;
+      const sz = 0.04 * s * fsz;
+      const shell = new THREE.Mesh(makeHipFlapShellGeo(farch), mat);
+      shell.scale.set(sx, sy, sz);
+      flap.add(tagCloth(shell, `hip_flap_${side > 0 ? "R" : "L"}`));
+      addHipFlapRim(
+        flap,
+        shell,
+        farch,
+        sx,
+        sy,
+        sz,
+        tubeR,
+        borderM,
+        `hip_flap_${side > 0 ? "R" : "L"}_rim`
+      );
+      flap.position.set(side * (0.16 * s + fx), 0.52 * s - waistY + ty + fy, fz);
+      flap.rotation.y = side * (Math.PI / 2);
+      flap.rotation.z = side * ftilt;
+      torsoG.add(flap);
+    }
+  }
+
+  if (frontOn) {
+    const fx = (sc.frontFlapX || 0) * s;
+    const fy = (sc.frontFlapY || 0) * s;
+    const fz = (sc.frontFlapZ || 0) * s;
+    const fsx = sc.frontFlapSx ?? 1;
+    const fsy = sc.frontFlapSy ?? 1;
+    const fsz = sc.frontFlapSz ?? 1;
+    const ftilt = sc.frontFlapTilt ?? 0.08;
+    const farch = sc.frontFlapArch ?? 0.35;
     const flap = new THREE.Group();
+    const sx = 0.1 * s * fsx;
+    const sy = 0.15 * s * fsy;
+    const sz = 0.035 * s * fsz;
     const shell = new THREE.Mesh(makeHipFlapShellGeo(farch), mat);
-    shell.scale.set(0.09 * s * fsx, 0.16 * s * fsy, 0.04 * s * fsz);
-    flap.add(tagCloth(shell, `hip_flap_${side > 0 ? "R" : "L"}`));
-    flap.position.set(side * (0.16 * s + fx), 0.52 * s - waistY + ty + fy, fz);
-    flap.rotation.y = side * (Math.PI / 2);
-    flap.rotation.z = side * ftilt;
+    shell.scale.set(sx, sy, sz);
+    flap.add(tagCloth(shell, "hip_flap_front"));
+    addHipFlapRim(flap, shell, farch, sx, sy, sz, tubeR, borderM, "hip_flap_front_rim");
+    flap.position.set(fx, 0.5 * s - waistY + ty + fy, 0.12 * s + fz);
+    flap.rotation.x = ftilt;
     torsoG.add(flap);
   }
 }
@@ -2956,8 +3128,10 @@ export function makeBody(altura, look, sculpt = {}) {
     plateAbsGap: sc.plateAbsGap,
     platePecBot: sc.platePecBot,
     platePecSpan: sc.platePecSpan,
+    platePecY: sc.platePecY,
     pecW: sc.torsoChestSx ?? sc.torsoSx ?? 1.18,
     absW: sc.torsoWaistSx ?? sc.torsoSx ?? 1.18,
+    neckW: sc.torsoNeckSx ?? sc.torsoChestSx ?? sc.torsoSx ?? 1.05,
     torsoSz: sc.torsoSz ?? 1,
     torsoMul: sc.torsoMul ?? 0.15,
     torsoLen: sc.torsoLen ?? 0.55,
@@ -3012,8 +3186,16 @@ export function makeBody(altura, look, sculpt = {}) {
 
   const pecW = sc.torsoChestSx ?? sc.torsoSx ?? 1.18;
   const absW = sc.torsoWaistSx ?? sc.torsoSx ?? 1.18;
+  const neckW = sc.torsoNeckSx ?? pecW * 0.9;
   const torsoSxAt = (v) => {
-    const t = v <= 0.28 ? 0 : v >= 0.72 ? 1 : (v - 0.28) / 0.44;
+    // v=0 arriba (cuello) → 1 abajo (cintura)
+    if (v < 0.2) {
+      const t = v / 0.2;
+      const e = t * t * (3 - 2 * t);
+      return neckW + (pecW - neckW) * e;
+    }
+    if (v <= 0.55) return pecW;
+    const t = (v - 0.55) / 0.45;
     const e = t * t * (3 - 2 * t);
     return pecW + (absW - pecW) * e;
   };
@@ -3161,6 +3343,21 @@ export function makeBody(altura, look, sculpt = {}) {
   neck.userData.moldId = "neck";
   neck.userData.moldFamily = "head";
   torsoG.add(neck);
+
+  // Aro blanco de armadura alrededor del cuello (no solo dibujo en la pechera)
+  if (eliteSuit) {
+    const colR = sc.neckR * s * (1.05 + (sc.collarFit ?? 0.12));
+    const colTube = 0.018 * s * (sc.collarThick ?? 1.2);
+    const armorCollar = new THREE.Mesh(
+      new THREE.TorusGeometry(colR, colTube, 12, 36),
+      borderM
+    );
+    armorCollar.rotation.x = Math.PI / 2;
+    armorCollar.position.y = neckY - sc.neckLen * s * 0.38 + (sc.collarY || 0) * s;
+    armorCollar.userData.moldId = "armor_neck_collar";
+    armorCollar.userData.moldFamily = "cloth";
+    torsoG.add(armorCollar);
+  }
 
   const headG = new THREE.Group();
   headG.position.y = neckY + sc.neckLen * s * 0.5 + sc.headR * (sc.headSy || 1) * s * 0.55;
