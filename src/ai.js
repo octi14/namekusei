@@ -1211,10 +1211,9 @@ function allyToHelp(p, people) {
 
 /**
  * Si el personaje casi no avanza en XZ (o flota en el mismo sitio), fuerza un
- * plan simple unos segundos.
- * AJUSTE: mide cada 0.85 s; `lim` es el avance mínimo esperado en ese rato
- * (5.5 volando, 9 junto a una nave, 3.2 en tierra). El contador `_stkT` dispara
- * pickUnstick() cuando pasa de 2.0 s (ver aiTick).
+ * plan simple unos segundos. Está muy atenuado: solo casos extremos.
+ * `lim` = avance mínimo en la ventana (más bajo = más permisivo).
+ * `_stkT` dispara pickUnstick() tras ~12 s acumulados (ver aiTick).
  */
 function tickStuck(p, dt) {
   const x = p.pos().x;
@@ -1235,17 +1234,26 @@ function tickStuck(p, dt) {
   p._stkAcc = 0;
   const hovering = (p.flyAlt || 0) > 0.45;
   const nearShip = !!nearAnyShip({ x, z }, 22);
-  // AJUSTE: lim más bajo = más permisivo (hace falta menos avance para “no estar atascado”)
-  const lim = hovering ? 3.2 : nearShip ? 5.5 : 1.85;
+  const lim = hovering ? 1.2 : nearShip ? 2.0 : 0.65;
   if (prog < lim) p._stkT = (p._stkT || 0) + window;
-  else p._stkT = Math.max(0, (p._stkT || 0) - window * 1.8);
+  else p._stkT = Math.max(0, (p._stkT || 0) - window * 2.4);
 }
 
+// Se llama cuando el personaje está atascado y necesita desatascarse.
+// Se elige un objetivo para desatascarse:
+// - Si tiene la esfera, se deposita en la base.
+// - Si no tiene la esfera, se busca una esfera libre en la base.
+// - Si no hay esferas libres, se busca una esfera en la base enemiga.
+// - Si no hay esferas libres ni en la base enemiga, se busca una esfera en la base propia.
+// - Si no hay esferas libres ni en la base enemiga ni en la base propia, se busca una esfera en la base neutral.
+// - Si no hay esferas libres ni en la base enemiga ni en la base propia ni en la base neutral, se busca una esfera en la base aliada.
+// - Si no hay esferas libres ni en la base enemiga ni en la base propia ni en la base neutral ni en la base aliada, se busca una esfera en la base neutral.
+// - Si no hay esferas libres ni en la base enemiga ni en la base propia ni en la base neutral ni en la base aliada ni en la base neutral, se busca una esfera en la base aliada.
 function pickUnstick(p, balls) {
   const homeZ = p.faccion === "z" ? -BASE_Z : BASE_Z;
   const baseDist = Math.hypot(p.pos().x, p.pos().z - homeZ);
-  // AJUSTE: duración corta del desatasco para no pisar planes útiles
-  p.aiUnstick = 2.6 + seed(p) * 1.4;
+  // Desatasco corto: casi no debe pisar planes normales
+  p.aiUnstick = 1.1 + seed(p) * 0.6;
   p.aiFight = 0;
   p.aiCharge = false;
   p.aiRaid = 0;
@@ -1374,13 +1382,19 @@ function runUnstick(p, people, balls, combat, match, dt) {
 export function aiTick(p, people, balls, combat, match, dt) {
   if (p.controller !== "ia" || p.dead) return;
   tickStuck(p, dt);
-  // AJUSTE: más tolerancia + no interrumpir pelea/entrega/snipe
+  // Unstick muy raro: ~12 s quieto y solo si no hay plan útil
   const busyPlan =
     (p.aiMode === "fight" && p.aiFoe && !p.aiFoe.dead) ||
     (p.aiMode === "deliver" && p.esfera != null) ||
     p.aiMode === "snipe" ||
-    p.aiMode === "hide";
-  if ((p._stkT || 0) > 4.5 && (p.aiUnstick || 0) <= 0 && !busyPlan) pickUnstick(p, balls);
+    p.aiMode === "hide" ||
+    p.aiMode === "ball" ||
+    p.aiMode === "raid" ||
+    p.aiMode === "help" ||
+    p.aiMode === "heal" ||
+    p.aiMode === "healPost" ||
+    (p.aiModeT || 0) > 0.4;
+  if ((p._stkT || 0) > 12 && (p.aiUnstick || 0) <= 0 && !busyPlan) pickUnstick(p, balls);
   if ((p.aiUnstick || 0) > 0) {
     runUnstick(p, people, balls, combat, match, dt);
     p.aiDbg = {

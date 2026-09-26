@@ -272,20 +272,250 @@ function wrinkleClothMesh(mesh, strength = 1) {
   return mesh;
 }
 
-/** Ropa / armadura con sombreado anime + textura de detalle. */
+/**
+ * Arrugas de gi “anime canvas”: pliegues profundos y direccionales (no plastilina).
+ * mode: torso | thigh | shin | sash | sleeve
+ */
+function wrinkleGiMesh(mesh, strength = 1, mode = "torso") {
+  if (!mesh?.geometry?.attributes?.position) return mesh;
+  mesh.geometry = mesh.geometry.clone();
+  const pos = mesh.geometry.attributes.position;
+  const k = strength;
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i);
+    let z = pos.getZ(i);
+    const r = Math.hypot(x, z) || 1;
+    const nx = x / r;
+    const nz = z / r;
+    let dr = 0;
+    let dy = 0;
+    if (mode === "torso") {
+      // Tensión hombro→cintura + pliegues; no meter la tela dentro del cuerpo
+      let d =
+        Math.sin(y * 18 + x * 22) * 0.011 * k +
+        Math.sin(y * 9 + z * 14) * 0.008 * k +
+        Math.sin(Math.atan2(z, x) * 6 + y * 7) * 0.007 * k;
+      if (y < 0.05) d += Math.sin(x * 40) * 0.006 * k * Math.max(0, 1 + y * 8);
+      dr += Math.max(d, d * 0.15); // casi no hacia adentro
+      dy += Math.sin(x * 28 + z * 20) * 0.0035 * k;
+    } else if (mode === "thigh") {
+      // Holgado: pliegues verticales largos + diagonales
+      dr += Math.sin(Math.atan2(z, x) * 5 + y * 4) * 0.018 * k;
+      dr += Math.sin(y * 14 + x * 10) * 0.012 * k;
+      dr += Math.sin(y * 28 + z * 16) * 0.008 * k;
+      dy += Math.sin(x * 20 + z * 18) * 0.004 * k;
+    } else if (mode === "shin") {
+      // Accordion encima de la bota: muchas ondas horizontales abajo
+      const t = Math.max(0, Math.min(1, (-y + 0.15) / 0.55)); // 0 arriba → 1 tobillo
+      const acc = t * t;
+      dr += Math.sin(y * 55) * 0.022 * k * (0.35 + acc * 1.4);
+      dr += Math.sin(y * 28 + Math.atan2(z, x) * 3) * 0.014 * k * (0.5 + acc);
+      dr += Math.sin(Math.atan2(z, x) * 6 + y * 8) * 0.01 * k;
+      dy += Math.sin(y * 42 + x * 12) * 0.007 * k * acc;
+      // Sobrecuelga: empuja un poco hacia afuera a mitad de shin
+      dr += Math.sin(y * 6) * 0.01 * k * (1 - acc * 0.4);
+    } else if (mode === "sash") {
+      dr += Math.sin(y * 70 + x * 8) * 0.01 * k;
+      dy += Math.sin(x * 50 + z * 40) * 0.004 * k;
+    } else if (mode === "sleeve") {
+      dr += Math.sin(y * 22 + Math.atan2(z, x) * 4) * 0.01 * k;
+      dr += Math.sin(y * 40) * 0.006 * k;
+    } else {
+      dr += Math.sin(y * 20 + x * 12) * 0.01 * k;
+    }
+    pos.setXYZ(i, x + nx * dr, y + dy, z + nz * dr);
+  }
+  pos.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+  return mesh;
+}
+
+/** Perfil baggy de pantalón gi (más anillos). kind: thigh | shin */
+function giBaggyProfile(base, scale, kind) {
+  const n = kind === "shin" ? 22 : 18;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const ti = t * (base.length - 1);
+    const i0 = Math.floor(ti);
+    const i1 = Math.min(base.length - 1, i0 + 1);
+    const f = ti - i0;
+    let r = (base[i0] * (1 - f) + base[i1] * f) * scale;
+    if (kind === "thigh") {
+      // Ancho en muslo, suelto
+      r *= 1.08 + Math.sin(t * Math.PI) * 0.22;
+    } else {
+      // Shin: globo a mitad + cinch fuerte abajo (tuck en bota)
+      const balloon = Math.sin(Math.min(1, t * 1.15) * Math.PI) * 0.38;
+      const cinch = t > 0.72 ? Math.pow((t - 0.72) / 0.28, 1.4) * 0.42 : 0;
+      r *= 1.12 + balloon - cinch;
+    }
+    out.push(Math.max(0.008, r));
+  }
+  return out;
+}
+
+/**
+ * Mitad del wrap del gi (L/R). Solapa = borde del V integrado.
+ * V: ancha en hombros → se cierra en el centro del fajín. Solo cubre costado+espalda,
+ * deja libre el pecho central (camiseta / piel).
+ */
+function makeGiWrapPanelGeo(profile, len, side, opts = {}) {
+  const radial = opts.radial ?? 48;
+  const segsV = Math.max(32, (profile.length - 1) * 6);
+  const sxAt = typeof opts.sx === "function" ? opts.sx : () => opts.sx ?? 1.2;
+  const szAt = typeof opts.sz === "function" ? opts.sz : () => opts.sz ?? 1.12;
+  const lapelW = opts.lapelW ?? 0.028;
+  const vOpen = opts.vOpen ?? 0.92; // qué tan abierto el V arriba (rad)
+  const half = len * 0.5;
+  const pos = [];
+  const uvs = [];
+  const idx = [];
+
+  const lerpProf = (v) => {
+    const ti = v * (profile.length - 1);
+    const i0 = Math.floor(ti);
+    const i1 = Math.min(profile.length - 1, i0 + 1);
+    const f = ti - i0;
+    return profile[i0] * (1 - f) + profile[i1] * f;
+  };
+
+  // Distancia angular del centro del pecho (+Z) al borde del V
+  const openAt = (v) => {
+    const t = Math.min(1, Math.pow(v / 0.88, 0.9));
+    return THREE.MathUtils.lerp(vOpen, 0.02, t);
+  };
+  const FRONT = Math.PI / 2;
+  const BACK = 0.2; // solape leve en la espalda
+
+  for (let i = 0; i <= segsV; i++) {
+    const v = i / segsV;
+    const y = half - v * len;
+    const r0 = Math.max(0.01, lerpProf(v));
+    const sx = sxAt(v);
+    const sz = szAt(v);
+    const open = openAt(v);
+    // Cada panel = medio torso (frente-V → costado → espalda), NO da la vuelta entera
+    let a0;
+    let a1;
+    if (side < 0) {
+      // Izquierda (−X): del V hacia la izquierda hasta pasar el centro espalda
+      a0 = FRONT + open;
+      a1 = FRONT + Math.PI + BACK;
+    } else {
+      a0 = FRONT - Math.PI - BACK;
+      a1 = FRONT - open;
+    }
+    for (let j = 0; j <= radial; j++) {
+      const u = j / radial;
+      const a = a0 + (a1 - a0) * u;
+      // Labio grueso solo en el borde del V (frente)
+      const edgeT = side < 0 ? Math.max(0, 1 - u * 12) : Math.max(0, 1 - (1 - u) * 12);
+      const lift = edgeT * lapelW * (side < 0 ? 1.25 : 1);
+      const rr = r0 + lift;
+      const px = Math.cos(a) * rr * sx;
+      // Empuje frontal del labio + ligero overlap izq encima
+      const pz =
+        Math.sin(a) * rr * sz +
+        edgeT * 0.014 * (side < 0 ? 1.2 : 0.75) +
+        (side < 0 ? 0.004 : 0);
+      pos.push(px, y, pz);
+      uvs.push(u, v);
+    }
+  }
+  const stride = radial + 1;
+  for (let i = 0; i < segsV; i++) {
+    for (let j = 0; j < radial; j++) {
+      const a = i * stride + j;
+      const b = a + 1;
+      const c = (i + 1) * stride + j;
+      const d = c + 1;
+      // Mismo winding que loftGeo → normales hacia afuera
+      idx.push(a, b, c, b, d, c);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Camiseta interior del gi: pecho cerrado + mangas cortas. */
+function makeGiUndershirtGeo(profile, len, opts = {}) {
+  const radial = opts.radial ?? 40;
+  const segsV = Math.max(20, (profile.length - 1) * 4);
+  const sxAt = typeof opts.sx === "function" ? opts.sx : () => opts.sx ?? 1.05;
+  const szAt = typeof opts.sz === "function" ? opts.sz : () => opts.sz ?? 1.0;
+  const half = len * 0.5;
+  const pos = [];
+  const uvs = [];
+  const idx = [];
+  const lerpProf = (v) => {
+    const ti = v * (profile.length - 1);
+    const i0 = Math.floor(ti);
+    const i1 = Math.min(profile.length - 1, i0 + 1);
+    return profile[i0] * (1 - (ti - i0)) + profile[i1] * (ti - i0);
+  };
+  for (let i = 0; i <= segsV; i++) {
+    const v = i / segsV;
+    const y = half - v * len;
+    const r0 = Math.max(0.01, lerpProf(v) * 0.92);
+    const sx = sxAt(v);
+    const sz = szAt(v);
+    // Scoop suave arriba (cuello redondo visible en el V)
+    const scoop = v < 0.12 ? (0.12 - v) / 0.12 : 0;
+    for (let j = 0; j < radial; j++) {
+      const u = j / radial;
+      const a = u * Math.PI * 2;
+      // Frente (+Z) un poco más bajo en el scoop
+      const front = Math.max(0, Math.sin(a));
+      const yOff = -scoop * front * len * 0.06;
+      pos.push(Math.cos(a) * r0 * sx, y + yOff, Math.sin(a) * r0 * sz);
+      uvs.push(u, v);
+    }
+  }
+  for (let i = 0; i < segsV; i++) {
+    for (let j = 0; j < radial; j++) {
+      const a = i * radial + j;
+      const b = i * radial + ((j + 1) % radial);
+      const c = (i + 1) * radial + j;
+      const d = (i + 1) * radial + ((j + 1) % radial);
+      idx.push(a, b, c, b, d, c);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Ropa / armadura: satinado (reacciona a la luz) sin llegar a cromo. */
 function gearMat(hex, opts = {}) {
   const kind = opts.kind || "cloth";
   const noise = kind === "armor" ? armorNoiseTex() : kind === "gi" ? giClothNoiseTex() : clothNoiseTex();
   const bumpK = opts.bumpMul ?? (kind === "gi" ? 2.4 : 1);
-  const m = new THREE.MeshToonMaterial({
+  const isArmor = kind === "armor";
+  // Defaults satinados; clamp metalness porque varios callers pasan ~0.9 (histórico, no-op en toon)
+  let rough = opts.roughness ?? (isArmor ? 0.32 : kind === "gi" ? 0.68 : 0.4);
+  if (kind === "gi") rough = Math.min(0.78, Math.max(0.55, rough));
+  else if (!isArmor) rough = Math.min(0.52, 0.26 + rough * 0.32); // satin ropa genérica
+  else rough = Math.min(0.48, rough);
+  const metal = Math.min(opts.metalness ?? (isArmor ? 0.14 : 0.05), isArmor ? 0.2 : 0.08);
+  const m = new THREE.MeshStandardMaterial({
     color: hex,
     map: opts.map || skinAlbedoTex(hex),
-    gradientMap: toonGradient(),
     bumpMap: noise,
     bumpScale:
       (opts.detail ?? (kind === "armor" ? 0.7 : kind === "gi" ? 1.25 : 0.55)) *
       (kind === "armor" ? 0.07 : 0.055) *
       bumpK,
+    roughness: rough,
+    metalness: metal,
   });
   if (opts.side != null) m.side = opts.side;
   if (opts.emissive != null) {
@@ -590,6 +820,7 @@ export const DEFAULT_SCULPT = {
   padX: 0,
   padZ: 0,
   padScale: 0.72,
+  padSx: 1,
   padBorder: 0.09,
   padTilt: 0.08,
   padPitch: 0.04,
@@ -670,14 +901,22 @@ export const DEFAULT_SCULPT = {
   showBelt: 1,
   showSash: 1,
   showSashTail: 1,
-  showLapels: 1,
+  showLapels: 1, // legacy; el wrap V siempre está on
+  giLapelX: 0,
   giLapelY: 0,
   giLapelZ: 0,
-  giLapelTilt: 0.45,
-  giLapelSx: 1,
-  giLapelSy: 1,
-  giLapelSz: 1,
+  giLapelTilt: 0.45, // unused
+  giLapelSx: 1, // grosor del labio / solapa
+  giLapelSy: 1, // alto del pecho wrap
+  giLapelSz: 1, // abertura del V
+  giChestSz: 1, // profundidad Z del pecho wrap
   sashY: 0,
+  giPantsSx: 1,
+  giPantsSy: 1,
+  giPantsSz: 1,
+  giPantsX: 0,
+  giPantsY: 0,
+  giPantsZ: 0,
   // antenas namek
   antLen: 0.22,
   antR: 0.014,
@@ -1078,14 +1317,14 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
   if (sleeveM) {
     const sl = extras?.sleeveLen ?? 0.88;
     const cu = loftMesh(mulProfile(PROF.upperArm, upperR * uBulk * fit), upperLen * sl, sleeveM, {
-      radial: 14,
-      sx: uSx * 1.02,
-      sz: uSx * 0.96,
+      radial: extras?.wrinkle ? 28 : 14,
+      sx: uSx * (extras?.wrinkle ? 1.12 : 1.02),
+      sz: uSx * (extras?.wrinkle ? 1.05 : 0.96),
     });
     cu.position.y = -upperLen * (sl * 0.52);
     cu.userData.moldId = `cloth_uarm_${side}`;
     cu.userData.moldFamily = "cloth";
-    if (extras?.wrinkle) wrinkleClothMesh(cu, extras.wrinkle);
+    if (extras?.wrinkle) wrinkleGiMesh(cu, extras.wrinkle, "sleeve");
     sh.add(cu);
   }
   const elbow = new THREE.Group();
@@ -1198,15 +1437,33 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
   hip.add(thigh);
   const pantsM = extras?.pantsMat ?? extras?.clothMat;
   if (pantsM) {
-    const ct = loftMesh(mulProfile(PROF.thigh, thighR * tBulk * fit), thighLen * 0.9, pantsM, {
-      radial: 14,
-      sx: tSx * 1.02,
-      sz: tSx * 0.95,
+    const giPants = (extras?.wrinkle || 0) > 0.5 && extras?.giPants;
+    const rad = giPants ? 40 : 14;
+    const psx = giPants ? extras.giPantsSx ?? 1 : 1;
+    const psy = giPants ? extras.giPantsSy ?? 1 : 1;
+    const psz = giPants ? extras.giPantsSz ?? 1 : 1;
+    const pox = giPants ? (extras.giPantsX || 0) * (side === "R" ? 1 : -1) : 0;
+    const poy = giPants ? extras.giPantsY || 0 : 0;
+    const poz = giPants ? extras.giPantsZ || 0 : 0;
+    const tProf = giPants
+      ? giBaggyProfile(PROF.thigh, thighR * tBulk * fit * 1.08, "thigh")
+      : mulProfile(PROF.thigh, thighR * tBulk * fit);
+    const ct = loftMesh(tProf, thighLen * (giPants ? 0.95 * psy : 0.9), pantsM, {
+      radial: rad,
+      sx: tSx * (giPants ? 1.18 * psx : 1.02),
+      sz: tSx * (giPants ? 1.1 * psz : 0.95),
     });
-    ct.position.y = -thighLen * 0.45 + (extras?.thighY ?? 0);
+    ct.position.set(
+      pox,
+      -thighLen * (giPants ? 0.48 : 0.45) + (extras?.thighY ?? 0) + poy,
+      poz
+    );
     ct.userData.moldId = `cloth_thigh_${side}`;
     ct.userData.moldFamily = "cloth";
-    if (extras?.wrinkle) wrinkleClothMesh(ct, extras.wrinkle);
+    if (extras?.wrinkle) {
+      if (giPants) wrinkleGiMesh(ct, extras.wrinkle * 1.35, "thigh");
+      else wrinkleClothMesh(ct, extras.wrinkle);
+    }
     hip.add(ct);
   }
   const knee = new THREE.Group();
@@ -1223,15 +1480,29 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
   knee.add(shin);
   const shinCloth = extras?.shinClothMat ?? extras?.pantsMat ?? extras?.clothMat;
   if (shinCloth) {
-    const cs = loftMesh(mulProfile(PROF.shin, shinR * sBulk * fit), shinLen * 0.7, shinCloth, {
-      radial: 14,
-      sx: sSx * 1.02,
-      sz: sSx * 0.92,
+    const giPants = (extras?.wrinkle || 0) > 0.5 && extras?.giPants;
+    const rad = giPants ? 44 : 14;
+    const psx = giPants ? extras.giPantsSx ?? 1 : 1;
+    const psy = giPants ? extras.giPantsSy ?? 1 : 1;
+    const psz = giPants ? extras.giPantsSz ?? 1 : 1;
+    const pox = giPants ? (extras.giPantsX || 0) * (side === "R" ? 1 : -1) : 0;
+    const poy = giPants ? extras.giPantsY || 0 : 0;
+    const poz = giPants ? extras.giPantsZ || 0 : 0;
+    const sProf = giPants
+      ? giBaggyProfile(PROF.shin, shinR * sBulk * fit * 1.15, "shin")
+      : mulProfile(PROF.shin, shinR * sBulk * fit);
+    const cs = loftMesh(sProf, shinLen * (giPants ? 0.92 * psy : 0.7), shinCloth, {
+      radial: rad,
+      sx: sSx * (giPants ? 1.28 * psx : 1.02),
+      sz: sSx * (giPants ? 1.18 * psz : 0.92),
     });
-    cs.position.y = -shinLen * 0.28;
+    cs.position.set(pox, -shinLen * (giPants ? 0.42 : 0.28) + poy * 0.5, poz);
     cs.userData.moldId = `cloth_shin_${side}`;
     cs.userData.moldFamily = "cloth";
-    if (extras?.wrinkle) wrinkleClothMesh(cs, extras.wrinkle * 0.85);
+    if (extras?.wrinkle) {
+      if (giPants) wrinkleGiMesh(cs, extras.wrinkle * 1.55, "shin");
+      else wrinkleClothMesh(cs, extras.wrinkle * 0.85);
+    }
     knee.add(cs);
   }
   if (extras?.boot && extras.showBoots !== 0) {
@@ -2041,69 +2312,145 @@ function tagCloth(m, id) {
   return m;
 }
 
-/** Gi clásico: interior en V, solapas cruzadas, cuello y faldones. */
+/** Gi clásico de alta densidad: camiseta + wrap con solapas integradas + fajín. */
 function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
-  const y0 = 0.92 * s - waistY + ty;
+  const detail = Math.max(1.2, sc.clothDetail ?? 1.2);
+  const wr = 0.85 + detail * 0.55;
+  const yMid = 0.9 * s - waistY + ty;
+  const torsoMul = sc.torsoMul ?? 0.15;
+  const fit = Math.max(sc.clothFit ?? 1.12, 1.22);
+  const profile = mulProfile(PROF.torso, torsoMul * s * fit * 1.2);
+  const vestLen = sc.torsoLen * s * 0.88;
+  const sxAt = (v) => {
+    const neck = sc.torsoNeckSx ?? 1.05;
+    const chest = sc.torsoChestSx ?? sc.torsoSx ?? 1.18;
+    const waist = sc.torsoWaistSx ?? sc.torsoSx ?? 1.18;
+    if (v < 0.22) return THREE.MathUtils.lerp(neck, chest, v / 0.22) * 1.2;
+    if (v < 0.55) return THREE.MathUtils.lerp(chest, waist, (v - 0.22) / 0.33) * 1.24;
+    return waist * 1.18;
+  };
+  const szAt = (v) => sxAt(v) * 0.95 * (sc.torsoSz ?? 1) * (sc.giChestSz ?? 1);
+
+  // Camiseta (toggle)
   if (sc.showUnder > 0.5) {
+    const underProf = mulProfile(PROF.torso, torsoMul * s * fit * 0.98);
+    const underLen = vestLen * 0.72;
     const undershirt = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.11 * s, 0.13 * s, 0.32 * s, 16),
+      makeGiUndershirtGeo(underProf, underLen, {
+        radial: 44,
+        sx: (v) => sxAt(v) * 0.92 * (sc.underSx ?? 1),
+        sz: (v) => szAt(v) * 0.9 * (sc.underSz ?? 1),
+      }),
       underM
     );
     undershirt.position.set(
       (sc.underX || 0) * s,
-      y0 + (sc.underY || 0) * s,
-      0.02 * s + (sc.underZ || 0) * s
+      yMid + vestLen * 0.08 + (sc.underY || 0) * s,
+      0.01 * s + (sc.underZ || 0) * s
     );
-    undershirt.scale.set(sc.underSx ?? 1, sc.underSy ?? 1, sc.underSz ?? 1.05);
-    wrinkleClothMesh(undershirt, 0.9);
+    undershirt.scale.y = sc.underSy ?? 1;
+    wrinkleGiMesh(undershirt, wr * 0.55, "sleeve");
     torsoG.add(tagCloth(undershirt, "undershirt"));
+    // Mangas cortas de la camiseta (salen del sisa del gi)
+    for (const side of [-1, 1]) {
+      const cap = loftMesh(mulProfile([0.95, 1.05, 1.0, 0.88], sc.upperArmR * s * 1.35), 0.11 * s, underM, {
+        radial: 28,
+        sx: 1.15,
+        sz: 1.05,
+      });
+      cap.position.set(side * 0.2 * s, yMid + vestLen * 0.28, 0);
+      cap.rotation.z = side * 1.15;
+      wrinkleGiMesh(cap, wr * 0.6, "sleeve");
+      torsoG.add(tagCloth(cap, `under_sleeve_${side > 0 ? "R" : "L"}`));
+    }
   }
-  if (sc.showLapels > 0.5) {
+
+  // Wrap siempre en V (solapas integradas; no toggle)
+  {
     const ly = (sc.giLapelY || 0) * s;
     const lz = (sc.giLapelZ || 0) * s;
-    const ltilt = sc.giLapelTilt ?? 0.45;
-    const lsx = sc.giLapelSx ?? 1;
-    const lsy = sc.giLapelSy ?? 1;
-    const lsz = sc.giLapelSz ?? 1;
-    // Solapas cruzadas: cada una inclina HACIA el centro (−side), no hacia afuera
+    const lx = (sc.giLapelX || 0) * s;
+    const lapelW = 0.026 * s * (sc.giLapelSx ?? 1);
+    const vOpen = 0.75 + ((sc.giLapelSz ?? 1) - 1) * 0.35; // “prof” → qué tan abierto el V
+    const wrapMat = shirtM.clone();
+    wrapMat.side = THREE.DoubleSide;
     for (const side of [-1, 1]) {
-      const over = side < 0; // izquierda encima (estilo gi)
-      const lapel = new THREE.Mesh(new THREE.BoxGeometry(0.11 * s * lsx, 0.44 * s * lsy, 0.05 * s * lsz), shirtM);
-      lapel.position.set(side * 0.05 * s * lsx, y0 + 0.05 * s + ly, 0.125 * s + (over ? 0.018 * s : 0) + lz);
-      lapel.rotation.z = -side * ltilt;
-      lapel.rotation.x = -0.06;
-      wrinkleClothMesh(lapel, 1.1);
-      torsoG.add(tagCloth(lapel, `gi_lapel_${side > 0 ? "R" : "L"}`));
-      const edge = new THREE.Mesh(new THREE.BoxGeometry(0.022 * s * lsx, 0.42 * s * lsy, 0.018 * s * lsz), shirtM);
-      edge.position.set(side * 0.02 * s * lsx, y0 + 0.04 * s + ly, 0.15 * s + (over ? 0.018 * s : 0) + lz);
-      edge.rotation.z = -side * ltilt;
-      torsoG.add(tagCloth(edge, `gi_lapel_edge_${side > 0 ? "R" : "L"}`));
+      const panel = new THREE.Mesh(
+        makeGiWrapPanelGeo(profile, vestLen * (sc.giLapelSy ?? 1), side, {
+          radial: 52,
+          sx: sxAt,
+          sz: szAt,
+          lapelW,
+          vOpen: Math.max(0.45, Math.min(1.15, vOpen)),
+        }),
+        wrapMat
+      );
+      panel.position.set(lx * side * 0.15, yMid + ly, lz);
+      panel.renderOrder = 1;
+      wrinkleGiMesh(panel, wr * 0.75, "torso");
+      torsoG.add(tagCloth(panel, `gi_wrap_${side > 0 ? "R" : "L"}`));
     }
-    // Cuello alto
-    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.13 * s, 0.03 * s, 8, 16, Math.PI * 1.15), shirtM);
-    collar.rotation.x = 0.85;
-    collar.position.set(0, y0 + 0.28 * s + ly * 0.5, 0.02 * s + lz * 0.35);
-    torsoG.add(tagCloth(collar, "gi_collar"));
   }
-  // Faldones + pliegues verticales suaves
+
+  // Faldones bajo el fajín (tela que sobresale)
   for (const side of [-1, 1]) {
-    const flap = new THREE.Mesh(new THREE.BoxGeometry(0.14 * s, 0.26 * s, 0.04 * s), shirtM);
-    flap.position.set(side * 0.09 * s, 0.52 * s - waistY + ty, 0.11 * s);
-    flap.rotation.z = -side * 0.08;
-    flap.rotation.x = 0.1;
-    wrinkleClothMesh(flap, 1.2);
+    const flap = loftMesh(
+      mulProfile([1.0, 1.05, 0.95, 0.75], sc.hipsMul * s * 0.55),
+      0.22 * s,
+      shirtM,
+      { radial: 28, sx: 1.35 + side * 0.05, sz: 0.7 }
+    );
+    flap.position.set(side * 0.06 * s, 0.48 * s - waistY + ty, 0.04 * s);
+    flap.rotation.x = 0.12;
+    flap.rotation.z = -side * 0.06;
+    wrinkleGiMesh(flap, wr * 1.1, "thigh");
     torsoG.add(tagCloth(flap, `gi_flap_${side > 0 ? "R" : "L"}`));
-    // Pliegue suelto delantero
-    const fold = new THREE.Mesh(new THREE.BoxGeometry(0.035 * s, 0.2 * s, 0.025 * s), shirtM);
-    fold.position.set(side * 0.05 * s, 0.58 * s - waistY + ty, 0.14 * s);
-    fold.rotation.z = -side * 0.15;
-    torsoG.add(tagCloth(fold, `gi_fold_${side > 0 ? "R" : "L"}`));
   }
-  // Nudo del fajín más grueso (extra si hay sash)
+
+  // Fajín con pliegues horizontales (no torus liso)
   if (sc.showSash > 0.5) {
-    const bow = new THREE.Mesh(new THREE.BoxGeometry(0.12 * s, 0.06 * s, 0.05 * s), sashM);
-    bow.position.set(0, 0.72 * s - waistY + ty + (sc.sashY || 0) * s, 0.17 * s);
-    torsoG.add(tagCloth(bow, "gi_sash_bow"));
+    const sashY = (sc.sashY || 0) * s;
+    const br = sc.beltR * s * 1.12;
+    const thick = sc.beltThick * s * 2.8;
+    const sash = new THREE.Mesh(
+      new THREE.TorusGeometry(br, thick, 16, 48),
+      sashM
+    );
+    sash.rotation.x = Math.PI / 2;
+    sash.position.y = sashY;
+    sash.scale.set(1.05, 1.15, 1);
+    wrinkleGiMesh(sash, wr * 1.3, "sash");
+    torsoG.add(tagCloth(sash, "sash"));
+    // Capas extra del wrap del obi
+    for (let i = 0; i < 3; i++) {
+      const ridge = new THREE.Mesh(
+        new THREE.TorusGeometry(br * (0.98 + i * 0.015), thick * 0.35, 10, 40),
+        sashM
+      );
+      ridge.rotation.x = Math.PI / 2;
+      ridge.position.y = sashY + (i - 1) * thick * 0.45;
+      torsoG.add(tagCloth(ridge, `sash_ridge_${i}`));
+    }
+    const knot = new THREE.Mesh(new THREE.BoxGeometry(0.1 * s, 0.08 * s, 0.06 * s, 2, 2, 2), sashM);
+    knot.position.set(0.02 * s, sashY, 0.17 * s);
+    wrinkleGiMesh(knot, wr, "sash");
+    torsoG.add(tagCloth(knot, "sash_knot"));
+    if (sc.showSashTail > 0.5) {
+      for (const [ox, rot] of [
+        [0.0, 0.05],
+        [0.04, -0.08],
+      ]) {
+        const tail = loftMesh(mulProfile([1, 1.05, 0.9, 0.7], 0.028 * s), 0.32 * s, sashM, {
+          radial: 16,
+          sx: 1.4,
+          sz: 0.45,
+        });
+        tail.position.set(ox * s, sashY - 0.14 * s, 0.14 * s);
+        tail.rotation.z = rot;
+        wrinkleGiMesh(tail, wr * 0.9, "sash");
+        torsoG.add(tagCloth(tail, "sash_tail"));
+      }
+    }
   }
 }
 
@@ -2553,7 +2900,7 @@ function addEliteBreastplate(torsoG, s, x, y, z, sx, sy, sz, extras = {}) {
     map,
     bumpMul: 0.55,
     roughness: 0.32,
-    metalness: 0.28,
+    metalness: 0.98,
   }); //material de la coraza
   mat.side = THREE.DoubleSide; //doble cara
   mat.transparent = true;
@@ -2674,28 +3021,30 @@ function addArmorPads(torsoG, s, waistY, ty, sc, padM, force = false, extras = {
     padArch: sc.padArch ?? extras.padArch,
     padLines: sc.padLines ?? extras.padLines,
     padLineW: sc.padLineW ?? extras.padLineW,
+    padSx: sc.padSx ?? 1,
   };
+  const psx = sc.padSx ?? 1;
   for (const side of [-1, 1]) {
     const id = `armor_pad_${side > 0 ? "R" : "L"}`;
     const baseX = side * (0.22 * s + px);
     if (pt === "wing") {
       addWingPad(torsoG, s, side, baseX, py, ps, padExtras, id);
     } else if (pt === "flat") {
-      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.16 * s * ps, 0.08 * s * ps, 0.12 * s * ps), padM);
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.16 * s * ps * psx, 0.08 * s * ps, 0.12 * s * ps), padM);
       pad.position.set(baseX, py, pz);
       torsoG.add(tagCloth(pad, id));
     } else if (pt === "spaulder") {
-      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.14 * s * ps, 0.07 * s * ps, 0.16 * s * ps), padM);
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.14 * s * ps * psx, 0.07 * s * ps, 0.16 * s * ps), padM);
       pad.position.set(baseX, py, 0.02 * s + pz);
       pad.rotation.z = side * -0.35;
       torsoG.add(tagCloth(pad, id));
-      const lip = new THREE.Mesh(new THREE.BoxGeometry(0.16 * s * ps, 0.035 * s * ps, 0.04 * s * ps), padM);
+      const lip = new THREE.Mesh(new THREE.BoxGeometry(0.16 * s * ps * psx, 0.035 * s * ps, 0.04 * s * ps), padM);
       lip.position.set(baseX, py + 0.04 * s * ps, 0.06 * s + pz);
       torsoG.add(tagCloth(lip, `${id}_lip`));
     } else if (pt === "spiked") {
       const pad = new THREE.Mesh(new THREE.SphereGeometry(0.09 * s * ps, 14, 12), padM);
       pad.position.set(baseX, py, pz);
-      pad.scale.set(1.15, 0.75, 1.05);
+      pad.scale.set(1.15 * psx, 0.75, 1.05);
       torsoG.add(tagCloth(pad, id));
       const spike = new THREE.Mesh(new THREE.ConeGeometry(0.035 * s * ps, 0.1 * s * ps, 8), padM);
       spike.position.set(baseX, py + 0.08 * s * ps, pz);
@@ -2703,7 +3052,7 @@ function addArmorPads(torsoG, s, waistY, ty, sc, padM, force = false, extras = {
     } else {
       const pad = new THREE.Mesh(new THREE.SphereGeometry(0.09 * s * ps, 14, 12), padM);
       pad.position.set(baseX, py, pz);
-      pad.scale.set(1.15, 0.75, 1.05);
+      pad.scale.set(1.15 * psx, 0.75, 1.05);
       torsoG.add(tagCloth(pad, id));
     }
   }
@@ -2810,9 +3159,10 @@ function addWingPad(torsoG, s, side, baseX, py, ps, extras, id) {
   g.add(mir);
 
   const R = 0.075 * s * ps;
-  const sx = 2.35;
+  const sxBase = 2.35;
+  const sx = sxBase * (extras.padSx ?? 1);
   const sz = 1.2;
-  const archZ = R * sx * 0.7;
+  const archZ = R * sxBase * 0.7; // cúpula no crece con padSx
   // Borde medial (mordida) en x≈0 del pivote → pegado al cuello/armadura
   const medialUnit = WING_NECK_CX + WING_NECK_CR;
   const ox = -medialUnit * R * sx;
@@ -2879,6 +3229,7 @@ function addFreezerEliteSuit(torsoG, s, waistY, ty, chestLocalY, sc, mats) {
     padArch: sc.padArch,
     padLines: sc.padLines,
     padLineW: sc.padLineW,
+    padSx: sc.padSx ?? 1,
   };
   // Hombreras ancladas al cuello/pechera (siguen sliders de la coraza)
   for (const side of [-1, 1]) {
@@ -3147,8 +3498,8 @@ function addBodySpots(torsoG, s, waistY, ty, sc, skinHex) {
 function addScouter(headG, s, look, sc) {
   if (sc.showScouter < 0.5 && look.scouter == null) return;
   const c = look.scouter ?? 0xd32f2f;
-  const m = surf(c, { roughness: 0.35, metalness: 0.35 });
-  const lens = surf(0x111111, { roughness: 0.2, metalness: 0.6 });
+  const m = surf(c, { roughness: 0.35, metalness: 0.95 });
+  const lens = surf(0x111111, { roughness: 0.2, metalness: 0.95 });
   const band = new THREE.Mesh(new THREE.TorusGeometry(sc.headR * 0.95 * s, 0.012 * s, 8, 20, Math.PI * 0.7), m);
   band.rotation.y = Math.PI / 2;
   band.rotation.z = 0.15;
@@ -3184,38 +3535,39 @@ export function makeBody(altura, look, sculpt = {}) {
   const underHex = look.undershirt ?? 0x5d4037;
   const wristHex = look.wrist ?? look.accent ?? sashHex;
   const capeHex = look.cape ?? 0xfafafa;
-  const plateHex = look.trim ?? 0xeeeeee;
-  const padHex = look.pads ?? plateHex;
-  const beltHex = look.belt ?? plateHex;
+  const plateHex = look.trim || 0xeeeeee;
+  const padHex = look.pads || look.ribs || plateHex;
+  const beltHex = look.belt || plateHex;
   const cd = sc.clothDetail ?? 0.55;
   const ad = sc.armorDetail ?? 0.7;
   const armoredKit = kit === "armor" || kit === "soldier";
   const giKit = kit === "gi";
   const clothKind = giKit ? "gi" : "cloth";
-  const clothDet = giKit ? Math.max(cd, 1.2) : cd;
-  const shirtM = gearMat(shirtHex, { kind: clothKind, detail: clothDet });
-  const pantsM = gearMat(pantsHex, { kind: clothKind, detail: clothDet });
-  const thighM = gearMat(thighHex, { kind: clothKind, detail: clothDet });
-  const shinM = gearMat(shinHex, { kind: clothKind, detail: clothDet });
-  const sashM = gearMat(sashHex, { kind: clothKind, detail: clothDet * 0.9 });
+  const clothDet = giKit ? Math.max(cd, 1.35) : cd;
+  const shirtM = gearMat(shirtHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.68 : undefined });
+  const pantsM = gearMat(pantsHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.7 : undefined });
+  const thighM = gearMat(thighHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.7 : undefined });
+  const shinM = gearMat(shinHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.72 : undefined });
+  const sashM = gearMat(sashHex, { kind: clothKind, detail: clothDet * 0.95, roughness: giKit ? 0.65 : undefined });
   const sleeveM = gearMat(sleeveHex, {
     kind: armoredKit ? "armor" : clothKind,
     detail: armoredKit ? ad : clothDet,
+    roughness: giKit ? 0.66 : undefined,
   });
   const forearmM = gearMat(forearmHex, {
     kind: armoredKit ? "armor" : clothKind,
     detail: armoredKit ? ad : clothDet,
   });
-  const suitM = gearMat(suitHex, { kind: "armor", detail: ad, roughness: 0.48, metalness: 0.1 });
-  const plateM = gearMat(plateHex, { kind: "armor", detail: ad, roughness: 0.38, metalness: 0.22 });
-  const padM = gearMat(padHex, { kind: "armor", detail: ad, roughness: 0.4, metalness: 0.18 });
-  const beltM = gearMat(beltHex, { kind: "armor", detail: ad, roughness: 0.45, metalness: 0.12 });
-  const ribHex = look.ribs ?? look.pads ?? 0x8d6e63;
+  const suitM = gearMat(suitHex, { kind: "armor", detail: ad, roughness: 0.48, metalness: 0.9 });
+  const plateM = gearMat(plateHex, { kind: "armor", detail: ad, roughness: 0.38, metalness: 0.92 });
+  const padM = gearMat(padHex, { kind: "armor", detail: ad, roughness: 0.4, metalness: 0.98 });
+  const beltM = gearMat(beltHex, { kind: "armor", detail: ad, roughness: 0.45, metalness: 0.92 });
+  const ribHex = look.ribs || look.pads || 0xffc107;
   const goldHex = look.gold ?? look.accent ?? 0xffc107;
-  const ribM = gearMat(ribHex, { kind: "armor", detail: ad * 1.1, roughness: 0.55, metalness: 0.08 });
-  const goldM = gearMat(goldHex, { kind: "armor", detail: ad * 0.6, roughness: 0.35, metalness: 0.45 });
-  const underM = gearMat(underHex, { kind: "cloth", detail: cd * 0.9, roughness: 0.86 });
-  const wristM = gearMat(wristHex, { kind: "cloth", detail: cd, roughness: 0.7 });
+  const ribM = gearMat(ribHex, { kind: "armor", detail: ad * 1.1, roughness: 0.55, metalness: 0.88 });
+  const goldM = gearMat(goldHex, { kind: "armor", detail: ad * 0.6, roughness: 0.35, metalness: 0.95 });
+  const underM = gearMat(underHex, { kind: clothKind, detail: clothDet * 0.95, roughness: giKit ? 0.66 : 0.86 });
+  const wristM = gearMat(wristHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.62 : 0.7 });
   const capeM = gearMat(capeHex, { kind: "cloth", detail: cd * 1.1, roughness: 0.88 });
   const collarM = gearMat(look.collar ?? 0xfafafa, { kind: "armor", detail: ad * 0.8 });
   // Bordes siempre blancos; líneas de acanalado siempre negras
@@ -3262,9 +3614,9 @@ export function makeBody(altura, look, sculpt = {}) {
     kind: "armor",
     detail: ad * 0.8,
     roughness: 0.5,
-    metalness: 0.12,
+    metalness: 0.92,
   });
-  const bracerM = gearMat(look.wrist ?? padHex, { kind: "armor", detail: ad, roughness: 0.45, metalness: 0.15 });
+  const bracerM = gearMat(look.wrist ?? padHex, { kind: "armor", detail: ad, roughness: 0.45, metalness: 0.85 });
   const torsoC = layered || kit === "frost" ? skin : shirtM;
   const limbC = layered || kit === "frost" ? skin : gearMat(new THREE.Color(shirtHex).multiplyScalar(0.78).getHex(), { kind: "cloth", detail: cd, roughness: 0.88 });
   const hipsMat =
@@ -3301,7 +3653,7 @@ export function makeBody(altura, look, sculpt = {}) {
   hips.position.y = waistY;
   hips.userData.moldId = "hips";
   hips.userData.moldFamily = layered ? "cloth" : "torso";
-  if (kit === "gi") wrinkleClothMesh(hips, 1.15);
+  if (kit === "gi") wrinkleGiMesh(hips, 1.25, "thigh");
   g.add(hips);
 
   const pecW = sc.torsoChestSx ?? sc.torsoSx ?? 1.18;
@@ -3373,22 +3725,20 @@ export function makeBody(altura, look, sculpt = {}) {
   torsoCore.userData.moldFamily = "torso";
   torsoG.add(torsoCore);
 
-  if (shirtLayer) {
-    const giBag = kit === "gi" ? 1.2 : 1;
+  if (shirtLayer && kit !== "gi") {
     const shirt = loftMesh(
-      mulProfile(PROF.torso, sc.torsoMul * s * bruteC * sc.clothFit * giBag),
-      sc.torsoLen * s * (kit === "gi" ? 0.82 : 0.92),
+      mulProfile(PROF.torso, sc.torsoMul * s * bruteC * sc.clothFit),
+      sc.torsoLen * s * 0.92,
       shirtLayer,
       {
         radial: 16,
-        sx: (v) => torsoBaseSxAt(v) * (kit === "gi" ? 1.14 : 1.04),
-        sz: (v) => torsoBaseSxAt(v) * (kit === "gi" ? 1.08 : 0.9) * (sc.torsoSz ?? 1),
+        sx: (v) => torsoBaseSxAt(v) * 1.04,
+        sz: (v) => torsoBaseSxAt(v) * 0.9 * (sc.torsoSz ?? 1),
       }
     );
     shirt.position.y = 0.9 * s - waistY + ty;
     shirt.userData.moldId = "cloth_shirt";
     shirt.userData.moldFamily = "cloth";
-    if (kit === "gi") wrinkleClothMesh(shirt, 1.35);
     torsoG.add(shirt);
   }
 
@@ -3409,14 +3759,16 @@ export function makeBody(altura, look, sculpt = {}) {
     sc.chestSy * (wearElitePlate ? 1.1 : 1),
     sc.chestSz * (wearElitePlate ? 1.05 : 1)
   );
-  chest.visible = !wearElitePlate;
+  chest.visible = !wearElitePlate && kit !== "gi";
   chest.castShadow = true;
   chest.userData.moldId = "chest";
   chest.userData.moldFamily = wearElitePlate || layered ? "cloth" : "torso";
   torsoG.add(chest);
-  if (!wearElitePlate) addPecs(torsoG, s, waistY, shirtLayer || torsoC, sc, brute, ty);
+  if (!wearElitePlate && kit !== "gi") addPecs(torsoG, s, waistY, shirtLayer || torsoC, sc, brute, ty);
 
-  if ((kit === "gi" || kit === "namek") && sc.showSash > 0.5) {
+  if (kit === "gi") {
+    addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM);
+  } else if ((kit === "namek") && sc.showSash > 0.5) {
     const sashY = (sc.sashY || 0) * s;
     const sash = new THREE.Mesh(
       new THREE.TorusGeometry(sc.beltR * s * 1.08, sc.beltThick * s * 2.4, 10, 24),
@@ -3484,9 +3836,6 @@ export function makeBody(altura, look, sculpt = {}) {
     gem.userData.moldFamily = "cloth";
     torsoG.add(gem);
   }
-  if (kit === "gi") {
-    addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM);
-  }
   if ((kit === "namek" || sc.showCape > 0.5) && !eliteSuit) {
     addCapeMesh(torsoG, s, waistY, ty, chestLocalY, sc, capeM);
   }
@@ -3546,7 +3895,8 @@ export function makeBody(altura, look, sculpt = {}) {
 
   const gi = kit === "gi";
   const armored = kit === "armor" || kit === "soldier";
-  const giFit = gi ? Math.max(sc.clothFit ?? 1.12, 1.28) : sc.clothFit ?? 1.12;
+  const giFit = gi ? Math.max(sc.clothFit ?? 1.12, 1.32) : sc.clothFit ?? 1.12;
+  const giWrinkle = gi ? 1.15 + Math.max(0, (sc.clothDetail ?? 0.55) - 0.4) * 0.9 : 0;
   const armBase = {
     hand: skin,
     band: gi && !eliteSuit ? wristM : null,
@@ -3566,7 +3916,7 @@ export function makeBody(altura, look, sculpt = {}) {
     sleeveLower: eliteSuit,
     foreClothMat: armored || eliteSuit ? forearmM : null,
     clothFit: giFit,
-    wrinkle: gi ? 1.25 : 0,
+    wrinkle: giWrinkle,
     bracerType: eliteSuit ? "none" : sc.bracerType || "none",
     bracerMat: bracerM,
   };
@@ -3594,7 +3944,14 @@ export function makeBody(altura, look, sculpt = {}) {
     pantsMat: layered ? thighM : null,
     shinClothMat: layered ? shinM : null,
     clothFit: giFit,
-    wrinkle: gi ? 1.4 : 0,
+    wrinkle: giWrinkle,
+    giPants: gi,
+    giPantsSx: sc.giPantsSx,
+    giPantsSy: sc.giPantsSy,
+    giPantsSz: sc.giPantsSz,
+    giPantsX: (sc.giPantsX || 0) * s,
+    giPantsY: (sc.giPantsY || 0) * s,
+    giPantsZ: (sc.giPantsZ || 0) * s,
   };
   const armL = makeArm(
     sc.upperArmR * s,

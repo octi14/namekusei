@@ -54,7 +54,7 @@ export const LOOK = {
     pants: 0x1565c0, sash: 0xffeb3b, boots: 0x0d47a1, undershirt: 0x5d4037, wrist: 0x1565c0, sleeves: 0xef6c00,
   }),
   soldado: L(0x546e7a, 0xb0bec5, "helm", 0x263238, "soldier", 0x90a4ae, {
-    helm: 0x37474f, suit: 0x546e7a, boots: 0x37474f,
+    helm: 0x37474f, suit: 0x546e7a, boots: 0x37474f, trim: 0x1a3a6e, ribs: 0xffc107, pads: 0xffc107,
   }),
   saiyajin: L(0x1565c0, 0xf3d5c0, "goku", 0x1a1208, "armor", 0xffffff, {
     suit: 0x1565c0, trim: 0xffffff, scouter: 0xd32f2f, boots: 0xffffff, pads: 0xf5f5f5,
@@ -64,6 +64,10 @@ export const LOOK = {
 const CELL_JR_TINT = [0x9ccc65, 0x66bb6a, 0xaed581, 0x7cb342, 0xc5e1a5, 0x81c784, 0xdce775, 0x4db6ac, 0xba68c8, 0xff8a65];
 
 const SOLDIER_BODY = [0x546e7a, 0x607d8b, 0x455a64, 0x78909c, 0x37474f];
+/** Pechera fill (placa) — distinto del acanalado. */
+const SOLDIER_TRIM = [0x1a3a6e, 0x37474f, 0x455a64, 0x1b5e20, 0x4a148c, 0xb71c1c, 0x006064, 0x5d4037, 0x263238];
+/** Hombreras + abs / nervaduras. */
+const SOLDIER_RIBS = [0xffc107, 0xffecb3, 0xeceff1, 0x8d6e63, 0xff8f00, 0xb0bec5, 0xd7ccc8, 0xffd54f, 0xa1887f];
 
 const LOOK_MAP_KEY = "namekusei.lookMap";
 
@@ -124,9 +128,15 @@ export function lookFor(nombre, faccion, id, mapId = "namek") {
   if (tid && LOOK[tid]) {
     const saved = loadSavedLook(tid);
     const base = { ...LOOK[tid], ...saved, who: tid };
-    if (tid === "soldado" && saved.body == null) {
-      base.body = SOLDIER_BODY[n % SOLDIER_BODY.length];
-      base.suit = base.body;
+    if (tid === "soldado") {
+      if (saved.body == null) {
+        base.body = SOLDIER_BODY[n % SOLDIER_BODY.length];
+        base.suit = base.body;
+      }
+      // Pecho fill vs hombros/abs: independientes por instancia
+      base.trim = SOLDIER_TRIM[n % SOLDIER_TRIM.length];
+      base.ribs = SOLDIER_RIBS[(n * 3 + 1) % SOLDIER_RIBS.length];
+      base.pads = base.ribs;
     } else if (tid === "terrícola" && saved.body == null) {
       base.body = n % 2 ? 0x1565c0 : 0xef6c00;
       base.sleeves = base.body;
