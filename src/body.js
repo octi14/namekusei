@@ -298,10 +298,9 @@ function gearMat(hex, opts = {}) {
 /** Hombrera ala: fill + borde blanco + nervaduras negras pintados (no mallas). */
 const _wingPadTexCache = new Map();
 function wingPadAlbedoTex(fillHex, opts = {}) {
-  const borderW = Math.max(0.02, Math.min(0.28, opts.borderW ?? 0.08));
   const lines = Math.max(0, Math.min(16, (opts.lines ?? 7) | 0));
   const lineW = Math.max(0.004, Math.min(0.04, opts.lineW ?? 0.012));
-  const key = `wp2|${fillHex >>> 0}|${lines}|${lineW.toFixed(3)}`;
+  const key = `wp5|${fillHex >>> 0}|${lines}|${lineW.toFixed(3)}`;
   if (_wingPadTexCache.has(key)) return _wingPadTexCache.get(key);
   const n = 256;
   const c = document.createElement("canvas");
@@ -316,13 +315,15 @@ function wingPadAlbedoTex(fillHex, opts = {}) {
   ctx.fillStyle = fill;
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fill();
+  // Mordida del cuello (izquierda = hacia el torso)
+  ctx.arc(n * 0.08, cy, n * 0.34, 0, Math.PI * 2, true);
+  ctx.fill("evenodd");
 
-  const inset = borderW * n * 0.55;
   ctx.save();
   ctx.beginPath();
-  ctx.arc(cx, cy, Math.max(4, r - inset), 0, Math.PI * 2);
-  ctx.clip();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.arc(n * 0.08, cy, n * 0.34, 0, Math.PI * 2, true);
+  ctx.clip("evenodd");
   ctx.strokeStyle = "#111111";
   ctx.lineWidth = Math.max(1.2, lineW * n);
   ctx.lineCap = "butt";
@@ -336,7 +337,6 @@ function wingPadAlbedoTex(fillHex, opts = {}) {
   }
   ctx.restore();
 
-  // Sin borde blanco pintado: el aro 3D lo pone addWingPad
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -351,7 +351,7 @@ function hipFlapAlbedoTex(fillHex, opts = {}) {
   const borderW = Math.max(0.02, Math.min(0.28, opts.borderW ?? 0.08));
   const lines = Math.max(0, Math.min(16, (opts.lines ?? 7) | 0));
   const lineW = Math.max(0.004, Math.min(0.04, opts.lineW ?? 0.012));
-  const key = `hf2|${fillHex >>> 0}|${lines}|${lineW.toFixed(3)}`;
+  const key = `hf3|${fillHex >>> 0}|${lines}|${lineW.toFixed(3)}`;
   if (_hipFlapTexCache.has(key)) return _hipFlapTexCache.get(key);
   const n = 256;
   const c = document.createElement("canvas");
@@ -385,10 +385,10 @@ function hipFlapAlbedoTex(fillHex, opts = {}) {
   ctx.lineWidth = Math.max(1.2, lineW * n);
   for (let i = 0; i < lines; i++) {
     const t = (i + 1) / (lines + 1);
-    const x = cx - rx * 0.72 + t * rx * 1.44;
+    const y = top + t * ry;
     ctx.beginPath();
-    ctx.moveTo(x, top);
-    ctx.lineTo(x, top + ry);
+    ctx.moveTo(cx - rx, y);
+    ctx.lineTo(cx + rx, y);
     ctx.stroke();
   }
   ctx.restore();
@@ -445,6 +445,8 @@ export const DEFAULT_SCULPT = {
   shinSx: 1.08,
   shoulderX: 0.24,
   shoulderY: 1.16,
+  shoulderAttachSy: 0.1,
+  shoulderAttachSz: 1,
   armX: 0,
   armY: 0,
   armZ: 0,
@@ -516,7 +518,7 @@ export const DEFAULT_SCULPT = {
   earSy: 1,
   earSz: 0.8,
   // ojos / cara
-  eyeType: "anime", // anime | soft | sharp | dot | narrow | wide | none
+  eyeType: "anime", // anime | soft | sharp | dot | narrow | wide | krilin | none
   eyeSep: 0.05,
   irisSep: 0.05,
   irisY: 0.02,
@@ -528,6 +530,7 @@ export const DEFAULT_SCULPT = {
   eyeIrisR: 0.016,
   eyeSx: 1,
   eyeSy: 0.85,
+  eyeShine: 1, // punto blanco en iris
   lid: 0.75,
   lidX: 0,
   lidY: 0,
@@ -588,9 +591,9 @@ export const DEFAULT_SCULPT = {
   padZ: 0,
   padScale: 0.72,
   padBorder: 0.09,
-  padTilt: 0.16,
-  padPitch: 0.06,
-  padArch: 0.55,
+  padTilt: 0.08,
+  padPitch: 0.04,
+  padArch: 0.9,
   padLines: 7,
   padLineW: 0.012,
   plateBorder: 0.09,
@@ -668,6 +671,12 @@ export const DEFAULT_SCULPT = {
   showSash: 1,
   showSashTail: 1,
   showLapels: 1,
+  giLapelY: 0,
+  giLapelZ: 0,
+  giLapelTilt: 0.45,
+  giLapelSx: 1,
+  giLapelSy: 1,
+  giLapelSz: 1,
   sashY: 0,
   // antenas namek
   antLen: 0.22,
@@ -690,7 +699,7 @@ export const SCULPT_SELECTS = {
   headType: ["sphere", "oval", "skull", "capsule", "pill", "block"],
   pecType: ["none", "sphere", "flat", "split", "armor"],
   earType: ["none", "round", "pointed", "wide"],
-  eyeType: ["anime", "soft", "sharp", "dot", "narrow", "wide", "none"],
+  eyeType: ["anime", "soft", "sharp", "dot", "narrow", "wide", "krilin", "none"],
   noseType: ["none", "anime", "bulb", "button", "hook", "flat", "ridge", "soft", "namek"],
   mouthType: ["none", "line", "smile", "frown", "open", "grit", "smirk"],
   padType: ["none", "sphere", "spaulder", "spiked", "flat", "wing"],
@@ -1526,17 +1535,48 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     const soft = sc.eyeType === "soft";
     const sharp = sc.eyeType === "sharp" || sc.eyeType === "anime";
     const dot = sc.eyeType === "dot";
-    const wR = (dot ? sc.eyeWhiteR * 0.45 : sc.eyeWhiteR) * (wide ? 1.25 : narrow ? 0.75 : 1);
-    const iR = (dot ? sc.eyeIrisR * 0.7 : sc.eyeIrisR) * (wide ? 1.15 : narrow ? 0.7 : sharp ? 1.15 : 1);
-    const sy = sc.eyeSy * (narrow ? 0.5 : wide ? 1.2 : soft ? 1.05 : sharp ? 0.92 : 1);
-    const sx = sc.eyeSx * (sharp ? 1.25 : soft ? 1.1 : 1);
+    const krilin = sc.eyeType === "krilin";
+    const wR = (dot ? sc.eyeWhiteR * 0.45 : sc.eyeWhiteR) * (wide ? 1.25 : narrow ? 0.75 : krilin ? 1.12 : 1);
+    const iR = (dot ? sc.eyeIrisR * 0.7 : sc.eyeIrisR) * (wide ? 1.15 : narrow ? 0.7 : sharp ? 1.15 : krilin ? 1.35 : 1);
+    const sy = sc.eyeSy * (narrow ? 0.5 : wide ? 1.2 : soft ? 1.05 : sharp ? 0.92 : krilin ? 1.05 : 1);
+    const sx = sc.eyeSx * (sharp ? 1.25 : soft ? 1.1 : krilin ? 1.35 : 1);
+    const shineOn = (sc.eyeShine ?? 1) > 0.5;
   for (const side of [-1, 1]) {
       const sideK = side > 0 ? "R" : "L";
       const ex = side * sc.eyeSep * s * hsx * hk;
       const ey = sc.eyeY * s * hsy * hk;
       const ez = sc.eyeZ * s * hsz * hk;
       const tilt = side * (sc.eyeTilt || 0);
-      if (!dot) {
+      if (krilin) {
+        // Contorno anime Krilin: trazo grueso arriba+afuera, fino abajo; abierto al centro
+        const ew = wR * s * hk * sx;
+        const eh = wR * s * hk * sy;
+        const z = ez + 0.005 * s;
+        const tagRim = (mesh, id) => {
+          mesh.userData.moldId = id;
+          mesh.userData.moldFamily = "eye";
+          mesh.userData.faceHandle = `eye_${sideK}`;
+          headG.add(mesh);
+        };
+        // Párpado superior (grueso, arqueado hacia afuera)
+        const top = new THREE.Mesh(new THREE.CapsuleGeometry(0.0052 * s, ew * 1.45, 4, 8), lineM);
+        top.rotation.z = Math.PI / 2 + tilt + side * -0.28;
+        top.position.set(ex + side * ew * 0.12, ey + eh * 0.58, z);
+        top.scale.set(1.25, 1, 0.85);
+        tagRim(top, `eye_${sideK}_rim_t`);
+        // Esquina exterior
+        const outer = new THREE.Mesh(new THREE.CapsuleGeometry(0.0048 * s, eh * 1.05, 4, 8), lineM);
+        outer.rotation.z = tilt + side * 0.08;
+        outer.position.set(ex + side * ew * 0.92, ey + eh * 0.02, z);
+        outer.scale.set(1.1, 1, 0.85);
+        tagRim(outer, `eye_${sideK}_rim_o`);
+        // Párpado inferior (más fino y chato)
+        const bot = new THREE.Mesh(new THREE.CapsuleGeometry(0.0026 * s, ew * 1.25, 3, 6), lineM);
+        bot.rotation.z = Math.PI / 2 + tilt + side * 0.06;
+        bot.position.set(ex + side * ew * 0.1, ey - eh * 0.52, z);
+        bot.scale.set(1, 1, 0.8);
+        tagRim(bot, `eye_${sideK}_rim_b`);
+      } else if (!dot) {
         const w = new THREE.Mesh(new THREE.SphereGeometry(wR * s * hk, GEO.eye[0], GEO.eye[1]), whiteM);
         w.position.set(ex, ey, ez);
         w.scale.set(sx, sy, sharp ? 0.42 : 0.55);
@@ -1580,40 +1620,62 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
       const iz = (sc.irisZ ?? sc.eyeZ + 0.025) * s * hsz * hk;
       const e = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk, GEO.iris[0], GEO.iris[1]), eyeM);
       e.position.set(ix, iy, iz);
-      e.scale.set(narrow ? 1.15 : 1, narrow ? 0.55 : soft ? 1.05 : 1, 1);
+      e.scale.set(narrow ? 1.15 : krilin ? 0.95 : 1, narrow ? 0.55 : soft ? 1.05 : krilin ? 1.25 : 1, 1);
       e.rotation.z = tilt;
       e.userData.moldId = `eye_${sideK}_i`;
       e.userData.moldFamily = "eye";
       e.userData.faceHandle = `iris_${sideK}`;
     headG.add(e);
       if (!dot) {
-        const pupil = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk * 0.42, GEO.pupil[0], GEO.pupil[1]), pupilM);
-        pupil.position.set(ix, iy, iz + 0.008 * s);
-        pupil.userData.moldId = `eye_${sideK}_p`;
-        pupil.userData.moldFamily = "eye";
-        headG.add(pupil);
-        const hi = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk * 0.22, GEO.highlight[0], GEO.highlight[1]), hiM);
-        hi.position.set(ix - side * iR * s * 0.25, iy + iR * s * 0.28, iz + 0.014 * s);
-        hi.userData.moldId = `eye_${sideK}_h`;
-        hi.userData.moldFamily = "eye";
-        headG.add(hi);
+        if (!krilin) {
+          const pupil = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk * 0.42, GEO.pupil[0], GEO.pupil[1]), pupilM);
+          pupil.position.set(ix, iy, iz + 0.008 * s);
+          pupil.userData.moldId = `eye_${sideK}_p`;
+          pupil.userData.moldFamily = "eye";
+          headG.add(pupil);
+        }
+        // Brillo iris (toggle eyeShine; en Krilin también)
+        if (shineOn) {
+          const hi = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk * (krilin ? 0.26 : 0.22), GEO.highlight[0], GEO.highlight[1]), hiM);
+          hi.position.set(ix - side * iR * s * 0.22, iy + iR * s * 0.3, iz + 0.014 * s);
+          hi.userData.moldId = `eye_${sideK}_h`;
+          hi.userData.moldFamily = "eye";
+          headG.add(hi);
+        }
       }
     }
   }
 
   if (sc.brow > 0.05) {
     const browM = surf(look.hairC ?? 0x1a1208, { roughness: 0.65 });
+    const krilinBrow = sc.eyeType === "krilin";
     for (const side of [-1, 1]) {
-      const b = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.008 * s * sc.brow, 0.04 * s * sc.brow, 4, 8),
-        browM
-      );
-      b.rotation.z = Math.PI / 2 + side * (sc.browTilt ?? -0.35);
-      b.position.set(
-        side * (sc.eyeSep + (sc.browX || 0)) * s,
-        sc.eyeY * s + (sc.browY ?? 0.038) * s,
-        sc.eyeZ * s - 0.01 * s + (sc.browZ || 0) * s
-      );
+      let b;
+      if (krilinBrow) {
+        // Cejas afiladas hacia afuera (punta exterior)
+        const len = 0.052 * s * sc.brow;
+        const thick = 0.011 * s * sc.brow;
+        b = new THREE.Mesh(new THREE.ConeGeometry(thick, len, 7), browM);
+        // Tip del cono = afuera
+        b.rotation.z = side > 0 ? -Math.PI / 2 + (sc.browTilt ?? -0.35) : Math.PI / 2 - (sc.browTilt ?? -0.35);
+        b.position.set(
+          side * (sc.eyeSep + (sc.browX || 0) + 0.012) * s,
+          sc.eyeY * s + (sc.browY ?? 0.038) * s,
+          sc.eyeZ * s - 0.01 * s + (sc.browZ || 0) * s
+        );
+        b.scale.set(1.15, 1, 0.55);
+      } else {
+        b = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.008 * s * sc.brow, 0.04 * s * sc.brow, 4, 8),
+          browM
+        );
+        b.rotation.z = Math.PI / 2 + side * (sc.browTilt ?? -0.35);
+        b.position.set(
+          side * (sc.eyeSep + (sc.browX || 0)) * s,
+          sc.eyeY * s + (sc.browY ?? 0.038) * s,
+          sc.eyeZ * s - 0.01 * s + (sc.browZ || 0) * s
+        );
+      }
       b.userData.moldId = `brow_${side > 0 ? "R" : "L"}`;
       b.userData.moldFamily = "face";
       headG.add(b);
@@ -1995,33 +2057,32 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
     undershirt.scale.set(sc.underSx ?? 1, sc.underSy ?? 1, sc.underSz ?? 1.05);
     wrinkleClothMesh(undershirt, 0.9);
     torsoG.add(tagCloth(undershirt, "undershirt"));
-    // Escote en V
-    for (const side of [-1, 1]) {
-      const v = new THREE.Mesh(new THREE.BoxGeometry(0.06 * s, 0.2 * s, 0.04 * s), underM);
-      v.position.set(side * 0.04 * s, y0 + 0.12 * s, 0.12 * s);
-      v.rotation.z = side * 0.55;
-      torsoG.add(tagCloth(v, `gi_v_${side > 0 ? "R" : "L"}`));
-    }
   }
   if (sc.showLapels > 0.5) {
+    const ly = (sc.giLapelY || 0) * s;
+    const lz = (sc.giLapelZ || 0) * s;
+    const ltilt = sc.giLapelTilt ?? 0.45;
+    const lsx = sc.giLapelSx ?? 1;
+    const lsy = sc.giLapelSy ?? 1;
+    const lsz = sc.giLapelSz ?? 1;
     // Solapas cruzadas: cada una inclina HACIA el centro (−side), no hacia afuera
     for (const side of [-1, 1]) {
       const over = side < 0; // izquierda encima (estilo gi)
-      const lapel = new THREE.Mesh(new THREE.BoxGeometry(0.11 * s, 0.44 * s, 0.05 * s), shirtM);
-      lapel.position.set(side * 0.05 * s, y0 + 0.05 * s, 0.125 * s + (over ? 0.018 * s : 0));
-      lapel.rotation.z = -side * 0.45;
+      const lapel = new THREE.Mesh(new THREE.BoxGeometry(0.11 * s * lsx, 0.44 * s * lsy, 0.05 * s * lsz), shirtM);
+      lapel.position.set(side * 0.05 * s * lsx, y0 + 0.05 * s + ly, 0.125 * s + (over ? 0.018 * s : 0) + lz);
+      lapel.rotation.z = -side * ltilt;
       lapel.rotation.x = -0.06;
       wrinkleClothMesh(lapel, 1.1);
       torsoG.add(tagCloth(lapel, `gi_lapel_${side > 0 ? "R" : "L"}`));
-      const edge = new THREE.Mesh(new THREE.BoxGeometry(0.022 * s, 0.42 * s, 0.018 * s), shirtM);
-      edge.position.set(side * 0.02 * s, y0 + 0.04 * s, 0.15 * s + (over ? 0.018 * s : 0));
-      edge.rotation.z = -side * 0.45;
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(0.022 * s * lsx, 0.42 * s * lsy, 0.018 * s * lsz), shirtM);
+      edge.position.set(side * 0.02 * s * lsx, y0 + 0.04 * s + ly, 0.15 * s + (over ? 0.018 * s : 0) + lz);
+      edge.rotation.z = -side * ltilt;
       torsoG.add(tagCloth(edge, `gi_lapel_edge_${side > 0 ? "R" : "L"}`));
     }
     // Cuello alto
     const collar = new THREE.Mesh(new THREE.TorusGeometry(0.13 * s, 0.03 * s, 8, 16, Math.PI * 1.15), shirtM);
     collar.rotation.x = 0.85;
-    collar.position.set(0, y0 + 0.28 * s, 0.02 * s);
+    collar.position.set(0, y0 + 0.28 * s + ly * 0.5, 0.02 * s + lz * 0.35);
     torsoG.add(tagCloth(collar, "gi_collar"));
   }
   // Faldones + pliegues verticales suaves
@@ -2128,7 +2189,7 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
   const pecBotFrac = Math.max(0.25, Math.min(0.6, opts.pecBot ?? 0.38));
   const pecSpanFrac = Math.max(0.14, Math.min(0.5, opts.pecSpan ?? 0.28));
   const pecYShift = Math.max(-0.2, Math.min(0.2, opts.pecYShift ?? 0));
-  const key = `wrap18|${fillHex >>> 0}|${ribHex >>> 0}|${borderW.toFixed(3)}|${ribs}|${absWFrac.toFixed(3)}|${absArchFrac.toFixed(3)}|${absGapFrac.toFixed(3)}|${pecBotFrac.toFixed(3)}|${pecSpanFrac.toFixed(3)}|${pecYShift.toFixed(3)}`;
+  const key = `wrap20|${fillHex >>> 0}|${ribHex >>> 0}|${borderW.toFixed(3)}|${ribs}|${absWFrac.toFixed(3)}|${absArchFrac.toFixed(3)}|${absGapFrac.toFixed(3)}|${pecBotFrac.toFixed(3)}|${pecSpanFrac.toFixed(3)}|${pecYShift.toFixed(3)}`;
   if (_eliteChestTexCache.has(key)) return _eliteChestTexCache.get(key);
 
   const w = 1024;
@@ -2137,12 +2198,7 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
   c.width = w;
   c.height = h;
   const ctx = c.getContext("2d");
-  // Solo remapear blanco/crema → azul default; negro y colores saturados se respetan
-  let fr = ((fillHex >> 16) & 255) / 255;
-  let fg = ((fillHex >> 8) & 255) / 255;
-  let fb = (fillHex & 255) / 255;
-  const lum = 0.2126 * fr + 0.7152 * fg + 0.0722 * fb;
-  if (lum > 0.72) fillHex = 0x1a3a6e;
+  // Colores: se respeta el fill elegido (blanco, negro, etc.)
   let rr = ((ribHex >> 16) & 255) / 255;
   let rg = ((ribHex >> 8) & 255) / 255;
   let rb = (ribHex & 255) / 255;
@@ -2271,11 +2327,8 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
   const absRx = absHalf;
   const absRy = h * absArchFrac;
   const absBot = h * 0.94;
-  // Gap empuja desde los pecs; además no sube del tercio inferior
-  const absPeakY = Math.max(
-    pecBotY + h * absGapFrac,
-    absBot - absRy - h * 0.2
-  );
+  // Abs independiente de pecBot: solo gap/arch
+  const absPeakY = Math.max(h * 0.52, absBot - absRy - h * (0.18 + absGapFrac * 0.5));
   const absOvalCy = absPeakY + absRy;
   const absPath = (inset = 0) => {
     const rx = Math.max(4, absRx - inset);
@@ -2479,11 +2532,7 @@ function makeArmorBorderTube(pts, tubeR, closed = true) {
 
 /** Pechera batalla: coraza + bordes 3D. */
 function addEliteBreastplate(torsoG, s, x, y, z, sx, sy, sz, extras = {}) {
-  let fillHex = extras.plateHex ?? 0x1a3a6e; //color de la coraza
-  const fr = ((fillHex >> 16) & 255) / 255; //rojo
-  const fg = ((fillHex >> 8) & 255) / 255; //verde
-  const fb = (fillHex & 255) / 255; //azul
-  if (0.2126 * fr + 0.7152 * fg + 0.0722 * fb > 0.72) fillHex = 0x1a3a6e; //si el color es muy claro, se pone el color original
+  let fillHex = extras.plateHex ?? 0x1a3a6e;
   const ribHex = extras.ribHex ?? 0xffc107; //color de las nervaduras
   const borderW = extras.plateBorder ?? 0.09; //ancho del borde
   const torsoLen = extras.torsoLen ?? 0.55; //altura del torso
@@ -2548,45 +2597,40 @@ function addEliteBreastplate(torsoG, s, x, y, z, sx, sy, sz, extras = {}) {
     g.add(tagCloth(new THREE.Mesh(geo, borderM), id));
   };
 
-  // —— Pecs: rectángulo redondeado por placa (L/R). Moldear: ——
-  // pecTop / pecBot = alto del marco.
-  // platePecSpan → aOut = qué tan lejos del centro llega el borde lateral.
-  // aIn ≈ 0 = borde medial (costura). Cambiá los seg(n,…) si querés más/menos redondeo.
-  const pecTop = Math.max(0, 0.12 - pecVShift);
-  const pecBot = Math.min(0.42, 0.36 - pecVShift);
-  const span = extras.platePecSpan ?? 0.98;
+  // —— Pecs: marco 3D alineado con platePecSpan / platePecBot de la textura ——
+  // platePecSpan (fracción UV del ancho total) → aOut = ±span·π (mismo u que el fill)
+  const pecTop = Math.max(0.02, 0.1 - pecVShift);
+  const pecBot = Math.min(0.55, extras.platePecBot ?? 0.38);
+  const span = Math.max(0.14, Math.min(0.5, extras.platePecSpan ?? 0.28));
+  const aOutMax = span * Math.PI; // u = 0.5 ± span/2 → ang = ±span·π
   for (const side of [-1, 1]) {
-    const aOut = side * Math.min(1, 0.8 + span); // extremo lateral del pec
-    const aIn = side * 0.005; // extremo medial (casi centro)
+    const aOut = side * aOutMax;
+    const aIn = side * 0.02;
     const pts = [];
     const seg = (n, fn) => {
       for (let i = 0; i <= n; i++) pts.push(fn(i / n));
     };
-    seg(12, (t) => onSurf(pecTop, aIn + (aOut - aIn) * t)); // tope horizontal
-    seg(16, (t) => onSurf(pecTop + (pecBot - pecTop) * t, aOut)); // lado afuera
-    seg(12, (t) => onSurf(pecBot, aOut + (aIn - aOut) * t)); // fondo horizontal
-    seg(16, (t) => onSurf(pecBot + (pecTop - pecBot) * t, aIn)); // lado adentro
+    seg(12, (t) => onSurf(pecTop, aIn + (aOut - aIn) * t));
+    seg(16, (t) => onSurf(pecTop + (pecBot - pecTop) * t, aOut));
+    seg(12, (t) => onSurf(pecBot, aOut + (aIn - aOut) * t));
+    seg(16, (t) => onSurf(pecBot + (pecTop - pecBot) * t, aIn));
     addTube(pts, `armor_elite_pec_rim_${side > 0 ? "R" : "L"}`);
   }
-  // Costura vertical entre pecs (abierta; más fina).
   {
     const pts = [];
     for (let i = 0; i <= 20; i++) pts.push(onSurf(pecTop + ((pecBot - pecTop) * i) / 20, 0));
     addTube(pts, "armor_elite_seam", false, tubeR * 0.75);
   }
 
-  // —— Abs: un óvalo cerrado sobre la coraza. Qué tocar para moldear: ——
-  // plateAbsW (absWFrac) → angH = ancho del óvalo (más ancho = más “panza”).
-  // v0 = dónde empieza bajo los pecs (pecBot+0.12); subir/bajar = mover el óvalo.
-  // v1 = v0+0.6 (tope 1) = qué tan largo llega hacia la cintura.
-  // vMid / vRy = centro y radio vertical del elipse; ang = cos(t)*angH horizontal.
-  // tubeR*0.9 al final = un poco más fino que el de pecs. NO toca plateAbsArch/Gap
-  // de la textura 2D: el tubo 3D se define solo aquí con v/ang.
+  // —— Abs: óvalo 3D independiente de platePecBot (solo Abs gap / arch / ancho) ——
   {
     const absWFrac = extras.plateAbsW ?? 0.17;
+    const absArch = extras.plateAbsArch ?? 0.085;
+    const absGap = extras.plateAbsGap ?? 0.22;
     const angH = Math.min(0.5, absWFrac * Math.PI * 1.15);
-    const v0 = Math.min(0.78, pecBot + 0.12);
-    const v1 = Math.min(1, v0 + 0.6);
+    const v1 = 0.96;
+    const vH = 0.26 + absArch * 1.6;
+    const v0 = Math.max(0.48, Math.min(0.88, v1 - vH - absGap * 0.4));
     const vMid = (v0 + v1) * 0.5;
     const vRy = (v1 - v0) * 0.5;
     const pts = [];
@@ -2610,29 +2654,32 @@ function addArmorPads(torsoG, s, waistY, ty, sc, padM, force = false, extras = {
   const py = 1.18 * s - waistY + ty + (sc.padY || 0) * s;
   const px = (sc.padX || 0) * s;
   const pz = (sc.padZ || 0) * s;
+  const padExtras = {
+    ...extras,
+    waistY,
+    ty,
+    plateX: sc.plateX,
+    plateY: sc.plateY,
+    plateZ: sc.plateZ,
+    plateSx: sc.plateSx,
+    plateSy: sc.plateSy,
+    plateSz: sc.plateSz,
+    platePecY: sc.platePecY,
+    padZ: sc.padZ ?? extras.padZ,
+    padX: sc.padX,
+    padY: sc.padY,
+    padBorder: sc.padBorder ?? extras.padBorder,
+    padTilt: sc.padTilt ?? extras.padTilt,
+    padPitch: sc.padPitch ?? extras.padPitch,
+    padArch: sc.padArch ?? extras.padArch,
+    padLines: sc.padLines ?? extras.padLines,
+    padLineW: sc.padLineW ?? extras.padLineW,
+  };
   for (const side of [-1, 1]) {
     const id = `armor_pad_${side > 0 ? "R" : "L"}`;
     const baseX = side * (0.22 * s + px);
     if (pt === "wing") {
-      addWingPad(
-        torsoG,
-        s,
-        side,
-        baseX,
-        py,
-        ps,
-        {
-          ...extras,
-          padZ: sc.padZ ?? extras.padZ,
-          padBorder: sc.padBorder ?? extras.padBorder,
-          padTilt: sc.padTilt ?? extras.padTilt,
-          padPitch: sc.padPitch ?? extras.padPitch,
-          padArch: sc.padArch ?? extras.padArch,
-          padLines: sc.padLines ?? extras.padLines,
-          padLineW: sc.padLineW ?? extras.padLineW,
-        },
-        id
-      );
+      addWingPad(torsoG, s, side, baseX, py, ps, padExtras, id);
     } else if (pt === "flat") {
       const pad = new THREE.Mesh(new THREE.BoxGeometry(0.16 * s * ps, 0.08 * s * ps, 0.12 * s * ps), padM);
       pad.position.set(baseX, py, pz);
@@ -2662,23 +2709,41 @@ function addArmorPads(torsoG, s, waistY, ty, sc, padM, force = false, extras = {
   }
 }
 
-/**
- * Hombrera ala (Nappa / Freezer Force): una cáscara curva con dibujo pintado.
- * Sin volumen aparte (ese era el marrón del centro).
- */
-function makeWingPadShellGeo(arch = 0.55) {
+/** Disco + cúpula con mordida circular hacia el cuello (estable, sin romper punta). */
+const WING_NECK_CX = -1.02;
+const WING_NECK_CR = 0.78;
+
+function makeWingPadShellGeo(arch = 0.9) {
   const geo = new THREE.PlaneGeometry(2, 2, 40, 32);
   const pos = geo.attributes.position;
+  const ncx = WING_NECK_CX;
+  const ncr = WING_NECK_CR;
   for (let i = 0; i < pos.count; i++) {
     let x = pos.getX(i);
     let y = pos.getY(i);
-    const r2 = x * x + y * y;
+    let r2 = x * x + y * y;
     if (r2 > 1) {
       const r = Math.sqrt(r2) || 1;
-      pos.setXYZ(i, x / r, y / r, 0);
-      continue;
+      x /= r;
+      y /= r;
+      r2 = 1;
     }
-    // Semicápsula hacia arriba (leve cúpula)
+    // Mordida del cuello: proyectar al arco (cóncavo hacia el torso)
+    const dx = x - ncx;
+    const dy = y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < ncr * ncr) {
+      const d = Math.sqrt(d2) || 1e-6;
+      x = ncx + (dx / d) * ncr;
+      y = (dy / d) * ncr;
+      r2 = x * x + y * y;
+      if (r2 > 1) {
+        const r = Math.sqrt(r2);
+        x /= r;
+        y /= r;
+        r2 = 1;
+      }
+    }
     const h = arch * Math.sqrt(Math.max(0, 1 - r2));
     pos.setXYZ(i, x, y, h);
   }
@@ -2690,12 +2755,12 @@ function makeWingPadShellGeo(arch = 0.55) {
 function addWingPad(torsoG, s, side, baseX, py, ps, extras, id) {
   const ribHex = extras.ribHex ?? 0xffc107;
   const borderW = extras.padBorder ?? 0.09;
-  const tilt = extras.padTilt ?? 0.16;
-  const pitch = extras.padPitch ?? 0.06;
-  const arch = extras.padArch ?? 0.55;
+  const tilt = extras.padTilt ?? 0.08;
+  const pitch = extras.padPitch ?? 0.04;
+  const arch = extras.padArch ?? 0.9;
   const nLines = extras.padLines ?? 7;
   const lineW = extras.padLineW ?? 0.012;
-  const map = wingPadAlbedoTex(ribHex, { borderW: 0, lines: nLines | 0, lineW });
+  const map = wingPadAlbedoTex(ribHex, { lines: nLines | 0, lineW });
   const mat = gearMat(0xffffff, {
     kind: "armor",
     detail: 0.15,
@@ -2707,42 +2772,84 @@ function addWingPad(torsoG, s, side, baseX, py, ps, extras, id) {
   mat.alphaTest = 0.15;
   const borderM = extras.borderM || gearMat(0xfafafa, { kind: "armor", detail: 0.2 });
 
-  const g = new THREE.Group();
-  g.position.set(baseX, py, 0.03 * s + (extras.padZ || 0) * s);
-  g.rotation.z = side * -tilt;
-  g.rotation.y = side * (tilt * 0.35);
-  g.rotation.x = -pitch;
+  // Anclar el corte del cuello al collar de la pechera
+  let ax = baseX;
+  let ay = py;
+  let az = 0.03 * s + (extras.padZ || 0) * s;
+  const pecW = extras.pecW;
+  if (pecW != null && extras.torsoMul != null && extras.waistY != null) {
+    const absW = extras.absW ?? pecW * 0.92;
+    const neckW = extras.neckW ?? pecW * 0.9;
+    const torsoSz = extras.torsoSz ?? 1;
+    const torsoMul = extras.torsoMul ?? 0.15;
+    const torsoLen = extras.torsoLen ?? 0.55;
+    const clothFit = extras.clothFit ?? 1.12;
+    const inflate = Math.max(1.08, clothFit) * 1.04;
+    const pecVShift = (extras.platePecY || 0) * 0.12;
+    const profile = mulProfile(PROF.torso, torsoMul * s);
+    const ys = torsoLen * s;
+    const psx = extras.plateSx ?? 1;
+    const psy = extras.plateSy ?? 1;
+    const psz = extras.plateSz ?? 1;
+    const plateX = (extras.plateX || 0) * s;
+    const plateY = 0.92 * s - extras.waistY + (extras.ty || 0) + (extras.plateY || 0) * s;
+    const plateZ = (extras.plateZ || 0) * s;
+    const pJoin = eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, 0.035, side * 0.88);
+    ax = plateX + pJoin.x * psx + side * (extras.padX || 0) * s;
+    ay = plateY + pJoin.y * ys * psy + (extras.padY || 0) * s + 0.008 * s;
+    az = plateZ + pJoin.z * psz + (extras.padZ || 0) * s;
+  }
 
-  const R = 0.07 * s * ps;
+  const g = new THREE.Group();
+  g.position.set(ax, ay, az);
+  g.rotation.z = side * -tilt;
+  g.rotation.y = side * (tilt * 0.25 + 0.08);
+  g.rotation.x = -pitch;
+  const mir = new THREE.Group();
+  mir.scale.x = side;
+  g.add(mir);
+
+  const R = 0.075 * s * ps;
   const sx = 2.35;
-  const sz = 1.15;
-  const ox = side * R * sx * 0.92;
+  const sz = 1.2;
+  const archZ = R * sx * 0.7;
+  // Borde medial (mordida) en x≈0 del pivote → pegado al cuello/armadura
+  const medialUnit = WING_NECK_CX + WING_NECK_CR;
+  const ox = -medialUnit * R * sx;
 
   const shell = new THREE.Mesh(makeWingPadShellGeo(arch), mat);
-  shell.scale.set(R * sx, R * sz, R * sx * 0.55);
+  shell.scale.set(R * sx, R * sz, archZ);
   shell.rotation.x = -Math.PI / 2;
-  shell.position.set(ox, 0, 0);
-  g.add(tagCloth(shell, id));
+  shell.position.set(ox, 0.01 * s, 0);
+  mir.add(tagCloth(shell, id));
 
-  // Borde un poco más adentro para adherirse a la cáscara
+  // Borde: arco exterior + arco de mordida (intersección de dos círculos)
   const tubeR = 0.0058 * s * (0.75 + borderW * 4);
+  const ncx = WING_NECK_CX;
+  const ncr = WING_NECK_CR;
+  const rr = 0.92;
   const rimPts = [];
-  const nRim = 80;
-  for (let i = 0; i < nRim; i++) {
-    const a = (i / nRim) * Math.PI * 2;
-    const rr = 0.9;
-    const lx = Math.cos(a) * rr;
-    const ly = Math.sin(a) * rr;
-    const lz = arch * Math.sqrt(Math.max(0, 1 - rr * rr));
-    let x = lx * R * sx;
-    let y = ly * R * sz;
-    let z = lz * R * sx * 0.55;
-    const y2 = z;
-    const z2 = -y;
-    rimPts.push(new THREE.Vector3(ox + x, y2 + tubeR * 0.35, z2));
+  const onShell = (lx, ly) => {
+    const r2 = Math.min(1, lx * lx + ly * ly);
+    const lz = arch * Math.sqrt(Math.max(0, 1 - r2));
+    return new THREE.Vector3(ox + lx * R * sx, lz * archZ + tubeR * 0.35, -ly * R * sz);
+  };
+  const xInt = (rr * rr + ncx * ncx - ncr * ncr) / (2 * ncx);
+  const yInt = Math.sqrt(Math.max(0, rr * rr - xInt * xInt));
+  const aOut0 = Math.atan2(-yInt, xInt);
+  const aOut1 = Math.atan2(yInt, xInt);
+  for (let i = 0; i <= 40; i++) {
+    const a = aOut0 + (i / 40) * (aOut1 - aOut0);
+    rimPts.push(onShell(Math.cos(a) * rr, Math.sin(a) * rr));
+  }
+  const aBite0 = Math.atan2(yInt, xInt - ncx);
+  const aBite1 = Math.atan2(-yInt, xInt - ncx);
+  for (let i = 0; i <= 28; i++) {
+    const a = aBite0 + (i / 28) * (aBite1 - aBite0);
+    rimPts.push(onShell(ncx + Math.cos(a) * ncr, Math.sin(a) * ncr));
   }
   const rimGeo = makeArmorBorderTube(rimPts, tubeR, true);
-  if (rimGeo) g.add(tagCloth(new THREE.Mesh(rimGeo, borderM), `${id}_rim`));
+  if (rimGeo) mir.add(tagCloth(new THREE.Mesh(rimGeo, borderM), `${id}_rim`));
 
   torsoG.add(g);
 }
@@ -2754,7 +2861,18 @@ function addFreezerEliteSuit(torsoG, s, waistY, ty, chestLocalY, sc, mats) {
   const ps = sc.padScale ?? 0.72;
   const padOpts = {
     ...mats,
+    waistY,
+    ty,
+    plateX: sc.plateX,
+    plateY: sc.plateY,
+    plateZ: sc.plateZ,
+    plateSx: sc.plateSx ?? 1.05,
+    plateSy: sc.plateSy ?? 1.08,
+    plateSz: sc.plateSz ?? 1.05,
+    platePecY: sc.platePecY,
     padZ: sc.padZ,
+    padX: sc.padX,
+    padY: sc.padY,
     padBorder: sc.padBorder,
     padTilt: sc.padTilt,
     padPitch: sc.padPitch,
@@ -2762,7 +2880,7 @@ function addFreezerEliteSuit(torsoG, s, waistY, ty, chestLocalY, sc, mats) {
     padLines: sc.padLines,
     padLineW: sc.padLineW,
   };
-  // Hombreras ancladas al borde de la pechera (no al hueso del brazo)
+  // Hombreras ancladas al cuello/pechera (siguen sliders de la coraza)
   for (const side of [-1, 1]) {
     const baseX = side * (0.2 * s + px);
     addWingPad(torsoG, s, side, baseX, py, ps, padOpts, `armor_pad_${side > 0 ? "R" : "L"}`);
@@ -3068,6 +3186,7 @@ export function makeBody(altura, look, sculpt = {}) {
   const capeHex = look.cape ?? 0xfafafa;
   const plateHex = look.trim ?? 0xeeeeee;
   const padHex = look.pads ?? plateHex;
+  const beltHex = look.belt ?? plateHex;
   const cd = sc.clothDetail ?? 0.55;
   const ad = sc.armorDetail ?? 0.7;
   const armoredKit = kit === "armor" || kit === "soldier";
@@ -3090,6 +3209,7 @@ export function makeBody(altura, look, sculpt = {}) {
   const suitM = gearMat(suitHex, { kind: "armor", detail: ad, roughness: 0.48, metalness: 0.1 });
   const plateM = gearMat(plateHex, { kind: "armor", detail: ad, roughness: 0.38, metalness: 0.22 });
   const padM = gearMat(padHex, { kind: "armor", detail: ad, roughness: 0.4, metalness: 0.18 });
+  const beltM = gearMat(beltHex, { kind: "armor", detail: ad, roughness: 0.45, metalness: 0.12 });
   const ribHex = look.ribs ?? look.pads ?? 0x8d6e63;
   const goldHex = look.gold ?? look.accent ?? 0xffc107;
   const ribM = gearMat(ribHex, { kind: "armor", detail: ad * 1.1, roughness: 0.55, metalness: 0.08 });
@@ -3187,7 +3307,29 @@ export function makeBody(altura, look, sculpt = {}) {
   const pecW = sc.torsoChestSx ?? sc.torsoSx ?? 1.18;
   const absW = sc.torsoWaistSx ?? sc.torsoSx ?? 1.18;
   const neckW = sc.torsoNeckSx ?? pecW * 0.9;
-  const torsoSxAt = (v) => {
+  const torsoMulW = sc.torsoMul * s * bruteC;
+  // Solo la franja alta de hombros llega al brazo (no ensancha pecho/cintura)
+  const armRAttach =
+    sc.upperArmR * s * (sc.upperArmBulk ?? 1.12) * (sc.upperArmSx ?? 1.12) * (PROF.upperArm[0] ?? 0.92);
+  const attachHalf = Math.max(
+    0.08 * s,
+    (sc.shoulderX + (sc.armX || 0)) * s - armRAttach * 0.2
+  );
+  const torsoLenW = sc.torsoLen * s;
+  const torsoTopY = 0.92 * s - waistY + ty + torsoLenW * 0.5;
+  const shY = sc.shoulderY * s - waistY + (sc.armY || 0) * s;
+  const shV = Math.max(0, Math.min(0.35, (torsoTopY - shY) / Math.max(1e-6, torsoLenW)));
+  const shBand = Math.max(0.02, sc.shoulderAttachSy ?? 0.1);
+  const shSzMul = sc.shoulderAttachSz ?? 1;
+  gearExtras.pecW = pecW;
+  gearExtras.neckW = neckW;
+  const shoulderFadeAt = (v) => {
+    const d = Math.abs(v - shV);
+    if (d >= shBand) return 0;
+    const t = d / shBand;
+    return 1 - t * t * (3 - 2 * t);
+  };
+  const torsoBaseSxAt = (v) => {
     // v=0 arriba (cuello) → 1 abajo (cintura)
     if (v < 0.2) {
       const t = v / 0.2;
@@ -3199,11 +3341,32 @@ export function makeBody(altura, look, sculpt = {}) {
     const e = t * t * (3 - 2 * t);
     return pecW + (absW - pecW) * e;
   };
+  // Unión hombro = solo piel (no ropa/armadura)
+  const torsoSxAt = (v) => {
+    let sx = torsoBaseSxAt(v);
+    const fade = shoulderFadeAt(v);
+    if (fade > 0) {
+      const ti = v * (PROF.torso.length - 1);
+      const i0 = Math.floor(ti);
+      const i1 = Math.min(PROF.torso.length - 1, i0 + 1);
+      const f = ti - i0;
+      const pr = PROF.torso[i0] * (1 - f) + PROF.torso[i1] * f;
+      const need = attachHalf / Math.max(1e-6, pr * torsoMulW);
+      const forced = Math.max(sx, need);
+      sx = sx + (forced - sx) * fade;
+    }
+    return sx;
+  };
+  const torsoSzAt = (v) => {
+    const base = torsoSxAt(v) * 0.85 * (sc.torsoSz ?? 1);
+    const fade = shoulderFadeAt(v);
+    return fade > 0 ? base * (1 + (shSzMul - 1) * fade) : base;
+  };
   const torsoCore = loftMesh(
     mulProfile(PROF.torso, sc.torsoMul * s * bruteC),
     sc.torsoLen * s,
-    torsoC,
-    { radial: 16, sx: torsoSxAt, sz: (v) => torsoSxAt(v) * 0.85 * (sc.torsoSz ?? 1) }
+    skin,
+    { radial: 16, sx: torsoSxAt, sz: torsoSzAt }
   );
   torsoCore.position.y = 0.92 * s - waistY + ty;
   torsoCore.userData.moldId = "torso";
@@ -3218,8 +3381,8 @@ export function makeBody(altura, look, sculpt = {}) {
       shirtLayer,
       {
         radial: 16,
-        sx: (v) => torsoSxAt(v) * (kit === "gi" ? 1.14 : 1.04),
-        sz: (v) => torsoSxAt(v) * (kit === "gi" ? 1.08 : 0.9) * (sc.torsoSz ?? 1),
+        sx: (v) => torsoBaseSxAt(v) * (kit === "gi" ? 1.14 : 1.04),
+        sz: (v) => torsoBaseSxAt(v) * (kit === "gi" ? 1.08 : 0.9) * (sc.torsoSz ?? 1),
       }
     );
     shirt.position.y = 0.9 * s - waistY + ty;
@@ -3280,7 +3443,7 @@ export function makeBody(altura, look, sculpt = {}) {
   } else if (sc.showBelt > 0.5) {
   const belt = new THREE.Mesh(
       new THREE.TorusGeometry(sc.beltR * s, sc.beltThick * s, 10, 24),
-      kit === "armor" || kit === "soldier" ? plateM : accent
+      kit === "armor" || kit === "soldier" ? beltM : accent
   );
   belt.rotation.x = Math.PI / 2;
     belt.position.y = 0.72 * s - waistY + ty + (sc.beltY || 0) * s;
