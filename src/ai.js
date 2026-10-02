@@ -418,7 +418,9 @@ function applyLoco(p, dir, ctx, dt) {
   if (ctx.chargingHard && body.dry && body.grounded && !threatNear) p.aiCharge = true;
   else if (needKi && !ctx.carrying && !threatNear && body.dry && body.grounded && ctx.mode !== "deliver") p.aiCharge = true;
   else if (body.ki >= (p.aiChargeTo || ctx.band.hi)) p.aiCharge = false;
-  if (ctx.carrying || ctx.sniping || atShip || threatNear) p.aiCharge = false;
+  if (!ctx.fighting) p._aiFightCharge = false;
+  const fightCharge = !!p._aiFightCharge && (ctx.enemyDist == null || ctx.enemyDist >= 12);
+  if (ctx.carrying || ctx.sniping || atShip || (threatNear && !fightCharge)) p.aiCharge = false;
   const charging = !!p.aiCharge && body.grounded && body.dry;
 
   const wet = body.overWater || body.swimming;
@@ -825,11 +827,14 @@ function utilBest(p, ctx) {
   }
   rows.push(["hide", hideS]);
   let healS = -40;
-  if (!carrying && medic && (lowHp || critHp) && medicDist < 240) {
-    healS = 10 + (1 - mood.hp) * 38 + sticky("heal") - medicDist * 0.05;
-    if (critHp) healS += 16;
-    if (agg > 0.55 && !critHp) healS -= 14;
-    if (mood.front > 0.25 && !critHp) healS -= 12;
+  if (!carrying && medic && mood.hp < 0.72 && medicDist < 240) {
+    healS = 14 + (1 - mood.hp) * 60 + sticky("heal") - medicDist * 0.05;
+    if (medic.aiMode === "healPost") healS += 18;
+    if (lowHp) healS += 14;
+    if (critHp) healS += 24;
+    if (enemy && enemyDist < 20 && !lowHp) healS -= 18;
+    if (agg > 0.55 && !critHp) healS -= 10;
+    if (mood.front > 0.25 && !critHp) healS -= 8;
     if (healerSpec(p.nombre)) healS -= 20;
   }
   rows.push(["heal", healS]);
@@ -1670,7 +1675,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
     (defend && hardFight && enemyDist < 32) ||
     (pick === "snipe" && snipeOk) ||
     (pick === "hide" && carrying && enemy) ||
-    (pick === "heal" && critHp && medic) ||
+    (pick === "heal" && (critHp || lowHp) && medic) ||
     (pick === "ball" && role === "baller" && ballCand && (p.aiMode === "wander" || p.aiMode === "charge"));
   if (hard || (p.aiModeT || 0) <= 0) {
     if (pick === "hide") {
@@ -1998,12 +2003,19 @@ export function aiTick(p, people, balls, combat, match, dt) {
     const strafe = new THREE.Vector3(Math.cos(lookYaw) * side, 0, -Math.sin(lookYaw) * side);
     // AJUSTE: mezcla de avance vs orbitar (0 = va derecho).
     const mixS = wetFight ? 0.05 : 0.1;
+    const lowKi = p.s.ki < p.s.kiMax * (p._aiFightCharge ? 0.45 : 0.16);
+    if (!lowKi || huntingCarrier) p._aiFightCharge = false;
     // Retirada con poca vida (hp < 32% y sin envión); abajo, retirada por ki < 16%.
     if (mood.hp < 0.32 && mood.front < 0.1 && dist < 8 && !huntingCarrier) aiMove(p, dir.clone().multiplyScalar(-1), true, dt);
-    else if (p.s.ki < p.s.kiMax * 0.16 && dist > 5 && !huntingCarrier) {
-      if (dist < 12) aiMove(p, dir.clone().multiplyScalar(-1).lerp(strafe, wetFight ? 0.12 : 0.5).normalize(), true, dt);
-      else if (dry) p.aiCharge = true;
-      else aiMove(p, wetFight ? dir : strafe, false, dt);
+    else if (lowKi && !huntingCarrier) {
+      // Sin ki: cerca → a las piñas; lejos y en seco → cargar (histéresis hasta 45%).
+      if (dist < 14 || !dry) {
+        p._aiFightCharge = false;
+        if (dist > 2.6) aiMove(p, dir.clone().lerp(strafe, mixS).normalize(), false, dt);
+      } else {
+        p._aiFightCharge = true;
+        p.aiCharge = true;
+      }
     } else if (dist > hold) {
       const fd = dir.clone().lerp(strafe, mixS).normalize();
       aiMove(p, fd, dist > 8 && (mood.ki > 0.22 || huntingCarrier), dt);

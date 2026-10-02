@@ -5,6 +5,7 @@ import { spawnPos, clampMap, resolveObstacles, inOwnBase, surfaceHeight, isWater
 import { resolveShipCollisions } from "./bases.js";
 import { log, logKill } from "./log.js";
 import { makeBody, sculptAltura } from "./body.js";
+import { setFaceDecalSsj } from "./faceDecal.js";
 import { lookFor, lookTemplateId } from "./looks.js";
 import { makeRiggedBody, gokuReady, CHAR_RIG } from "./gokuRig.js";
 import { footstep, playSfx, atPos, stopSfxLoop } from "./sfx.js";
@@ -448,6 +449,7 @@ export class Personaje {
         if ("emissiveIntensity" in (o.material || {})) o.material.emissiveIntensity = on ? 0.7 : 0;
       }
     });
+    setFaceDecalSsj(this.mesh, on);
     if (this.ssjGlow) this.ssjGlow.visible = on;
     if (this.ssjHalo) this.ssjHalo.visible = on;
   }

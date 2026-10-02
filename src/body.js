@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { getSculptMap, setSculptMap } from "./pack.js";
+import { FACE_DECALS, hasFaceDecal, addFaceDecal, faceDecalHasScouter } from "./faceDecal.js";
 
 /** Calidad de malla: no escatimar en cara / ropa / accesorios. */
 const GEO = {
@@ -888,6 +889,14 @@ export const DEFAULT_SCULPT = {
   faceGemSx: 1,
   faceGemSy: 1,
   faceGemSz: 1,
+  faceDecal: "none",
+  faceDecalX: 0,
+  faceDecalY: -0.01,
+  faceDecalZ: 0,
+  faceDecalScale: 1,
+  faceDecalSx: 1,
+  faceDecalSy: 1,
+  faceDecalRot: 0,
   showUnder: 1,
   underX: 0,
   underY: 0,
@@ -941,6 +950,7 @@ export const SCULPT_SELECTS = {
   eyeType: ["anime", "soft", "sharp", "dot", "narrow", "wide", "krilin", "none"],
   noseType: ["none", "anime", "bulb", "button", "hook", "flat", "ridge", "soft", "namek"],
   mouthType: ["none", "line", "smile", "frown", "open", "grit", "smirk"],
+  faceDecal: ["none", ...Object.keys(FACE_DECALS)],
   padType: ["none", "sphere", "spaulder", "spiked", "flat", "wing"],
   plateType: ["none", "dome", "flat", "ribbed", "split", "elite"],
   bracerType: ["none", "cuff", "plate", "wrap"],
@@ -1795,8 +1805,10 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
   const hsz = sc.headSz || 1;
   const lidM = surf(look.hairC ?? 0x1a1208, { roughness: 0.55 });
   const lineM = surf(0x1a1208, { roughness: 0.5 });
+  const decal = hasFaceDecal(sc);
+  if (decal) addFaceDecal(headG, headG.children.find((c) => c.userData.moldId === "head"), s, sc);
 
-  if (sc.eyeType !== "none") {
+  if (!decal && sc.eyeType !== "none") {
     const eyeM = surf(look.iris ?? 0x212121, { roughness: 0.35 });
     const whiteM = surf(look.eyeWhite ?? 0xfafafa, { roughness: 0.4 });
     const hiM = surf(0xffffff, { roughness: 0.15 });
@@ -1917,7 +1929,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     }
   }
 
-  if (sc.brow > 0.05) {
+  if (!decal && sc.brow > 0.05) {
     const browM = surf(look.hairC ?? 0x1a1208, { roughness: 0.65 });
     const krilinBrow = sc.eyeType === "krilin";
     for (const side of [-1, 1]) {
@@ -1954,7 +1966,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
   }
 
   const noseOn = sc.noseType && sc.noseType !== "none";
-  if (noseOn || sc.nose > 0.05) {
+  if (!decal && (noseOn || sc.nose > 0.05)) {
     const skinN = surf(look.noseC ?? look.skin, { roughness: 0.75 });
     const n = Math.max(0.25, sc.nose || 0.45);
     const nx = (sc.noseX || 0) * s;
@@ -2014,7 +2026,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
   }
 
   const mt = sc.mouthType || "line";
-  if (mt !== "none" && sc.mouth > 0.05) {
+  if (!decal && mt !== "none" && sc.mouth > 0.05) {
     const mw = Math.max(0.25, sc.mouth || 0.55);
     const mx = (sc.mouthX || 0) * s;
     const my = sc.eyeY * s - 0.055 * s + (sc.mouthY || 0) * s;
@@ -3509,6 +3521,7 @@ function addScouter(headG, s, look, sc) {
   cup.position.set(0.12 * s, 0.015 * s, 0.1 * s);
   cup.rotation.y = -0.4;
   headG.add(tagCloth(cup, "scouter_cup"));
+  if (faceDecalHasScouter(sc)) return;
   const glass = new THREE.Mesh(new THREE.CircleGeometry(0.028 * s, 14), lens);
   glass.position.set(0.145 * s, 0.015 * s, 0.125 * s);
   glass.rotation.y = -0.35;
@@ -3543,7 +3556,7 @@ export function makeBody(altura, look, sculpt = {}) {
   const armoredKit = kit === "armor" || kit === "soldier";
   const giKit = kit === "gi";
   const clothKind = giKit ? "gi" : "cloth";
-  const clothDet = giKit ? Math.max(cd, 1.35) : cd;
+  const clothDet = giKit ? Math.max(cd, 0.85) : cd;
   const shirtM = gearMat(shirtHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.68 : undefined });
   const pantsM = gearMat(pantsHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.7 : undefined });
   const thighM = gearMat(thighHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.7 : undefined });
@@ -3896,7 +3909,7 @@ export function makeBody(altura, look, sculpt = {}) {
   const gi = kit === "gi";
   const armored = kit === "armor" || kit === "soldier";
   const giFit = gi ? Math.max(sc.clothFit ?? 1.12, 1.32) : sc.clothFit ?? 1.12;
-  const giWrinkle = gi ? 1.15 + Math.max(0, (sc.clothDetail ?? 0.55) - 0.4) * 0.9 : 0;
+  const giWrinkle = gi ? 0.65 + Math.max(0, (sc.clothDetail ?? 0.55) - 0.4) * 0.6 : 0;
   const armBase = {
     hand: skin,
     band: gi && !eliteSuit ? wristM : null,

@@ -252,6 +252,13 @@ const SLIDERS = [
   ["jawSx", "Mandíbula ancho", 0.3, 2.2, 0.01],
   ["jawSy", "Mandíbula alto", 0.3, 2.2, 0.01],
   ["jawSz", "Mandíbula prof. Z", 0.3, 2.2, 0.01],
+  ["faceDecalX", "Cara img X", -0.1, 0.1, 0.002],
+  ["faceDecalY", "Cara img Y", -0.12, 0.1, 0.002],
+  ["faceDecalZ", "Cara img Z", -0.1, 0.1, 0.002],
+  ["faceDecalScale", "Cara img tamaño", 0.4, 2, 0.01],
+  ["faceDecalSx", "Cara img ancho", 0.5, 1.8, 0.01],
+  ["faceDecalSy", "Cara img alto", 0.5, 1.8, 0.01],
+  ["faceDecalRot", "Cara img rot", -0.8, 0.8, 0.01],
   ["eyeSep", "Ojos sep.", 0.02, 0.13, 0.001],
   ["irisSep", "Iris sep.", 0.02, 0.13, 0.001],
   ["irisY", "Iris Y", -0.04, 0.1, 0.001],
@@ -335,6 +342,7 @@ const SELECT_LABELS = {
   eyeType: "Tipo ojos",
   noseType: "Tipo nariz",
   mouthType: "Tipo boca",
+  faceDecal: "Cara (imagen)",
   padType: "Tipo hombreras",
   plateType: "Tipo placa",
   bracerType: "Tipo brazales",
@@ -343,6 +351,7 @@ const SELECT_LABELS = {
 };
 const SELECT_OPTS = {
   headType: { sphere: "Esfera", oval: "Óvalo", skull: "Cráneo", capsule: "Cápsula", pill: "Cápsula chata", block: "Angular" },
+  faceDecal: { none: "Ninguna (meshes)", piccolo: "Pikoro", trunks: "Trunks", freezer: "Freezer", recoome: "Rikum", raditz: "Raditz", nappa: "Nappa", a17: "Nº17", a18: "Nº18", a16: "Nº16", yamcha: "Yamcha", chaoz: "Chaoz" },
   pecType: { none: "Ninguno", sphere: "Esfera", flat: "Plano", split: "Split", armor: "Armadura" },
   earType: { none: "Ninguna", round: "Redonda", pointed: "Picuda", wide: "Ancha" },
   eyeType: {
