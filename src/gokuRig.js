@@ -16,8 +16,6 @@ const URLS = {
 export const CHAR_RIG = {
   Gokú: "goku",
   Vegeta: "vegeta",
-  Bardock: "goku",
-  "Rey Vegeta": "vegeta",
   "Nº19": "androide19",
   "Dr. Gero": "gero",
 };

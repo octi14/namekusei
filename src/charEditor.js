@@ -1122,7 +1122,8 @@ function rebuild() {
       if (o.material) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const m of mats) {
-          if (m.map) m.map.dispose();
+          if (m.userData?.shared) continue;
+          if (m.map && !m.map.userData?.shared) m.map.dispose();
           m.dispose();
         }
       }

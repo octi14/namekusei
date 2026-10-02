@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { getSculptMap, setSculptMap } from "./pack.js";
 import { FACE_DECALS, hasFaceDecal, addFaceDecal, faceDecalHasScouter } from "./faceDecal.js";
 
@@ -22,16 +23,50 @@ const GEO = {
   torus: [12, 36],
 };
 
+/**
+ * Materiales compartidos entre personajes (mismo look = mismo material).
+ * No mutar un material con userData.shared: usar matVariant() o { unique: true }.
+ */
+const _matCache = new Map();
+function sharedMat(key, make) {
+  let m = _matCache.get(key);
+  if (!m) {
+    m = make();
+    m.userData.shared = true;
+    _matCache.set(key, m);
+  }
+  return m;
+}
+
+/** Copia cacheada de un material base con overrides (side, roughness, …). */
+function matVariant(base, over) {
+  const key = `var|${base.uuid}|${JSON.stringify(over)}`;
+  return sharedMat(key, () => {
+    const m = base.clone();
+    Object.assign(m, over);
+    return m;
+  });
+}
+
+const hexKey = (c) => (c?.isColor ? c.getHex() : new THREE.Color(c).getHex());
+
 function surf(color, opts = {}) {
-  const m = {
-    color,
-    roughness: opts.roughness ?? 0.7,
-    metalness: opts.metalness ?? 0.05,
+  const make = () => {
+    const m = {
+      color,
+      roughness: opts.roughness ?? 0.7,
+      metalness: opts.metalness ?? 0.05,
+    };
+    if (opts.side != null) m.side = opts.side;
+    if (opts.emissive != null) m.emissive = opts.emissive;
+    if (opts.emissiveIntensity != null) m.emissiveIntensity = opts.emissiveIntensity;
+    return new THREE.MeshStandardMaterial(m);
   };
-  if (opts.side != null) m.side = opts.side;
-  if (opts.emissive != null) m.emissive = opts.emissive;
-  if (opts.emissiveIntensity != null) m.emissiveIntensity = opts.emissiveIntensity;
-  return new THREE.MeshStandardMaterial(m);
+  if (opts.unique) return make();
+  const key = `surf|${hexKey(color)}|${opts.roughness ?? 0.7}|${opts.metalness ?? 0.05}|${opts.side ?? ""}|${
+    opts.emissive != null ? hexKey(opts.emissive) : ""
+  }|${opts.emissiveIntensity ?? ""}`;
+  return sharedMat(key, make);
 }
 
 /** Ruido + arrugas (pliegues suaves de cutis). */
@@ -71,8 +106,19 @@ function skinNoiseTex() {
   return tex;
 }
 
-/** Albedo con moteado leve (no color plano). */
+/** Albedo con moteado leve (no color plano). Cacheado por color. */
+const _albedoCache = new Map();
 function skinAlbedoTex(hex) {
+  const k = hexKey(hex);
+  let t = _albedoCache.get(k);
+  if (!t) {
+    t = makeSkinAlbedoTex(k);
+    t.userData.shared = true;
+    _albedoCache.set(k, t);
+  }
+  return t;
+}
+function makeSkinAlbedoTex(hex) {
   const base = new THREE.Color(hex);
   const n = 64;
   const data = new Uint8Array(n * n * 4);
@@ -116,11 +162,14 @@ function skinMat(hex, sc = {}) {
   if (hsl.h > 0.02 && hsl.h < 0.12 && hsl.s > 0.15) {
     base.setHSL(hsl.h * 0.85, hsl.s * paleSat, Math.min(0.9, hsl.l + paleLift));
   }
-  return new THREE.MeshToonMaterial({
-    color: base,
-    map: skinAlbedoTex(base.getHex()),
-    gradientMap: toonGradient(),
-  });
+  const outHex = base.getHex();
+  return sharedMat(`skin|${outHex}|${base.r},${base.g},${base.b}`, () =>
+    new THREE.MeshToonMaterial({
+      color: base,
+      map: skinAlbedoTex(outHex),
+      gradientMap: toonGradient(),
+    })
+  );
 }
 
 /** Arrugas de tela (pliegues + costuras). */
@@ -507,6 +556,7 @@ function gearMat(hex, opts = {}) {
   else if (!isArmor) rough = Math.min(0.52, 0.26 + rough * 0.32); // satin ropa genérica
   else rough = Math.min(0.48, rough);
   const metal = Math.min(opts.metalness ?? (isArmor ? 0.14 : 0.05), isArmor ? 0.2 : 0.08);
+  const make = () => {
   const m = new THREE.MeshStandardMaterial({
     color: hex,
     map: opts.map || skinAlbedoTex(hex),
@@ -519,11 +569,21 @@ function gearMat(hex, opts = {}) {
     metalness: metal,
   });
   if (opts.side != null) m.side = opts.side;
+  if (opts.transparent) m.transparent = true;
+  if (opts.alphaTest != null) m.alphaTest = opts.alphaTest;
   if (opts.emissive != null) {
     m.emissive = new THREE.Color(opts.emissive);
     m.emissiveIntensity = opts.emissiveIntensity ?? 0.35;
   }
   return m;
+  };
+  if (opts.unique) return make();
+  const key = [
+    "gear", hexKey(hex), kind, opts.detail ?? "", bumpK, rough, metal, opts.map?.uuid ?? "",
+    opts.side ?? "", opts.transparent ? 1 : 0, opts.alphaTest ?? "",
+    opts.emissive != null ? hexKey(opts.emissive) : "", opts.emissiveIntensity ?? "",
+  ].join("|");
+  return sharedMat(key, make);
 }
 
 /** Hombrera ala: fill + borde blanco + nervaduras negras pintados (no mallas). */
@@ -1563,7 +1623,7 @@ function hairCap(mat, s, y, sx, sy, sz, headR = 0.16) {
 }
 
 function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
-  const hc = gearMat(look.hairC ?? 0x111, { kind: "cloth", detail: 0.35, roughness: 0.62, metalness: 0.02 });
+  const hc = gearMat(look.hairC ?? 0x111, { kind: "cloth", detail: 0.35, roughness: 0.62, metalness: 0.02, unique: true });
   hc.userData.ssjHair = true;
   const t = look.hair;
   const hr = sc.hairSpikeR ?? 1;
@@ -2384,8 +2444,7 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
     const lx = (sc.giLapelX || 0) * s;
     const lapelW = 0.026 * s * (sc.giLapelSx ?? 1);
     const vOpen = 0.75 + ((sc.giLapelSz ?? 1) - 1) * 0.35; // “prof” → qué tan abierto el V
-    const wrapMat = shirtM.clone();
-    wrapMat.side = THREE.DoubleSide;
+    const wrapMat = matVariant(shirtM, { side: THREE.DoubleSide });
     for (const side of [-1, 1]) {
       const panel = new THREE.Mesh(
         makeGiWrapPanelGeo(profile, vestLen * (sc.giLapelSy ?? 1), side, {
@@ -2913,10 +2972,10 @@ function addEliteBreastplate(torsoG, s, x, y, z, sx, sy, sz, extras = {}) {
     bumpMul: 0.55,
     roughness: 0.32,
     metalness: 0.98,
+    side: THREE.DoubleSide,
+    transparent: true,
+    alphaTest: 0.96,
   }); //material de la coraza
-  mat.side = THREE.DoubleSide; //doble cara
-  mat.transparent = true;
-  mat.alphaTest = 0.96; //transparencia
   const borderM = extras.borderM || gearMat(0xfafafa, { kind: "armor", detail: 0.2 }); //material del borde
 
   const pecW = extras.pecW ?? 1.18; //ancho del pecho
@@ -3127,10 +3186,10 @@ function addWingPad(torsoG, s, side, baseX, py, ps, extras, id) {
     detail: 0.15,
     map,
     bumpMul: 0.15,
+    side: THREE.DoubleSide,
+    transparent: true,
+    alphaTest: 0.15,
   });
-  mat.side = THREE.DoubleSide;
-  mat.transparent = true;
-  mat.alphaTest = 0.15;
   const borderM = extras.borderM || gearMat(0xfafafa, { kind: "armor", detail: 0.2 });
 
   // Anclar el corte del cuello al collar de la pechera
@@ -3317,10 +3376,10 @@ function addHipFlaps(torsoG, s, waistY, ty, sc, mats = {}) {
     detail: 0.15,
     map,
     bumpMul: 0.15,
+    side: THREE.DoubleSide,
+    transparent: true,
+    alphaTest: 0.15,
   });
-  mat.side = THREE.DoubleSide;
-  mat.transparent = true;
-  mat.alphaTest = 0.15;
   const borderM = mats.borderM || gearMat(0xfafafa, { kind: "armor", detail: 0.2 });
   const tubeR = 0.0048 * s * (0.75 + borderW * 4);
 
@@ -3420,9 +3479,10 @@ function addCapeMesh(torsoG, s, waistY, ty, chestLocalY, sc, capeM) {
   }
   pos.needsUpdate = true;
   geo.computeVertexNormals();
-  const mat = capeM.clone();
-  mat.side = THREE.DoubleSide;
-  mat.roughness = Math.min(0.95, (mat.roughness ?? 0.85) + 0.05);
+  const mat = matVariant(capeM, {
+    side: THREE.DoubleSide,
+    roughness: Math.min(0.95, (capeM.roughness ?? 0.85) + 0.05),
+  });
   const cape = new THREE.Mesh(geo, mat);
   cape.position.set(
     (sc.capeX || 0) * s,
@@ -4031,7 +4091,95 @@ export function makeBody(altura, look, sculpt = {}) {
     if (o.isMesh) o.castShadow = true;
   });
   if (sc.molds) applyMolds(g, sc.molds, s / (sc.moldAltura || 1.85));
+  mergeStaticMeshes(g, headG);
   return g;
+}
+
+function canMerge(c, keep) {
+  if (!c.isMesh || c.isSkinnedMesh || c.isInstancedMesh || c.type !== "Mesh") return false;
+  if (!c.visible || c.children.length || keep.has(c)) return false;
+  if (Array.isArray(c.material) || !c.material?.userData?.shared) return false;
+  if (Object.keys(c.userData).length) return false;
+  const g = c.geometry;
+  if (!g?.attributes?.position || Object.keys(g.morphAttributes).length) return false;
+  return !Object.values(g.attributes).some((a) => a.isInterleavedBufferAttribute);
+}
+
+function bakeGeo(c) {
+  c.updateMatrix();
+  const g = c.geometry.clone();
+  g.applyMatrix4(c.matrix);
+  g.clearGroups();
+  if (c.matrix.determinant() < 0) {
+    if (g.index) {
+      const ix = g.index;
+      for (let i = 0; i + 2 < ix.count; i += 3) {
+        const b = ix.getX(i + 1);
+        ix.setX(i + 1, ix.getX(i + 2));
+        ix.setX(i + 2, b);
+      }
+    } else {
+      for (const a of Object.values(g.attributes)) {
+        const n = a.itemSize;
+        for (let i = 0; i + 2 < a.count; i += 3) {
+          for (let k = 0; k < n; k++) {
+            const t = a.array[(i + 1) * n + k];
+            a.array[(i + 1) * n + k] = a.array[(i + 2) * n + k];
+            a.array[(i + 2) * n + k] = t;
+          }
+        }
+      }
+    }
+  }
+  return g;
+}
+
+/**
+ * Junta mallas hermanas rígidas con el mismo material compartido (menos draw calls).
+ * No toca: moldeables, tela con viento, pelo SSJ, refs de animación ni hijos directos de la cabeza.
+ */
+function mergeStaticMeshes(root, headG) {
+  const keep = new Set();
+  root.traverse((o) => {
+    for (const v of Object.values(o.userData)) {
+      if (v?.isObject3D) keep.add(v);
+      else if (v && typeof v === "object" && !Array.isArray(v) && !ArrayBuffer.isView(v)) {
+        for (const w of Object.values(v)) if (w?.isObject3D) keep.add(w);
+      }
+    }
+  });
+  const parents = [];
+  root.traverse((o) => {
+    if (!o.isMesh && o !== headG && o.children.length > 1) parents.push(o);
+  });
+  for (const p of parents) {
+    const buckets = new Map();
+    for (const c of p.children) {
+      if (!canMerge(c, keep)) continue;
+      const g = c.geometry;
+      const attrs = Object.keys(g.attributes)
+        .sort()
+        .map((k) => `${k}${g.attributes[k].itemSize}${g.attributes[k].normalized ? "n" : ""}`)
+        .join(",");
+      const key = `${c.material.uuid}|${attrs}|${g.index ? 1 : 0}|${c.castShadow}|${c.receiveShadow}|${c.renderOrder}|${c.frustumCulled}`;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(c);
+    }
+    for (const list of buckets.values()) {
+      if (list.length < 2) continue;
+      const geos = list.map(bakeGeo);
+      const merged = mergeGeometries(geos, false);
+      for (const gg of geos) gg.dispose();
+      if (!merged) continue;
+      const m = new THREE.Mesh(merged, list[0].material);
+      m.castShadow = list[0].castShadow;
+      m.receiveShadow = list[0].receiveShadow;
+      m.renderOrder = list[0].renderOrder;
+      m.frustumCulled = list[0].frustumCulled;
+      for (const c of list) p.remove(c);
+      p.add(m);
+    }
+  }
 }
 
 /** Aplica posiciones de vértices guardadas (moldeado con mouse). */

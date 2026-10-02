@@ -12,7 +12,7 @@ import { DragonBalls, resolveBallCollisions } from "./dragonBalls.js";
 import { Match } from "./match.js";
 import { Combat, canSee, eyeAim } from "./combat.js";
 import { PlayerCamera, updateSeenBars } from "./camera.js";
-import { aiTick } from "./ai.js";
+import { aiStep } from "./ai.js";
 import { renderHud } from "./ui.js";
 import { setAudioListener, playSfx, stopSfxLoop, atPos } from "./sfx.js";
 import { powerStyle } from "./powers.js";
@@ -327,7 +327,7 @@ function dumpGroup(g) {
     o.geometry?.dispose();
     if (o.material) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
-      for (const m of mats) m.dispose();
+      for (const m of mats) if (!m.userData?.shared) m.dispose();
     }
   });
   g.clear();
@@ -864,7 +864,7 @@ function loop(now) {
       }
     }
     for (const p of people) {
-      if (spectating || p !== player) aiTick(p, people, balls, combat, match, dt);
+      if (spectating || p !== player) aiStep(p, people, balls, combat, match, dt);
       p.camLook = !spectating && p === player && cam.third && !p.dead;
       p.lookOrbit = p.camLook ? cam.orbit : 0;
       p.lookPitch = !spectating && p === player && !p.dead ? cam.pitch : 0;

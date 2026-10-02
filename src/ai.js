@@ -708,6 +708,11 @@ function allyById(people, id) {
 }
 
 function smoothYaw(p, wantYaw, dt, rate = 4.2) {
+  if (p._aiFrameDt != null) {
+    dt = p._aiFrameDt;
+    p._aiYawWant = wantYaw;
+    p._aiYawRate = rate;
+  }
   let dy = wantYaw - p.yaw;
   while (dy > Math.PI) dy -= Math.PI * 2;
   while (dy < -Math.PI) dy += Math.PI * 2;
@@ -1382,6 +1387,53 @@ function runUnstick(p, people, balls, combat, match, dt) {
   p.tryDeposit(match, balls);
   p.stickY();
   if (p.aiUnstick <= 0) p._stkT = 0;
+}
+
+/** La IA decide cada AI_EVERY cuadros; entre medio repite las acciones continuas. */
+const AI_EVERY = 3;
+const REPLAY = ["move", "guard", "charge", "climb", "descend", "duckHold", "stickY"];
+const WITH_DT = { move: 2, guard: 1, charge: 0 };
+
+export function aiStep(p, people, balls, combat, match, dt) {
+  if (p.controller !== "ia" || p.dead) {
+    p._aiRec = null;
+    return;
+  }
+  if (p._aiF == null) p._aiF = Math.floor(Math.random() * AI_EVERY);
+  p._aiAcc = Math.min(0.25, (p._aiAcc || 0) + dt);
+  if (++p._aiF % AI_EVERY !== 0 && p._aiRec) {
+    if (p._aiYawWant != null) smoothYaw(p, p._aiYawWant, dt, p._aiYawRate);
+    for (const [name, args] of p._aiRec) {
+      const i = WITH_DT[name];
+      if (i != null) args[i] = dt;
+      p[name](...args);
+    }
+    return;
+  }
+  p._aiYawWant = null;
+  p._aiFrameDt = dt;
+  const rec = [];
+  const saved = REPLAY.map((name) => [name, Object.prototype.hasOwnProperty.call(p, name), p[name]]);
+  for (const [name, , fn] of saved) {
+    p[name] = (...args) => {
+      const i = WITH_DT[name];
+      if (i != null) args[i] = dt;
+      if (name === "move" && args[0]?.clone) args[0] = args[0].clone();
+      rec.push([name, args.slice()]);
+      return fn.apply(p, args);
+    };
+  }
+  try {
+    aiTick(p, people, balls, combat, match, p._aiAcc);
+  } finally {
+    for (const [name, own, fn] of saved) {
+      if (own) p[name] = fn;
+      else delete p[name];
+    }
+    p._aiFrameDt = null;
+  }
+  p._aiAcc = 0;
+  p._aiRec = rec;
 }
 
 export function aiTick(p, people, balls, combat, match, dt) {
@@ -2385,7 +2437,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
     dir.normalize();
     const x = p.mesh.position.x;
     if (Math.abs(x) > 1.2 && nearAnyShip(p.pos(), 48) && !inShipBase(p.pos(), p.faccion === "z" ? "f" : "z"))
-      p.mesh.position.x += -x * Math.min(1, dt * 4.5);
+      p.mesh.position.x += -x * Math.min(1, (p._aiFrameDt ?? dt) * 4.5);
     p.yaw = Math.atan2(dir.x, dir.z);
     aiMove(p, dir, true, dt);
   } else if (forceLocoMove && dir.lengthSq() > 0.25) {
