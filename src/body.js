@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { getSculptMap, setSculptMap } from "./pack.js";
 import { FACE_DECALS, hasFaceDecal, addFaceDecal, faceDecalHasScouter } from "./faceDecal.js";
+import { hasHairStyle, buildHairStyle } from "./hairStyles.js";
 
 /** Calidad de malla: no escatimar en cara / ropa / accesorios. */
 const GEO = {
@@ -949,6 +950,13 @@ export const DEFAULT_SCULPT = {
   faceGemSx: 1,
   faceGemSy: 1,
   faceGemSz: 1,
+  showGiFlap: 1,
+  giFlapX: 0,
+  giFlapY: 0,
+  giFlapZ: 0,
+  giFlapSx: 1,
+  giFlapSy: 1,
+  giFlapSz: 1,
   faceDecal: "none",
   faceDecalX: 0,
   faceDecalY: -0.01,
@@ -957,6 +965,9 @@ export const DEFAULT_SCULPT = {
   faceDecalSx: 1,
   faceDecalSy: 1,
   faceDecalRot: 0,
+  sideEyePhi: 1.15,
+  sideEyeY: 0.12,
+  sideEyeScale: 1,
   showUnder: 1,
   underX: 0,
   underY: 0,
@@ -1657,7 +1668,10 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
   const putCap = (y, sx, sy, sz, id = "hair_cap") =>
     tagHair(hairCap(hc, s, y * hk, sx * hsx, sy * hsy, sz * hsz, sc.headR || 0.16), id);
 
-  if (t === "spike" || t === "goku") {
+  if (hasHairStyle(t)) {
+    const styled = buildHairStyle(t, hc, headG.children.find((c) => c.userData.moldId === "head"));
+    if (styled) headG.add(styled);
+  } else if (t === "spike" || t === "goku") {
     // Gokú: flequillo adelante + corona salvaje atrás/arriba
     putCap(0.02, 1.12, 0.62, 1.1);
     spikes(
@@ -2163,7 +2177,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
       headG.add(d);
     }
   }
-  if (look.thirdEye || sc.thirdEye > 0.5) {
+  if ((look.thirdEye || sc.thirdEye > 0.5) && !hasFaceDecal(sc)) {
     const whiteM = surf(look.eyeWhite ?? 0xfafafa, { roughness: 0.4 });
     const eyeM = surf(look.iris ?? 0x212121, { roughness: 0.35 });
     const w3 = new THREE.Mesh(new THREE.SphereGeometry(0.026 * s, 12, 10), whiteM);
@@ -2464,14 +2478,19 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
   }
 
   // Faldones bajo el fajín (tela que sobresale)
-  for (const side of [-1, 1]) {
+  for (const side of (sc.showGiFlap ?? 1) > 0.5 ? [-1, 1] : []) {
     const flap = loftMesh(
       mulProfile([1.0, 1.05, 0.95, 0.75], sc.hipsMul * s * 0.55),
       0.22 * s,
       shirtM,
       { radial: 28, sx: 1.35 + side * 0.05, sz: 0.7 }
     );
-    flap.position.set(side * 0.06 * s, 0.48 * s - waistY + ty, 0.04 * s);
+    flap.position.set(
+      side * (0.06 + (sc.giFlapX || 0)) * s,
+      0.48 * s - waistY + ty + (sc.giFlapY || 0) * s,
+      (0.04 + (sc.giFlapZ || 0)) * s
+    );
+    flap.scale.set(sc.giFlapSx ?? 1, sc.giFlapSy ?? 1, sc.giFlapSz ?? 1);
     flap.rotation.x = 0.12;
     flap.rotation.z = -side * 0.06;
     wrinkleGiMesh(flap, wr * 1.1, "thigh");

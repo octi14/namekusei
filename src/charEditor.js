@@ -41,7 +41,7 @@ const LOOK_COLORS = [
   ["accent", "Acento", (l) => l.accent ?? 0x1565c0],
 ];
 const KITS = ["gi", "namek", "armor", "soldier", "frost", "brute"];
-const HAIRS = ["goku", "gohan", "trunks", "vegeta", "raditz", "bald", "piccolo", "turban", "nail", "dende", "tien", "frieza", "helm"];
+const HAIRS = ["goku", "gohan", "trunks", "vegeta", "raditz", "bald", "piccolo", "turban", "nail", "dende", "tien", "frieza", "helm", "bob18", "bob17", "bobTrunks", "spikyBardock", "zaabon", "jeice"];
 const MOLD_PARTS = [
   ["all", "Todas (moldeables)"],
   ["head", "Cabeza"],
@@ -132,7 +132,14 @@ const SLIDERS = [
   ["showBelt", "Cinturón on", 0, 1, 1],
   ["showSash", "Fajín on", 0, 1, 1],
   ["showSashTail", "Listón fajín", 0, 1, 1],
-  ["giLapelX", "Gi pecho sep. X", -0.2, 0.2, 0.005],
+  ["showGiFlap", "Faldones gi on", 0, 1, 1],
+  ["giFlapX", "Faldones sep. X", -0.1, 0.15, 0.002],
+  ["giFlapY", "Faldones Y", -0.3, 0.4, 0.005],
+  ["giFlapZ", "Faldones Z", -0.15, 0.15, 0.002],
+  ["giFlapSx", "Faldones ancho", 0.3, 2, 0.01],
+  ["giFlapSy", "Faldones largo", 0.2, 2, 0.01],
+  ["giFlapSz", "Faldones prof.", 0.3, 2, 0.01],
+  ["giLapelX", "Gi pecho sep. X", -0.5, 0.2, 0.005],
   ["giLapelY", "Gi pecho pos. Y", -0.35, 0.35, 0.005],
   ["giLapelZ", "Gi pecho pos. Z", -0.25, 0.35, 0.005],
   ["giLapelSx", "Gi solapa grosor", 0.3, 2.2, 0.02],
@@ -259,6 +266,9 @@ const SLIDERS = [
   ["faceDecalSx", "Cara img ancho", 0.5, 1.8, 0.01],
   ["faceDecalSy", "Cara img alto", 0.5, 1.8, 0.01],
   ["faceDecalRot", "Cara img rot", -0.8, 0.8, 0.01],
+  ["sideEyePhi", "Ojos laterales ángulo", 0.5, 1.8, 0.01],
+  ["sideEyeY", "Ojos laterales alto", -0.6, 0.8, 0.01],
+  ["sideEyeScale", "Ojos laterales tamaño", 0.3, 2.5, 0.01],
   ["eyeSep", "Ojos sep.", 0.02, 0.13, 0.001],
   ["irisSep", "Iris sep.", 0.02, 0.13, 0.001],
   ["irisY", "Iris Y", -0.04, 0.1, 0.001],
@@ -351,7 +361,7 @@ const SELECT_LABELS = {
 };
 const SELECT_OPTS = {
   headType: { sphere: "Esfera", oval: "Óvalo", skull: "Cráneo", capsule: "Cápsula", pill: "Cápsula chata", block: "Angular" },
-  faceDecal: { none: "Ninguna (meshes)", piccolo: "Pikoro", trunks: "Trunks", freezer: "Freezer", recoome: "Rikum", raditz: "Raditz", nappa: "Nappa", a17: "Nº17", a18: "Nº18", a16: "Nº16", yamcha: "Yamcha", chaoz: "Chaoz" },
+  faceDecal: { none: "Ninguna (meshes)", piccolo: "Pikoro", trunks: "Trunks", freezer: "Freezer", recoome: "Rikum", raditz: "Raditz", nappa: "Nappa", a17: "Nº17", a18: "Nº18", a16: "Nº16", yamcha: "Yamcha", chaoz: "Chaoz", bardock: "Bardock", zaabon: "Zaabon", jeice: "Yiz", tien: "Ten Shin Han", goku: "Gokú", vegeta: "Vegeta", gohan: "Gohan", fgohan: "Gohan del futuro", krilin: "Krilin", yajirobe: "Yajirobee", satan: "Mr. Satan", guldo: "Gurdo", paragus: "Paragus", cell: "Cell", celljr: "Cell Jr.", nail: "Nail" },
   pecType: { none: "Ninguno", sphere: "Esfera", flat: "Plano", split: "Split", armor: "Armadura" },
   earType: { none: "Ninguna", round: "Redonda", pointed: "Picuda", wide: "Ancha" },
   eyeType: {

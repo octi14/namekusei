@@ -12,6 +12,25 @@ import a18Url from "./assets/faces/a18.png";
 import a16Url from "./assets/faces/a16.png";
 import yamchaUrl from "./assets/faces/yamcha.png";
 import chaozUrl from "./assets/faces/chaoz.png";
+import bardockUrl from "./assets/faces/bardock.png";
+import zaabonUrl from "./assets/faces/zaabon.png";
+import jeiceUrl from "./assets/faces/jeice.png";
+import tienUrl from "./assets/faces/tien.png";
+import gokuUrl from "./assets/faces/goku.png";
+import gokuSsjUrl from "./assets/faces/goku_ssj.png";
+import vegetaUrl from "./assets/faces/vegeta.png";
+import vegetaSsjUrl from "./assets/faces/vegeta_ssj.png";
+import gohanUrl from "./assets/faces/gohan.png";
+import fgohanUrl from "./assets/faces/fgohan.png";
+import fgohanSsjUrl from "./assets/faces/fgohan_ssj.png";
+import krilinUrl from "./assets/faces/krilin.png";
+import yajirobeUrl from "./assets/faces/yajirobe.png";
+import satanUrl from "./assets/faces/satan.png";
+import guldoUrl from "./assets/faces/guldo.png";
+import paragusUrl from "./assets/faces/paragus.png";
+import cellUrl from "./assets/faces/cell.png";
+import celljrUrl from "./assets/faces/celljr.png";
+import nailUrl from "./assets/faces/nail.png";
 
 // crop: [x, y, w, h] px de la fuente (solo cejas, ojos, nariz, boca). scale: ancho relativo.
 // key: [lo, hi] umbral de diferencia vs piel. ssj: misma proporciÃ³n de crop (se intercambia el map).
@@ -34,12 +53,66 @@ export const FACE_DECALS = {
   a16: { url: a16Url, crop: [60, 96, 300, 268], scale: 0.8, key: [22, 68] },
   yamcha: { url: yamchaUrl, crop: [55, 115, 310, 265], scale: 0.87, key: [20, 66] },
   chaoz: { url: chaozUrl, crop: [95, 85, 232, 262], scale: 0.79, key: [20, 66], keepSat: true },
+  bardock: { url: bardockUrl, crop: [58, 100, 294, 262], scale: 0.8, key: [24, 70], keepWhite: true },
+  zaabon: { url: zaabonUrl, crop: [80, 188, 252, 182], scale: 0.85, key: [18, 60], keepWhite: true, keepHue: true },
+  jeice: { url: jeiceUrl, crop: [68, 118, 288, 248], scale: 0.89, key: [14, 50], keepWhite: true, keepHue: true },
+  tien: { url: tienUrl, crop: [66, 88, 290, 296], scale: 0.84, key: [18, 60], keepWhite: true },
+  goku: {
+    url: gokuUrl,
+    crop: [55, 145, 310, 220],
+    scale: 0.81,
+    key: [18, 60],
+    keepWhite: true,
+    ssj: { url: gokuSsjUrl, crop: [55, 145, 310, 220] },
+  },
+  vegeta: {
+    url: vegetaUrl,
+    crop: [62, 140, 296, 250],
+    scale: 0.79,
+    key: [18, 60],
+    keepWhite: true,
+    ssj: { url: vegetaSsjUrl, crop: [70, 150, 282, 238] },
+  },
+  // Gohan niño (sin variante SSJ propia)
+  gohan: { url: gohanUrl, crop: [38, 22, 128, 108], scale: 0.8, key: [18, 60], keepWhite: true },
+  fgohan: {
+    url: fgohanUrl,
+    crop: [58, 150, 300, 215],
+    scale: 0.8,
+    key: [18, 60],
+    keepWhite: true,
+    ssj: { url: fgohanSsjUrl, crop: [50, 155, 300, 215] },
+  },
+  krilin: { url: krilinUrl, crop: [65, 80, 290, 290], scale: 0.9, key: [18, 60], keepWhite: true },
+  yajirobe: { url: yajirobeUrl, crop: [50, 120, 320, 225], scale: 0.89, key: [18, 60], keepWhite: true },
+  satan: { url: satanUrl, crop: [50, 105, 320, 305], scale: 0.81, key: [18, 60], keepWhite: true },
+  // sideEyes: la imagen trae solo los 2 ojos del frente; los laterales van en 3D.
+  guldo: { url: guldoUrl, crop: [55, 130, 310, 265], scale: 0.84, key: [18, 60], keepWhite: true, sideEyes: true },
+  paragus: { url: paragusUrl, crop: [70, 155, 280, 165], scale: 0.86, key: [18, 60], keepWhite: true },
+  cell: { url: cellUrl, crop: [95, 160, 230, 210], scale: 0.75, key: [18, 60], keepWhite: true },
+  celljr: { url: celljrUrl, crop: [95, 160, 230, 210], scale: 0.75, key: [18, 60], keepWhite: true },
+  nail: { url: nailUrl, crop: [110, 180, 200, 135], scale: 0.69, key: [18, 60], keepWhite: true },
 };
 
 const _texCache = new Map();
 
 // Alpha segÃºn cuÃ¡nto se aparta cada pÃ­xel de la piel local estimada.
-function keyOutSkin(img, [cx, cy, cw, ch], [lo, hi] = [14, 60], keepSat = false) {
+function hueOf(r, g, b) {
+  const mx = Math.max(r, g, b);
+  const mn = Math.min(r, g, b);
+  const c = mx - mn;
+  if (c < 1e-6) return 0;
+  let h = mx === r ? ((g - b) / c) % 6 : mx === g ? (b - r) / c + 2 : (r - g) / c + 4;
+  h *= 60;
+  return h < 0 ? h + 360 : h;
+}
+
+// La piel del modelo se tiñe del mismo color que la foto: conviene borrar poco (umbral global suavizado).
+const KEY_SOFT = 0.75;
+
+function keyOutSkin(img, [cx, cy, cw, ch], [lo0, hi0] = [14, 60], keepSat = false, keepWhite = false, keepHue = false) {
+  const lo = lo0 * KEY_SOFT;
+  const hi = hi0 * KEY_SOFT;
   const up = 2;
   const W = cw * up;
   const H = ch * up;
@@ -76,6 +149,7 @@ function keyOutSkin(img, [cx, cy, cw, ch], [lo, hi] = [14, 60], keepSat = false)
   const gr = mode[0] / mode[3];
   const gg = mode[1] / mode[3];
   const gb = mode[2] / mode[3];
+  const skinHue = hueOf(gr, gg, gb);
   for (let i = 0; i < N; i++) {
     const dr = d[i * 4] - gr;
     const dg = d[i * 4 + 1] - gg;
@@ -157,6 +231,39 @@ function keyOutSkin(img, [cx, cy, cw, ch], [lo, hi] = [14, 60], keepSat = false)
         const sat = (Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2])) / 255;
         a = Math.max(a, THREE.MathUtils.smoothstep(sat, 0.12, 0.3));
       }
+      if (keepHue) {
+        // color con tono distinto al de la piel (iris) siempre opaco
+        const mx = Math.max(d[i], d[i + 1], d[i + 2]);
+        const sat = (mx - Math.min(d[i], d[i + 1], d[i + 2])) / 255;
+        let dh = Math.abs(hueOf(d[i], d[i + 1], d[i + 2]) - skinHue);
+        if (dh > 180) dh = 360 - dh;
+        a = Math.max(a, THREE.MathUtils.smoothstep(dh, 30, 55) * THREE.MathUtils.smoothstep(sat, 0.12, 0.25));
+      }
+      if (keepWhite) {
+        // blanco/gris claro neutro (esclerótica) siempre opaco
+        const mx = Math.max(d[i], d[i + 1], d[i + 2]);
+        const sat = (mx - Math.min(d[i], d[i + 1], d[i + 2])) / 255;
+        a = Math.max(a, THREE.MathUtils.smoothstep(mx / 255, 0.62, 0.74) * (1 - THREE.MathUtils.smoothstep(sat, 0.1, 0.2)));
+      }
+      {
+        // esclerótica: neutra y más clara que la piel local → opaca y blanqueada
+        const p = (y * W + x) * 3;
+        const mx = Math.max(d[i], d[i + 1], d[i + 2]);
+        const sat = (mx - Math.min(d[i], d[i + 1], d[i + 2])) / Math.max(1, mx);
+        const lum = (d[i] + d[i + 1] + d[i + 2]) / 3;
+        const sl = (skin[p] + skin[p + 1] + skin[p + 2]) / 3;
+        const w =
+          THREE.MathUtils.smoothstep(lum - sl, 12, 35) *
+          (1 - THREE.MathUtils.smoothstep(sat, 0.12, 0.24)) *
+          THREE.MathUtils.smoothstep(mx / 255, 0.5, 0.65);
+        if (w > 0) {
+          a = Math.max(a, w);
+          const k = w * 0.8;
+          d[i] += (250 - d[i]) * k;
+          d[i + 1] += (250 - d[i + 1]) * k;
+          d[i + 2] += (252 - d[i + 2]) * k;
+        }
+      }
       a *= fy * fade((x / (W - 1)) * 2 - 1);
       d[i + 3] = Math.round(a * d[i + 3]);
     }
@@ -179,7 +286,7 @@ function getFaceTexture(src, key) {
   _texCache.set(src.url, tex);
   const img = new Image();
   img.onload = () => {
-    tex.image = keyOutSkin(img, src.crop, src.key ?? key, src.keepSat);
+    tex.image = keyOutSkin(img, src.crop, src.key ?? key, src.keepSat, src.keepWhite, src.keepHue);
     // El 1x1 ya subido queda con storage inmutable: hay que liberar para realocar al tamaño real.
     tex.dispose();
     tex.needsUpdate = true;
@@ -234,6 +341,10 @@ export function addFaceDecal(headG, head, s, sc) {
   const map = getFaceTexture(def, def.key);
   const mat = new THREE.MeshStandardMaterial({
     map,
+    // auto-iluminación parcial: que ojos y trazos no se apaguen con la luz de la escena
+    emissive: 0xffffff,
+    emissiveMap: map,
+    emissiveIntensity: 0.45,
     transparent: true,
     depthWrite: false,
     polygonOffset: true,
@@ -248,6 +359,42 @@ export function addFaceDecal(headG, head, s, sc) {
   const m = new THREE.Mesh(geo, mat);
   m.renderOrder = 2;
   headG.add(m);
+  if (def.sideEyes) addSideEyes(headG, head, sc);
+}
+
+const _ray = new THREE.Raycaster();
+/** Dos ojos extra (blanco + pupila) a los costados de la cabeza, apoyados en la superficie. */
+function addSideEyes(headG, head, sc) {
+  const g = head.geometry;
+  if (!g.boundingBox) g.computeBoundingBox();
+  const b = g.boundingBox.clone().applyMatrix4(head.matrix);
+  const c = b.getCenter(new THREE.Vector3());
+  const h = b.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+  const r = h.x * 0.2 * (sc.sideEyeScale ?? 1);
+  const phi = sc.sideEyePhi ?? 1.15;
+  const y = c.y + h.y * (sc.sideEyeY ?? 0.12);
+  const whiteM = new THREE.MeshStandardMaterial({ color: 0xfafafa, roughness: 0.35, emissive: 0xffffff, emissiveIntensity: 0.15 });
+  const pupilM = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3 });
+  const eyeG = new THREE.SphereGeometry(1, 16, 12);
+  for (const sd of [-1, 1]) {
+    const dir = new THREE.Vector3(Math.sin(phi) * sd, 0, Math.cos(phi)).normalize();
+    const far = Math.max(h.x, h.z) * 4;
+    const from = new THREE.Vector3(c.x, y, c.z).addScaledVector(dir, far);
+    _ray.set(from, dir.clone().negate());
+    const hit = _ray.intersectObject(head, false)[0];
+    const p = hit ? hit.point : new THREE.Vector3(c.x, y, c.z).addScaledVector(dir, h.x);
+    const eye = new THREE.Group();
+    eye.position.copy(p);
+    eye.lookAt(p.clone().add(dir));
+    const w = new THREE.Mesh(eyeG, whiteM);
+    w.scale.set(r, r * 0.8, r * 0.45);
+    eye.add(w);
+    const pu = new THREE.Mesh(eyeG, pupilM);
+    pu.scale.set(r * 0.32, r * 0.32, r * 0.2);
+    pu.position.z = r * 0.36;
+    eye.add(pu);
+    headG.add(eye);
+  }
 }
 
 /** Intercambia la cara normal/SSJ en los decals del objeto. */
@@ -256,6 +403,7 @@ export function setFaceDecalSsj(root, on) {
     const u = o.material?.userData;
     if (!u?.faceSsjMap) return;
     o.material.map = on ? u.faceSsjMap : u.faceMap;
+    o.material.emissiveMap = o.material.map;
     o.material.needsUpdate = true;
   });
 }

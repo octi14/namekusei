@@ -2260,7 +2260,14 @@ export function aiTick(p, people, balls, combat, match, dt) {
     } else if (wantFoe && (inShipBase(pos, foeFac) || shipDist(pos, foeFac) < 160)) {
       fac = foeFac;
       goal = inShipBase(pos, foeFac) ? "enter" : "enter";
+    } else if (p.aiShipExit || inShipBase(pos, own) || inShipBase(pos, foeFac)) {
+      // Dentro de una nave sin motivo: salir por la puerta sí o sí, y no soltar hasta estar bien afuera
+      // (si se suelta en el umbral, el objetivo lo vuelve a meter y queda girando en la puerta).
+      fac = p.aiShipExit || (inShipBase(pos, own) ? own : foeFac);
+      p.aiShipExit = fac;
+      goal = "exit";
     }
+    if (p.aiShipExit && (goal !== "exit" || shipDist(pos, p.aiShipExit) > BASE_INNER_R + 9)) p.aiShipExit = null;
     if ((p.aiLeaveBase || 0) > 0) {
       p.aiLeaveBase -= dt;
       if (!inShipBase(pos, own) && shipDist(pos, own) > BASE_INNER_R + 12) p.aiLeaveBase = 0;

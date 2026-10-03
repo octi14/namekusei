@@ -784,6 +784,12 @@ export class Personaje {
     this.stickY();
     this.animate(dt);
     this.mesh.userData.syncRig?.();
+    if (this._hairPhysMesh !== this.mesh) {
+      this._hairPhysMesh = this.mesh;
+      this._hairPhys = [];
+      this.mesh.traverse((o) => o.userData.hairPhys && this._hairPhys.push(...o.userData.hairPhys));
+    }
+    for (const h of this._hairPhys) h.update(dt);
     this._kiSlow = this._kiCharge || this._healing;
     this._kiCharge = false;
     this._healing = false;
