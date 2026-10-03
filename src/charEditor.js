@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { makeBody, DEFAULT_SCULPT, SCULPT_SELECTS, saveSculpt, loadSavedSculpt, clearSavedSculpt, captureMolds } from "./body.js";
 import { LOOK, saveLook, loadSavedLook } from "./looks.js";
+import { hasFaceDecal, sculptKeyApplies, FACE_MESH_LOOK_KEYS } from "./faceDecal.js";
 import { flushPack } from "./pack.js";
 import {
   createHandleRoot,
@@ -185,7 +186,6 @@ const SLIDERS = [
   ["frontFlapTilt", "Faldón front inclin.", -0.4, 0.6, 0.01],
   ["frontFlapArch", "Faldón front cúpula", 0.05, 1.2, 0.02],
   ["bootCuff", "Caña bota", 0.3, 2.2, 0.05],
-  ["showBoots", "Botas on", 0, 1, 1],
   "Armadura",
   ["plateX", "Placa armadura X", -0.25, 0.25, 0.005],
   ["plateY", "Placa armadura Y", -0.3, 0.3, 0.005],
@@ -318,12 +318,10 @@ const SLIDERS = [
   ["handRx", "Puño rot X", -1.6, 1.6, 0.02],
   ["handRy", "Puño rot Y", -1.6, 1.6, 0.02],
   ["handRz", "Puño rot Z", -1.6, 1.6, 0.02],
-  ["showHands", "Manos on", 0, 1, 1],
   ["footScale", "Pie escala", 0.5, 1.8, 0.05],
   ["footLen", "Pie largo", 1.2, 4, 0.05],
   ["footSx", "Pie ancho", 0.6, 2.2, 0.05],
   ["footSy", "Pie grosor", 0.15, 0.9, 0.01],
-  ["footZ", "Pie adelante", -0.08, 0.18, 0.005],
   ["footY", "Pie Y", -0.12, 0.12, 0.005],
   ["footPitch", "Pie inclin.", -0.45, 0.55, 0.01],
   "Cabello",
@@ -717,6 +715,7 @@ function ensureDom() {
     sel.addEventListener("change", () => {
       sculpt[key] = sel.value;
       if (key === "headType") dropSizeMolds("headR");
+      if (key === "faceDecal") applyFaceUi();
       dirty = true;
       sel.blur();
     });
@@ -1057,6 +1056,22 @@ function syncSculptUi() {
     const sel = root.querySelector(`select[data-sculpt-sel="${key}"]`);
     if (sel) sel.value = sculpt[key] ?? DEFAULT_SCULPT[key];
   }
+  applyFaceUi();
+}
+
+/** Con face decal: oculta todo lo de la cara por meshes (sliders, tipos y colores de ojo). */
+function applyFaceUi() {
+  if (!root) return;
+  const decal = hasFaceDecal(sculpt);
+  root.querySelectorAll("input[data-sculpt]").forEach((el) => {
+    el.closest("label").style.display = sculptKeyApplies(sculpt, el.dataset.sculpt) ? "" : "none";
+  });
+  root.querySelectorAll("select[data-sculpt-sel]").forEach((el) => {
+    el.closest("label").style.display = sculptKeyApplies(sculpt, el.dataset.sculptSel) ? "" : "none";
+  });
+  root.querySelectorAll("input[data-lookc]").forEach((el) => {
+    el.closest("label").style.display = decal && FACE_MESH_LOOK_KEYS.has(el.dataset.lookc) ? "none" : "";
+  });
 }
 
 function setStatus(msg) {
@@ -1218,6 +1233,7 @@ async function persistEditor(fromBtn) {
   sculpt.moldAltura = altura;
   sculpt.altura = altura;
   look = { ...look, who: presetName };
+  if (hasFaceDecal(sculpt)) for (const k of FACE_MESH_LOOK_KEYS) delete look[k];
   saveSculpt(presetName, sculpt);
   saveLook(presetName, look);
   localStorage.setItem(EDITOR_KEY, JSON.stringify({ lastPreset: presetName, altura }));

@@ -301,7 +301,30 @@ for (const def of Object.values(FACE_DECALS)) {
 }
 
 export function hasFaceDecal(sc) {
-  return !!(sc.faceDecal && FACE_DECALS[sc.faceDecal]);
+  return !!(sc?.faceDecal && FACE_DECALS[sc.faceDecal]);
+}
+
+/** Claves de sculpt de la cara por meshes (ojos/cejas/nariz/boca): no aplican con face decal. */
+export const FACE_MESH_KEYS = new Set([
+  "eyeType", "eyeSep", "irisSep", "irisY", "irisZ", "eyeTilt", "eyeY", "eyeZ", "eyeWhiteR", "eyeIrisR",
+  "eyeSx", "eyeSy", "eyeShine", "lid", "lidX", "lidY", "lidZ", "lidSx", "lidSy", "lidTilt",
+  "brow", "browX", "browY", "browZ", "browTilt", "nose", "noseX", "noseY", "noseZ", "noseType",
+  "mouth", "mouthX", "mouthY", "mouthZ", "mouthRx", "mouthRy", "mouthRz", "mouthType", "thirdEye",
+]);
+/** Colores de look que solo usan los meshes de la cara. */
+export const FACE_MESH_LOOK_KEYS = new Set(["iris", "eyeWhite"]);
+export const FACE_MESH_HANDLES = new Set(["eyeL", "eyeR", "irisL", "irisR", "lidL", "lidR", "browL", "browR", "nose", "mouth"]);
+export const SIDE_EYE_KEYS = new Set(["sideEyePhi", "sideEyeY", "sideEyeScale"]);
+
+export function faceDecalHasSideEyes(sc) {
+  return !!FACE_DECALS[sc?.faceDecal]?.sideEyes;
+}
+
+/** ¿Este parámetro de sculpt aplica al personaje? (oculta sliders y se descarta al guardar) */
+export function sculptKeyApplies(sc, key) {
+  if (FACE_MESH_KEYS.has(key)) return !hasFaceDecal(sc);
+  if (SIDE_EYE_KEYS.has(key)) return faceDecalHasSideEyes(sc);
+  return true;
 }
 
 export function faceDecalHasScouter(sc) {

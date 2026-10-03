@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { hasFaceDecal, FACE_MESH_HANDLES } from "./faceDecal.js";
 
 /**
  * Mangos 3D (vectores) para TODO lo espacial del sculpt.
@@ -569,10 +570,9 @@ export const VEC_HANDLES = [
     label: "Pie",
     color: 0x4db6ac,
     space: "root",
-    get: (sc) => new THREE.Vector3(0, sc.footY || 0, sc.footZ ?? 0.22),
+    get: (sc) => new THREE.Vector3(0, sc.footY || 0, 0),
     set: (sc, p) => {
       sc.footY = p.y;
-      sc.footZ = p.z;
     },
   },
   {
@@ -619,7 +619,9 @@ export function rebuildHandles(root, sculpt, altura, mesh) {
     root: mesh,
   };
 
+  const decal = hasFaceDecal(sculpt);
   for (const def of VEC_HANDLES) {
+    if (decal && FACE_MESH_HANDLES.has(def.id)) continue;
     const parent = parents[def.space] || mesh;
     const local = def.get(sculpt).multiplyScalar(s);
     const mat = new THREE.MeshBasicMaterial({

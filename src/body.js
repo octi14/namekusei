@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { getSculptMap, setSculptMap } from "./pack.js";
-import { FACE_DECALS, hasFaceDecal, addFaceDecal, faceDecalHasScouter } from "./faceDecal.js";
+import { FACE_DECALS, hasFaceDecal, addFaceDecal, faceDecalHasScouter, sculptKeyApplies } from "./faceDecal.js";
 import { hasHairStyle, buildHairStyle } from "./hairStyles.js";
 
 /** Calidad de malla: no escatimar en cara / ropa / accesorios. */
@@ -859,12 +859,9 @@ export const DEFAULT_SCULPT = {
   footLen: 2.45,
   footSx: 1.22,
   footSy: 0.36,
-  footZ: 0.22,
   footY: 0,
   footPitch: 0,
   bootCuff: 1.05,
-  showHands: 1,
-  showBoots: 1,
   bootType: "tall", // tall | combat | armor | soft
   // capa / cinturón
   capeScale: 1,
@@ -1104,10 +1101,17 @@ export function loadSavedSculpt(id) {
   return migrateSculpt(map[id] || {});
 }
 
+const FACE_MESH_MOLD = /^(eye_|brow_|nose$|mouth$)/;
+
 export function saveSculpt(id, sculpt) {
   if (!id) return sculpt;
   const map = readSculptMap();
   const merged = { ...DEFAULT_SCULPT, ...migrateSculpt(sculpt) };
+  for (const k of Object.keys(merged)) if (!sculptKeyApplies(merged, k)) delete merged[k];
+  if (hasFaceDecal(merged) && merged.molds) {
+    merged.molds = { ...merged.molds };
+    for (const mid of Object.keys(merged.molds)) if (FACE_MESH_MOLD.test(mid)) delete merged.molds[mid];
+  }
   map[id] = merged;
   writeSculptMap(map);
   return merged;
@@ -1475,7 +1479,7 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
       elbow.add(wrap);
     }
   }
-  if (extras?.hand && extras.showHands !== 0) {
+  if (extras?.hand) {
     const hs = extras.handScale ?? 1;
     const hand = handMesh(lowerR * 1.25 * hs, extras.hand, extras.fingerLen ?? 1);
     hand.rotation.set(extras.handRx ?? 0.12, extras.handRy ?? 0, extras.handRz ?? 0);
@@ -1586,10 +1590,10 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
     }
     knee.add(cs);
   }
-  if (extras?.boot && extras.showBoots !== 0) {
+  if (extras?.boot) {
     const fs = extras.footScale ?? 1;
     const boot = footMesh(shinR * 1.4, extras.boot, extras);
-    boot.position.set(0, -shinLen + (extras.footY ?? 0), extras.footZ ?? 0);
+    boot.position.set(0, -shinLen + (extras.footY ?? 0), 0);
     boot.scale.multiplyScalar(fs);
     boot.traverse((o) => {
       if (o.isMesh) {
@@ -4002,7 +4006,6 @@ export function makeBody(altura, look, sculpt = {}) {
     handRx: sc.handRx,
     handRy: sc.handRy,
     handRz: sc.handRz,
-    showHands: sc.showHands,
     sleeveMat: gi || armored || kit === "brute" || eliteSuit ? sleeveM : null,
     sleeveLen: eliteSuit ? 0.95 : gi ? 0.55 : kit === "brute" ? 0.62 : 0.92,
     sleeveLower: eliteSuit,
@@ -4023,11 +4026,9 @@ export function makeBody(altura, look, sculpt = {}) {
     footLen: sc.footLen,
     footSx: sc.footSx,
     footSy: sc.footSy,
-    footZ: sc.footZ,
     footY: sc.footY,
     footPitch: sc.footPitch,
     bootCuff: sc.bootCuff,
-    showBoots: sc.showBoots,
     bootType: sc.bootType || "tall",
     bootTrim: gearMat(look.trim ?? look.accent ?? look.wrist ?? 0xf5f5f5, {
       kind: "cloth",
