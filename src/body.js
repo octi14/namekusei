@@ -2319,7 +2319,7 @@ function addEars(headG, s, skin, sc) {
     let ear;
     if (sc.earType === "pointed") {
       ear = new THREE.Mesh(new THREE.ConeGeometry(sc.earR * s, sc.earR * 2.2 * s, 10), skin);
-      ear.rotation.z = side * 0.9;
+      ear.rotation.z = -side * 0.9;
       ear.rotation.x = -0.2;
     } else if (sc.earType === "wide") {
       ear = new THREE.Mesh(new THREE.SphereGeometry(sc.earR * 1.15 * s, 12, 10), skin);

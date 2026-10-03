@@ -64,17 +64,41 @@ export function steerShipNav(px, pz, faccion, goal) {
     const len = Math.hypot(x, z) || 1;
     return { x: x / len, z: z / len, land: true, dist: len, inside };
   };
+  // Pasillo de la puerta: franja centrada en x=0, del lado de la puerta.
+  const front = dz * door;
+  const inCorridor = Math.abs(dx) < 5 && front > BASE_INNER_R - 10;
 
   if (goal === "exit") {
-    if (!inside && d > BASE_INNER_R + 10) return null;
-    if (Math.abs(dx) > 4) return nrm(-dx, 0);
-    return nrm(0, door);
+    if (inside) {
+      // 1) ir al punto frente a la puerta (adentro, recto: el interior es convexo) 2) salir derecho
+      if (!inCorridor) return nrm(-dx, door * (BASE_INNER_R - 8) - dz);
+      return nrm(-dx * 0.3, door);
+    }
+    if (inCorridor && d < BASE_HULL_R + 8) return nrm(-dx * 0.3, door);
+    return null;
   }
 
   if (goal === "enter" || goal === "deposit") {
     if (inside) return goal === "deposit" ? nrm(-dx, -dz) : null;
-    if (Math.abs(dx) > 4) return nrm(-dx, 0);
-    return nrm(0, -door);
+    if (inCorridor) return nrm(-dx * 0.3, -door);
+    const ORBIT = BASE_HULL_R + 8;
+    const ux = dx / (d || 1);
+    const uz = dz / (d || 1);
+    // Fuera del sector de la puerta: rodear el casco a radio fijo (nunca cortar a través)
+    if (uz * door < 0.82) {
+      if (d > ORBIT + 22) return nrm(-dx, -dz);
+      let tx = -uz;
+      let tz = ux;
+      if (tz * door < 0 || (Math.abs(tz) < 0.05 && tx * dx > 0)) {
+        tx = -tx;
+        tz = -tz;
+      }
+      const k = Math.max(-0.8, Math.min(0.8, (ORBIT - d) * 0.15));
+      return nrm(tx + ux * k, tz + uz * k);
+    }
+    // En el sector de la puerta: alinearse con el pasillo y entrar
+    if (Math.abs(dx) > 3) return nrm(-dx, door * (BASE_HULL_R + 6) - dz);
+    return nrm(-dx * 0.3, -door);
   }
   return null;
 }

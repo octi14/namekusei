@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { BASE_Z, superRank, SUPER_KI, MELEE, MAP } from "./config.js";
 import { isWater, groundHeight, WATER_Y } from "./world.js";
-import { BASE_INNER_R, steerShipNav, nearAnyShip, shipDist, inShipBase } from "./bases.js";
+import { BASE_INNER_R, BASE_HULL_R, steerShipNav, nearAnyShip, shipDist, inShipBase } from "./bases.js";
 import { powerStyle } from "./powers.js";
 import { aiTraceTick } from "./aiTrace.js";
 import { playSfx, atPos, stopSfxLoop } from "./sfx.js";
@@ -2267,7 +2267,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
       p.aiShipExit = fac;
       goal = "exit";
     }
-    if (p.aiShipExit && (goal !== "exit" || shipDist(pos, p.aiShipExit) > BASE_INNER_R + 9)) p.aiShipExit = null;
+    if (p.aiShipExit && (goal !== "exit" || shipDist(pos, p.aiShipExit) > BASE_HULL_R + 8)) p.aiShipExit = null;
     if ((p.aiLeaveBase || 0) > 0) {
       p.aiLeaveBase -= dt;
       if (!inShipBase(pos, own) && shipDist(pos, own) > BASE_INNER_R + 12) p.aiLeaveBase = 0;

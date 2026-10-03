@@ -144,7 +144,7 @@ const SLIDERS = [
   ["giLapelZ", "Gi pecho pos. Z", -0.25, 0.35, 0.005],
   ["giLapelSx", "Gi solapa grosor", 0.3, 2.2, 0.02],
   ["giLapelSy", "Gi pecho alto", 0.3, 2.2, 0.02],
-  ["giLapelSz", "Gi V abertura", 0.4, 1.8, 0.02],
+  ["giLapelSz", "Gi V abertura", 0, 1.8, 0.02],
   ["giChestSz", "Gi pecho prof. Z", 0.5, 2.2, 0.02],
   ["giPantsSx", "Gi pantalón ancho", 0.5, 2.2, 0.02],
   ["giPantsSy", "Gi pantalón alto", 0.5, 2.2, 0.02],
