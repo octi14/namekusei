@@ -908,6 +908,7 @@ function strokeMold(e) {
   if (!obj.userData.moldCloned) {
     obj.geometry = obj.geometry.clone();
     obj.userData.moldCloned = true;
+    for (const c of obj.children) if (c.userData.outline) c.geometry = obj.geometry;
   }
   const geo = obj.geometry;
   const pos = geo.attributes.position;

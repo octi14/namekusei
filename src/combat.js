@@ -6,7 +6,9 @@ import { powerStyle, makePowerMesh, alignBeam, spawnBurst, spawnClash, spawnHit,
 import { playSfx, atPos, stopSfxLoop } from "./sfx.js";
 import { healerSpec } from "./stats.js";
 import { blockedSight } from "./world.js";
+import { fxSparks, fxBoom, fxDust } from "./fx.js";
 
+const _fxP = new THREE.Vector3();
 const _eye = new THREE.Vector3();
 const _seeTo = new THREE.Vector3();
 
@@ -426,6 +428,8 @@ export class Combat {
     const foot = pos.clone();
     foot.y = Math.min(foot.y, 2);
     spawnImpactRing(this.scene, foot, this.fx, true);
+    fxBoom(pos, s.color);
+    if (foot.y < 2.5) fxDust(foot, 24);
     playSfx("superHitsLand", pos.x, pos.y, pos.z, 0.72);
     for (const t of people) {
       if (t.faccion === s.faccion || t.dead) continue;
@@ -471,6 +475,11 @@ export class Combat {
     const finisher = knock && knock > 16;
     const heavy = !!(ki || finisher || dmg >= 40);
     this.float(t, dmg, ki, atk, heavy);
+    {
+      const tp = t.pos();
+      _fxP.set(tp.x, tp.y + t.height * 0.6, tp.z);
+      fxSparks(_fxP, ki ? 0x80deea : 0xffd54f, heavy ? 26 : 12, heavy ? 18 : 11);
+    }
     const now = performance.now() * 0.001;
     if (atk && !ki) {
       if (!atk.hitComboT || now - atk.hitComboT > 1.05) atk.hitCombo = 0;

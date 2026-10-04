@@ -45,23 +45,58 @@ function matVariant(base, over) {
   return sharedMat(key, () => {
     const m = base.clone();
     Object.assign(m, over);
+    if (base.userData.cel) applyCel(m, base.userData.cel.shine, base.userData.cel.rim);
     return m;
   });
 }
 
 const hexKey = (c) => (c?.isColor ? c.getHex() : new THREE.Color(c).getHex());
 
+/**
+ * Toon anime: bandas de luz + brillo de corte limpio (shine 0..1) + luz de borde (rim).
+ * Un solo programa GPU para todos (customProgramCacheKey fijo).
+ */
+function applyCel(m, shine = 0.4, rim = 0.22) {
+  m.userData.cel = { shine, rim };
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uShine = { value: shine };
+    sh.uniforms.uRim = { value: rim };
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float uShine;\nuniform float uRim;")
+      .replace(
+        "#include <opaque_fragment>",
+        `{
+  vec3 V = normalize(vViewPosition);
+  float lit = clamp(dot(reflectedLight.directDiffuse, vec3(0.6)) / max(dot(diffuseColor.rgb, vec3(0.333)), 0.05), 0.0, 1.0);
+  #if NUM_DIR_LIGHTS > 0
+    vec3 H = normalize(directionalLights[0].direction + V);
+    float nh = max(dot(normal, H), 0.0);
+    float edge = 0.985 - uShine * 0.07;
+    float spec = smoothstep(edge, edge + 0.012, nh) * uShine * lit;
+    outgoingLight += directionalLights[0].color * spec * 0.45;
+  #endif
+  float fr = 1.0 - max(dot(normal, V), 0.0);
+  float rimK = smoothstep(0.62, 0.8, fr) * uRim * (0.35 + 0.65 * lit);
+  outgoingLight += mix(diffuseColor.rgb, vec3(1.0), 0.55) * rimK;
+}
+#include <opaque_fragment>`
+      );
+  };
+  m.customProgramCacheKey = () => "nkCel1";
+  return m;
+}
+
+function celMat(params, shine, rim) {
+  return applyCel(new THREE.MeshToonMaterial({ gradientMap: toonGradient(), ...params }), shine, rim);
+}
+
 function surf(color, opts = {}) {
   const make = () => {
-    const m = {
-      color,
-      roughness: opts.roughness ?? 0.7,
-      metalness: opts.metalness ?? 0.05,
-    };
+    const m = { color };
     if (opts.side != null) m.side = opts.side;
     if (opts.emissive != null) m.emissive = opts.emissive;
     if (opts.emissiveIntensity != null) m.emissiveIntensity = opts.emissiveIntensity;
-    return new THREE.MeshStandardMaterial(m);
+    return celMat(m, Math.max(0, 1 - (opts.roughness ?? 0.7)) * 0.9);
   };
   if (opts.unique) return make();
   const key = `surf|${hexKey(color)}|${opts.roughness ?? 0.7}|${opts.metalness ?? 0.05}|${opts.side ?? ""}|${
@@ -129,11 +164,7 @@ function skinMat(hex, sc = {}) {
   }
   const outHex = base.getHex();
   return sharedMat(`skin|${outHex}|${base.r},${base.g},${base.b}`, () =>
-    new THREE.MeshToonMaterial({
-      color: base,
-      map: skinAlbedoTex(outHex),
-      gradientMap: toonGradient(),
-    })
+    celMat({ color: base, map: skinAlbedoTex(outHex) }, 0.12, 0.18)
   );
 }
 
@@ -532,17 +563,19 @@ function gearMat(hex, opts = {}) {
   else rough = Math.min(0.48, rough);
   const metal = Math.min(opts.metalness ?? (isArmor ? 0.14 : 0.05), isArmor ? 0.2 : 0.08);
   const make = () => {
-  const m = new THREE.MeshStandardMaterial({
-    color: hex,
-    map: opts.map || skinAlbedoTex(hex),
-    bumpMap: noise,
-    bumpScale:
-      (opts.detail ?? (kind === "armor" ? 0.7 : kind === "gi" ? 1.25 : 0.55)) *
-      (kind === "armor" ? 0.07 : 0.055) *
-      bumpK,
-    roughness: rough,
-    metalness: metal,
-  });
+  const m = celMat(
+    {
+      color: hex,
+      map: opts.map || skinAlbedoTex(hex),
+      bumpMap: noise,
+      bumpScale:
+        (opts.detail ?? (kind === "armor" ? 0.7 : kind === "gi" ? 1.25 : 0.55)) *
+        (kind === "armor" ? 0.07 : 0.055) *
+        bumpK,
+    },
+    (1 - rough) * (1 + metal),
+    isArmor ? 0.28 : 0.22
+  );
   if (opts.side != null) m.side = opts.side;
   if (opts.transparent) m.transparent = true;
   if (opts.alphaTest != null) m.alphaTest = opts.alphaTest;
@@ -1460,6 +1493,14 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
     cu.userData.moldFamily = "cloth";
     if (extras?.wrinkle) wrinkleGiMesh(cu, extras.wrinkle, "sleeve", extras.s);
     sh.add(cu);
+    if (extras?.wrinkle) {
+      // Gi: cúpula que cierra la manga sobre el hombro
+      const r = PROF.upperArm[0] * upperR * uBulk * fit * 1.04;
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(r, 28, 10, 0, Math.PI * 2, 0, Math.PI / 2), sleeveM);
+      dome.scale.set(uSx * 1.12, 0.75, uSx * 1.05);
+      dome.position.y = cu.position.y + (upperLen * sl) / 2 - r * 0.08;
+      sh.add(dome);
+    }
   }
   const elbow = new THREE.Group();
   elbow.position.y = -upperLen;
@@ -4080,7 +4121,55 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
   });
   if (sc.molds) applyMolds(g, sc.molds, s / (sc.moldAltura || 1.85));
   mergeStaticMeshes(g, headG, !!opts.game);
+  addOutlines(g, s);
   return g;
+}
+
+let _outlineMat = null;
+function outlineMat() {
+  if (_outlineMat) return _outlineMat;
+  const m = new THREE.MeshBasicMaterial({ color: 0x120c08, side: THREE.BackSide });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace(
+      "#include <project_vertex>",
+      `vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
+vec3 nv = normalize( normalMatrix * normal );
+mvPosition.xyz += nv * 0.0055 * clamp( -mvPosition.z * 0.045, 1.0, 4.0 );
+gl_Position = projectionMatrix * mvPosition;`
+    );
+  };
+  m.customProgramCacheKey = () => "nkOutline1";
+  m.userData.shared = true;
+  _outlineMat = m;
+  return m;
+}
+
+const _ows = new THREE.Vector3();
+/** Contorno anime (casco invertido): comparte geometría, sigue moldes/viento. */
+function addOutlines(g, s) {
+  g.updateMatrixWorld(true);
+  const list = [];
+  const meshes = [];
+  g.traverse((o) => {
+    if (o.isMesh && !o.isSkinnedMesh) meshes.push(o);
+  });
+  for (const o of meshes) {
+    const mat = o.material;
+    if (Array.isArray(mat) || !mat?.userData?.cel || mat.transparent || mat.alphaTest > 0) continue;
+    const geo = o.geometry;
+    if (!geo?.attributes?.normal) continue;
+    if (!geo.boundingSphere) geo.computeBoundingSphere();
+    o.getWorldScale(_ows);
+    if (geo.boundingSphere.radius * Math.max(_ows.x, _ows.y, _ows.z) < 0.022 * s) continue;
+    const ol = new THREE.Mesh(geo, outlineMat());
+    ol.castShadow = false;
+    ol.receiveShadow = false;
+    ol.raycast = () => {};
+    ol.userData.outline = true;
+    o.add(ol);
+    list.push(ol);
+  }
+  g.userData.outlines = list;
 }
 
 /** userData que solo sirve al editor (moldeo/mangos): en partida no impide juntar mallas. */

@@ -959,6 +959,79 @@ function addEarthTrees(scene, thick) {
   scene.add(trunk, canopy, canopy2);
 }
 
+/** Uniform de tiempo compartido para el pasto con viento. */
+const grassWind = { value: 0 };
+
+function bladeGeo() {
+  // Dos hojas cruzadas, afinadas a la punta; color por vértice: base oscura → punta clara
+  const p = [];
+  const c = [];
+  const w = 0.11;
+  const h = 0.9;
+  for (const a of [0, Math.PI / 2]) {
+    const cx = Math.cos(a) * w;
+    const cz = Math.sin(a) * w;
+    p.push(-cx, 0, -cz, cx, 0, cz, 0, h, 0);
+    c.push(0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 1, 1, 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(c, 3));
+  g.computeVertexNormals();
+  for (let i = 0; i < g.attributes.normal.count; i++) g.attributes.normal.setXYZ(i, 0, 1, 0);
+  return g;
+}
+
+/** Pasto azul-verde de Namek con viento (1 draw call, se anima en GPU). */
+function addNamekGrass(scene, n = 14000) {
+  const mat = new THREE.MeshLambertMaterial({ color: 0x6fb7a8, vertexColors: true, side: THREE.DoubleSide });
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uWind = grassWind;
+    sh.vertexShader = sh.vertexShader
+      .replace("#include <common>", "#include <common>\nuniform float uWind;")
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+#ifdef USE_INSTANCING
+  vec2 wp = instanceMatrix[3].xz;
+  float sway = sin(uWind * 1.6 + wp.x * 0.13 + wp.y * 0.11) * 0.6 + sin(uWind * 3.1 + wp.x * 0.4) * 0.25;
+  transformed.x += sway * position.y * 0.32;
+  transformed.z += sway * position.y * 0.14;
+#endif`
+      );
+  };
+  mat.customProgramCacheKey = () => "nkGrass1";
+  const blades = new THREE.InstancedMesh(bladeGeo(), mat, n);
+  const dummy = new THREE.Object3D();
+  const m = MAP / 2 - 12;
+  let i = 0;
+  let tries = 0;
+  while (i < n && tries < n * 6) {
+    tries++;
+    const x = (Math.random() * 2 - 1) * m;
+    const z = (Math.random() * 2 - 1) * m;
+    if (Math.hypot(x, z + BASE_Z) < BASE_PAD_R + 6 || Math.hypot(x, z - BASE_Z) < BASE_PAD_R + 6) continue;
+    const gy = groundHeight(x, z);
+    if (gy < WATER_Y + 0.9 || gy > 24) continue;
+    // Matas agrupadas: 3–5 hojas por punto
+    const k = 3 + ((Math.random() * 3) | 0);
+    for (let j = 0; j < k && i < n; j++) {
+      const bx = x + (Math.random() - 0.5) * 0.9;
+      const bz = z + (Math.random() - 0.5) * 0.9;
+      dummy.position.set(bx, groundHeight(bx, bz) - 0.04, bz);
+      dummy.rotation.set((Math.random() - 0.5) * 0.35, Math.random() * 6.28, (Math.random() - 0.5) * 0.35);
+      const sc = 0.7 + Math.random() * 0.9;
+      dummy.scale.set(sc, sc * (0.8 + Math.random() * 0.6), sc);
+      dummy.updateMatrix();
+      blades.setMatrixAt(i++, dummy.matrix);
+    }
+  }
+  blades.count = i;
+  blades.instanceMatrix.needsUpdate = true;
+  blades.frustumCulled = false;
+  scene.add(blades);
+}
+
 function addEarthGrass(scene) {
   const mat = new THREE.MeshLambertMaterial({ color: 0x2e7d32 });
   const mat2 = new THREE.MeshLambertMaterial({ color: 0x558b2f });
@@ -2133,6 +2206,7 @@ function addRocks(scene) {
 
 export function updateWorld(camPos, dt = 0, camFwd = null) {
   const t = (updateWorld._t = (updateWorld._t || 0) + dt);
+  grassWind.value = t;
   if (waterMesh?.material.map) {
     waterMesh.material.map.offset.x += dt * 0.028;
     waterMesh.material.map.offset.y += dt * 0.016;
@@ -2328,6 +2402,7 @@ export function createWorld(scene, id = "namek") {
     addPatriarch(scene);
     addLandmarks(scene);
     addAjisa(scene);
+    addNamekGrass(scene);
   }
   addRocks(scene);
   addClouds(scene);

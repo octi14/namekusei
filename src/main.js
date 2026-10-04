@@ -3,6 +3,7 @@ import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { TEAM_SIZE, superRank, loadSettings, applySettings, applySandbox, snapshot, PIXEL, BLOOM, SHADOWS, MOUSE, FOV, MAP, MATCH_MINS } from "./config.js";
 import { createWorld, updateWorld, WATER_Y, buildMapMaquette } from "./world.js";
 import { buildRoster, buildSandboxRoster } from "./roster.js";
@@ -13,6 +14,7 @@ import { Match } from "./match.js";
 import { Combat, canSee, eyeAim } from "./combat.js";
 import { PlayerCamera, updateSeenBars } from "./camera.js";
 import { aiStep } from "./ai.js";
+import { fxInit, fxTick, fxKiRise, fxDust, fxTrail } from "./fx.js";
 import { renderHud } from "./ui.js";
 import { setAudioListener, playSfx, stopSfxLoop, atPos } from "./sfx.js";
 import { powerStyle } from "./powers.js";
@@ -92,6 +94,25 @@ const composer = new EffectComposer(
 composer.addPass(new RenderPass(scene, camera));
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.38, 0.5, 0.75);
 composer.addPass(bloomPass);
+/** Gradación final: saturación, contraste suave, tinte cálido y viñeta (1 pasada barata). */
+const gradePass = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uSat: { value: 1.12 }, uCon: { value: 1.05 }, uVig: { value: 0.32 } },
+  vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uSat, uCon, uVig; varying vec2 vUv;
+void main(){
+  vec4 c = texture2D(tDiffuse, vUv);
+  float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+  vec3 col = mix(vec3(l), c.rgb, uSat);
+  col = (col - 0.5) * uCon + 0.5;
+  col *= vec3(1.03, 1.01, 0.97);
+  vec2 q = vUv - 0.5;
+  col *= 1.0 - uVig * smoothstep(0.25, 0.75, dot(q, q) * 2.2);
+  gl_FragColor = vec4(max(col, 0.0), c.a);
+}`,
+});
+composer.addPass(gradePass);
+fxInit(scene);
+const _fxV = new THREE.Vector3();
 
 let people = [];
 let balls;
@@ -942,10 +963,27 @@ function loop(now) {
     if (p._cast !== (d < 3600)) {
       p._cast = d < 3600;
       p.mesh.traverse((o) => {
-        if (o.isMesh) o.castShadow = p._cast;
+        if (o.isMesh && !o.userData.outline) o.castShadow = p._cast;
       });
     }
+    if (d < 4900 && !p.dead) {
+      const pp = p.pos();
+      if (p._kiCharge) fxKiRise(pp, p.height, p.ssj ? 0xffe082 : 0x80deea, 38, dt);
+      const fa = p.flyAlt || 0;
+      if ((p._fxFa || 0) > 0.8 && fa < 0.12 && !p.inSwim?.()) fxDust(pp, 14);
+      p._fxFa = fa;
+      if (fa > 0.5 && (p.rush || 0) > 0.8) {
+        _fxV.set(pp.x, pp.y + p.height * 0.5, pp.z);
+        fxTrail(_fxV, p.ssj ? 0xfff59d : 0xe0f7fa);
+      }
+    }
+    const ol = p.mesh.userData.outlines;
+    if (ol && p.mesh.userData._olOn !== (d < 6400)) {
+      const on = (p.mesh.userData._olOn = d < 6400);
+      for (const o of ol) o.visible = on;
+    }
   }
+  fxTick(dt);
   if (bloomPass.enabled && bloomPass.strength > 0.04) composer.render();
   else renderer.render(scene, camera);
   labelR.render(scene, camera);
