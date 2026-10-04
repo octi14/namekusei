@@ -323,12 +323,19 @@ function maneSway(mesh, F) {
   const d2 = new THREE.Vector3();
   const v2 = new THREE.Vector3();
   const f = new THREE.Vector3();
+  const tmp = new THREE.Vector3();
   const lim = F.ay * 0.7;
   let init = false;
   let t = 0;
+  // Solo simular si se dibujó el frame anterior (fuera de cámara no se reescribe el buffer).
+  let seen = true;
+  mesh.onBeforeRender = () => {
+    seen = true;
+  };
   return {
     update(dt) {
-      if (dt <= 0) return;
+      if (dt <= 0 || !seen) return;
+      seen = false;
       dt = Math.min(dt, 0.05);
       t += dt;
       mesh.getWorldPosition(g);
@@ -345,9 +352,9 @@ function maneSway(mesh, F) {
       f.copy(acc).multiplyScalar(-0.012 * F.ay).applyQuaternion(q);
       f.x += Math.sin(t * 1.7) * 0.15 * F.ay;
       f.z += Math.sin(t * 1.3 + 1) * 0.1 * F.ay;
-      v1.addScaledVector(f.clone().sub(d1).multiplyScalar(60), dt).multiplyScalar(1 - 6 * dt);
+      v1.addScaledVector(tmp.copy(f).sub(d1).multiplyScalar(60), dt).multiplyScalar(1 - 6 * dt);
       d1.addScaledVector(v1, dt).clampLength(0, lim);
-      v2.addScaledVector(d1.clone().multiplyScalar(1.4).sub(d2).multiplyScalar(30), dt).multiplyScalar(1 - 4 * dt);
+      v2.addScaledVector(tmp.copy(d1).multiplyScalar(1.4).sub(d2).multiplyScalar(30), dt).multiplyScalar(1 - 4 * dt);
       d2.addScaledVector(v2, dt).clampLength(0, lim * 1.4);
       const a = pos.array;
       for (let v = 0; v < N; v++) {

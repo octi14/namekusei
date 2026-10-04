@@ -295,11 +295,6 @@ function getFaceTexture(src, key) {
   return tex;
 }
 
-for (const def of Object.values(FACE_DECALS)) {
-  getFaceTexture(def, def.key);
-  if (def.ssj) getFaceTexture(def.ssj, def.key);
-}
-
 export function hasFaceDecal(sc) {
   return !!(sc?.faceDecal && FACE_DECALS[sc.faceDecal]);
 }

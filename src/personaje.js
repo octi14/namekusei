@@ -94,7 +94,7 @@ export class Personaje {
     const lookWho = def.look?.who || lookTemplateId(def.nombre) || def.nombre;
     this.lookWho = lookWho;
     const h = mixamo && gokuReady() ? this.s.altura * 1.21 : sculptAltura(lookWho, this.s.altura);
-    this.mesh = mixamo && gokuReady() ? makeRiggedBody(h, def.look, mixamo) : makeBody(h, { ...def.look, who: lookWho });
+    this.mesh = mixamo && gokuReady() ? makeRiggedBody(h, def.look, mixamo) : makeBody(h, { ...def.look, who: lookWho }, {}, { game: true });
     this.mesh.rotation.order = "YXZ";
     this.height = 1.55 * h;
     const p = spawnPos(def.faccion, indexInTeam, teamCount);
@@ -407,9 +407,11 @@ export class Personaje {
     parent?.remove(this.mesh);
     this.mesh.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
+      // materiales propios del personaje (pelo, cara, ojos extra); los compartidos y las texturas cacheadas no
+      for (const m of [].concat(o.material || [])) if (!m.userData?.shared) m.dispose();
     });
     const h = sculptAltura(this.lookWho, this.s.altura);
-    this.mesh = makeBody(h, { ...look, who: this.lookWho });
+    this.mesh = makeBody(h, { ...look, who: this.lookWho }, {}, { game: true });
     this.mesh.rotation.order = "YXZ";
     this.mesh.position.copy(pos);
     this.mesh.quaternion.copy(quat);
@@ -692,17 +694,28 @@ export class Personaje {
       const boost = active ? 1 : 0.35;
       const w = Math.sin(this._kiPulse * 5.5) * 0.07 * (active ? 1 : 0.25);
       const head = this.limbs?.headG;
-      if (head && active) {
-        for (let i = 0; i < head.children.length; i++) {
-          const c = head.children[i];
-          if (!c.isMesh || c.geometry?.type === "SphereGeometry") continue;
-          c.rotation.z = (c.userData._baseZ ?? (c.userData._baseZ = c.rotation.z)) + w * (1 + (i % 3) * 0.4);
-          c.rotation.x = (c.userData._baseX ?? (c.userData._baseX = c.rotation.x)) + Math.sin(this._kiPulse * 4 + i) * 0.05;
+      // Ondeo de ki: solo mechones del pelo (cara, cabeza y orejas quedan quietas)
+      const hairRoot = head && (this._hairRootMesh === this.mesh ? this._hairRoot : head.children.find((c) => c.userData.hairRoot));
+      this._hairRootMesh = this.mesh;
+      this._hairRoot = hairRoot;
+      if (hairRoot && (active || this._hairWaved)) {
+        this._hairWaved = active;
+        for (let i = 0; i < hairRoot.children.length; i++) {
+          const c = hairRoot.children[i];
+          if (!c.isMesh) continue;
+          const bz = c.userData._baseZ ?? (c.userData._baseZ = c.rotation.z);
+          const bx = c.userData._baseX ?? (c.userData._baseX = c.rotation.x);
+          c.rotation.z = active ? bz + w * (1 + (i % 3) * 0.4) : bz;
+          c.rotation.x = active ? bx + Math.sin(this._kiPulse * 4 + i) * 0.05 : bx;
         }
       }
       const t = this._kiPulse;
-      this.mesh.traverse((o) => {
-        if (!o.userData?.wind) return;
+      if (this._windMesh !== this.mesh) {
+        this._windMesh = this.mesh;
+        this._windList = [];
+        this.mesh.traverse((o) => o.userData?.wind && this._windList.push(o));
+      }
+      for (const o of this._windList) {
         if (o.userData.cloth && o.userData.clothBase && o.geometry?.attributes?.position) {
           const pos = o.geometry.attributes.position;
           const base = o.userData.clothBase;
@@ -728,7 +741,7 @@ export class Personaje {
           o.rotation.x = 0.08 + Math.sin(t * 3.4) * 0.12;
           o.rotation.z = Math.sin(t * 2.6) * 0.08;
         }
-      });
+      }
     }
     if (this.ssj && this.ssjGlow && !superPose) {
       const p = 1 + Math.sin(this._kiPulse * 1.5) * 0.14;

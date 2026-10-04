@@ -70,42 +70,6 @@ function surf(color, opts = {}) {
   return sharedMat(key, make);
 }
 
-/** Ruido + arrugas (pliegues suaves de cutis). */
-let _skinNoise;
-function skinNoiseTex() {
-  if (_skinNoise) return _skinNoise;
-  const n = 256;
-  const data = new Uint8Array(n * n * 4);
-  for (let i = 0; i < n * n; i++) {
-    const v = 175 + ((Math.random() * 40) | 0);
-    const o = i * 4;
-    data[o] = data[o + 1] = data[o + 2] = v;
-    data[o + 3] = 255;
-  }
-  // Pliegues horizontales / diagonales
-  for (let k = 0; k < 55; k++) {
-    const y0 = Math.random() * n;
-    const slope = (Math.random() - 0.5) * 0.35;
-    const thick = 1 + Math.random() * 2.2;
-    const depth = 35 + Math.random() * 55;
-    for (let x = 0; x < n; x++) {
-      const y = Math.floor(y0 + x * slope + Math.sin(x * 0.07 + k) * 3);
-      for (let t = -thick; t <= thick; t++) {
-        const yy = (y + t + n * 4) % n;
-        const o = (yy * n + x) * 4;
-        const fall = 1 - Math.abs(t) / (thick + 0.01);
-        const v = Math.max(40, data[o] - depth * fall);
-        data[o] = data[o + 1] = data[o + 2] = v;
-      }
-    }
-  }
-  const tex = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(2.2, 2.2);
-  tex.needsUpdate = true;
-  _skinNoise = tex;
-  return tex;
-}
 
 /** Albedo con moteado leve (no color plano). Cacheado por color. */
 const _albedoCache = new Map();
@@ -302,24 +266,30 @@ function giClothNoiseTex() {
 }
 
 /** Desplaza vértices para pliegues geométricos (gi suelto). */
-function wrinkleClothMesh(mesh, strength = 1) {
+/** Escala de arrugas: frecuencias/amplitudes autoradas para altura 1.85. */
+const WRINKLE_REF_H = 1.85;
+
+function wrinkleClothMesh(mesh, strength = 1, s = WRINKLE_REF_H) {
   if (!mesh?.geometry?.attributes?.position) return mesh;
   mesh.geometry = mesh.geometry.clone();
   const pos = mesh.geometry.attributes.position;
+  const u = s / WRINKLE_REF_H;
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
+    const X = pos.getX(i);
+    const Y = pos.getY(i);
+    const Z = pos.getZ(i);
+    const x = X / u, y = Y / u, z = Z / u;
     const len = Math.hypot(x, z) || 1;
     const wr =
-      Math.sin(y * 26 + x * 14) * 0.0055 * strength +
-      Math.sin(y * 48 + z * 18) * 0.0035 * strength +
-      Math.sin((x + z) * 36 + y * 8) * 0.0028 * strength +
-      Math.sin(y * 9) * 0.002 * strength;
-    pos.setXYZ(i, x + (x / len) * wr, y + Math.sin(x * 22 + z * 16) * 0.0012 * strength, z + (z / len) * wr);
+      (Math.sin(y * 26 + x * 14) * 0.0055 * strength +
+        Math.sin(y * 48 + z * 18) * 0.0035 * strength +
+        Math.sin((x + z) * 36 + y * 8) * 0.0028 * strength +
+        Math.sin(y * 9) * 0.002 * strength) *
+      u;
+    pos.setXYZ(i, X + (x / len) * wr, Y + Math.sin(x * 22 + z * 16) * 0.0012 * strength * u, Z + (z / len) * wr);
   }
   pos.needsUpdate = true;
-  mesh.geometry.computeVertexNormals();
+  recomputeNormals(mesh.geometry);
   return mesh;
 }
 
@@ -327,15 +297,19 @@ function wrinkleClothMesh(mesh, strength = 1) {
  * Arrugas de gi “anime canvas”: pliegues profundos y direccionales (no plastilina).
  * mode: torso | thigh | shin | sash | sleeve
  */
-function wrinkleGiMesh(mesh, strength = 1, mode = "torso") {
+function wrinkleGiMesh(mesh, strength = 1, mode = "torso", s = WRINKLE_REF_H) {
   if (!mesh?.geometry?.attributes?.position) return mesh;
   mesh.geometry = mesh.geometry.clone();
   const pos = mesh.geometry.attributes.position;
   const k = strength;
+  const u = s / WRINKLE_REF_H;
   for (let i = 0; i < pos.count; i++) {
-    let x = pos.getX(i);
-    let y = pos.getY(i);
-    let z = pos.getZ(i);
+    const X = pos.getX(i);
+    const Y = pos.getY(i);
+    const Z = pos.getZ(i);
+    const x = X / u;
+    const y = Y / u;
+    const z = Z / u;
     const r = Math.hypot(x, z) || 1;
     const nx = x / r;
     const nz = z / r;
@@ -375,10 +349,10 @@ function wrinkleGiMesh(mesh, strength = 1, mode = "torso") {
     } else {
       dr += Math.sin(y * 20 + x * 12) * 0.01 * k;
     }
-    pos.setXYZ(i, x + nx * dr, y + dy, z + nz * dr);
+    pos.setXYZ(i, X + nx * dr * u, Y + dy * u, Z + nz * dr * u);
   }
   pos.needsUpdate = true;
-  mesh.geometry.computeVertexNormals();
+  recomputeNormals(mesh.geometry);
   return mesh;
 }
 
@@ -748,7 +722,6 @@ export const DEFAULT_SCULPT = {
   // torso
   torsoMul: 0.15,
   hipsMul: 0.17,
-  torsoSx: 1.18,
   torsoNeckSx: 1.05,
   torsoChestSx: 1.18,
   torsoWaistSx: 1.18,
@@ -810,7 +783,7 @@ export const DEFAULT_SCULPT = {
   earSy: 1,
   earSz: 0.8,
   // ojos / cara
-  eyeType: "anime", // anime | soft | sharp | dot | narrow | wide | krilin | none
+  eyeType: "anime", // anime | narrow | none
   eyeSep: 0.05,
   irisSep: 0.05,
   irisY: 0.02,
@@ -978,11 +951,9 @@ export const DEFAULT_SCULPT = {
   showBelt: 1,
   showSash: 1,
   showSashTail: 1,
-  showLapels: 1, // legacy; el wrap V siempre está on
   giLapelX: 0,
   giLapelY: 0,
   giLapelZ: 0,
-  giLapelTilt: 0.45, // unused
   giLapelSx: 1, // grosor del labio / solapa
   giLapelSy: 1, // alto del pecho wrap
   giLapelSz: 1, // abertura del V
@@ -999,10 +970,6 @@ export const DEFAULT_SCULPT = {
   antR: 0.014,
   antSpread: 0.055,
   // piel
-  bumpScale: 0.042,
-  sheen: 0.4,
-  sheenRough: 0.62,
-  skinRough: 0.82,
   paleLift: 0.06,
   paleSat: 0.72,
   clothFit: 1.12,
@@ -1015,9 +982,9 @@ export const SCULPT_SELECTS = {
   headType: ["sphere", "oval", "skull", "capsule", "pill", "block"],
   pecType: ["none", "sphere", "flat", "split", "armor"],
   earType: ["none", "round", "pointed", "wide"],
-  eyeType: ["anime", "soft", "sharp", "dot", "narrow", "wide", "krilin", "none"],
-  noseType: ["none", "anime", "bulb", "button", "hook", "flat", "ridge", "soft", "namek"],
-  mouthType: ["none", "line", "smile", "frown", "open", "grit", "smirk"],
+  eyeType: ["anime", "narrow", "none"],
+  noseType: ["none", "namek"],
+  mouthType: ["none", "line", "open", "grit"],
   faceDecal: ["none", ...Object.keys(FACE_DECALS)],
   padType: ["none", "sphere", "spaulder", "spiked", "flat", "wing"],
   plateType: ["none", "dome", "flat", "ribbed", "split", "elite"],
@@ -1026,52 +993,12 @@ export const SCULPT_SELECTS = {
   bootType: ["tall", "combat", "armor", "soft"],
 };
 
-const SCULPT_MAP_KEY = "namekusei.sculptMap";
-const SCULPT_KEY_OLD = "namekusei.sculpt";
-
-try {
-  localStorage.removeItem(SCULPT_MAP_KEY);
-  localStorage.removeItem(SCULPT_KEY_OLD);
-} catch {
-  /* ignore */
-}
+const INERT_KEYS = ["torsoSx", "showLapels", "giLapelTilt", "bumpScale", "sheen", "sheenRough", "skinRough"];
 
 function migrateSculpt(j) {
   if (!j || typeof j !== "object") return {};
   const out = { ...j };
-  if (out.armR != null) {
-    if (out.upperArmR == null) out.upperArmR = out.armR;
-    if (out.foreArmR == null) out.foreArmR = out.armR * 0.92;
-    delete out.armR;
-  }
-  if (out.legR != null) {
-    if (out.thighR == null) out.thighR = out.legR;
-    if (out.shinR == null) out.shinR = out.legR * 0.9;
-    delete out.legR;
-  }
-  if (out.armBulk != null) {
-    if (out.upperArmBulk == null) out.upperArmBulk = out.armBulk;
-    if (out.foreArmBulk == null) out.foreArmBulk = out.armBulk * 0.96;
-    delete out.armBulk;
-  }
-  if (out.legBulk != null) {
-    if (out.thighBulk == null) out.thighBulk = out.legBulk;
-    if (out.shinBulk == null) out.shinBulk = out.legBulk * 0.94;
-    delete out.legBulk;
-  }
-  if (out.armSx != null) {
-    if (out.upperArmSx == null) out.upperArmSx = out.armSx;
-    if (out.foreArmSx == null) out.foreArmSx = out.armSx * 0.96;
-    delete out.armSx;
-  }
-  if (out.legSx != null) {
-    if (out.thighSx == null) out.thighSx = out.legSx;
-    if (out.shinSx == null) out.shinSx = out.legSx * 0.95;
-    delete out.legSx;
-  }
-  if (out.torsoChestSx == null) out.torsoChestSx = out.torsoSx ?? 1.18;
-  if (out.torsoWaistSx == null) out.torsoWaistSx = out.torsoSx ?? 1.18;
-  if (out.torsoNeckSx == null) out.torsoNeckSx = out.torsoChestSx ?? out.torsoSx ?? 1.05;
+  for (const k of INERT_KEYS) delete out[k];
   if (out.altura == null && out.moldAltura != null) out.altura = out.moldAltura;
   return out;
 }
@@ -1112,9 +1039,19 @@ export function saveSculpt(id, sculpt) {
     merged.molds = { ...merged.molds };
     for (const mid of Object.keys(merged.molds)) if (FACE_MESH_MOLD.test(mid)) delete merged.molds[mid];
   }
-  map[id] = merged;
+  map[id] = sculptDiff(merged);
   writeSculptMap(map);
   return merged;
+}
+
+const SCULPT_KEEP = new Set(["altura", "moldAltura", "molds"]);
+
+function sculptDiff(sc) {
+  const out = {};
+  for (const [k, v] of Object.entries(sc)) {
+    if (SCULPT_KEEP.has(k) || DEFAULT_SCULPT[k] !== v) out[k] = v;
+  }
+  return out;
 }
 
 export function clearSavedSculpt(id) {
@@ -1149,23 +1086,44 @@ function loftGeo(profile, len, opts = {}) {
   const szOpt = opts.sz ?? 1;
   const sxAt = typeof sxOpt === "function" ? sxOpt : () => sxOpt;
   const szAt = typeof szOpt === "function" ? szOpt : () => szOpt;
+  if (opts.sub > 1) profile = subdivProfile(profile, opts.sub);
   const n = profile.length;
+  const R1 = radial + 1;
   const pos = [];
   const uvs = [];
   const idx = [];
+  const seam = [];
   const half = len * 0.5;
-  for (let i = 0; i < n; i++) {
+  const ring = (i) => {
     const y = half - (i / (n - 1)) * len;
     const r = Math.max(0.004, profile[i]);
     const v = i / (n - 1);
     const sx = sxAt(v);
     const sz = szAt(v);
+    return { y, r, v, sx, sz };
+  };
+  for (let i = 0; i < n; i++) {
+    const { y, r, v, sx, sz } = ring(i);
+    for (let j = 0; j <= radial; j++) {
+      const a = (j / radial) * Math.PI * 2;
+      pos.push(Math.cos(a) * r * sx, y, Math.sin(a) * r * sz);
+      uvs.push(j / radial, v);
+    }
+    seam.push(i * R1, i * R1 + radial);
+  }
+  // Anillos de tapa propios: si comparten vértice con el lateral, la normal se promedia y mancha el borde
+  const capRing = (i) => {
+    const start = pos.length / 3;
+    const { y, r, v, sx, sz } = ring(i);
     for (let j = 0; j < radial; j++) {
       const a = (j / radial) * Math.PI * 2;
       pos.push(Math.cos(a) * r * sx, y, Math.sin(a) * r * sz);
       uvs.push(j / radial, v);
     }
-  }
+    return start;
+  };
+  const topR = capRing(0);
+  const botR = capRing(n - 1);
   const topC = pos.length / 3;
   pos.push(0, half, 0);
   uvs.push(0.5, 0);
@@ -1174,25 +1132,61 @@ function loftGeo(profile, len, opts = {}) {
   uvs.push(0.5, 1);
   for (let i = 0; i < n - 1; i++) {
     for (let j = 0; j < radial; j++) {
-      const a = i * radial + j;
-      const b = i * radial + ((j + 1) % radial);
-      const c = (i + 1) * radial + j;
-      const d = (i + 1) * radial + ((j + 1) % radial);
-      // winding hacia afuera (antes estaba invertido → agujeros negros)
+      const a = i * R1 + j;
+      const b = a + 1;
+      const c = a + R1;
+      const d = c + 1;
       idx.push(a, b, c, b, d, c);
     }
   }
   for (let j = 0; j < radial; j++) {
-    idx.push(topC, (j + 1) % radial, j);
-    const base = (n - 1) * radial;
-    idx.push(botC, base + j, base + ((j + 1) % radial));
+    const j1 = (j + 1) % radial;
+    idx.push(topC, topR + j1, topR + j);
+    idx.push(botC, botR + j, botR + j1);
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(idx);
-  geo.computeVertexNormals();
+  geo.userData.seam = seam;
+  recomputeNormals(geo);
   return geo;
+}
+
+/** Perfil más denso (Catmull-Rom): misma silueta, sin facetas entre anillos. */
+function subdivProfile(p, k) {
+  const out = [];
+  const at = (i) => p[Math.max(0, Math.min(p.length - 1, i))];
+  for (let i = 0; i < p.length - 1; i++) {
+    const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+    for (let s = 0; s < k; s++) {
+      const t = s / k;
+      const t2 = t * t, t3 = t2 * t;
+      out.push(0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3));
+    }
+  }
+  out.push(p[p.length - 1]);
+  return out;
+}
+
+/** Normales + soldadura de la costura del loft (columna u=0 / u=1 duplicada). */
+export function recomputeNormals(geo) {
+  geo.computeVertexNormals();
+  const seam = geo.userData.seam;
+  const nrm = geo.attributes.normal;
+  if (!seam || !nrm) return;
+  const a = nrm.array;
+  for (let k = 0; k < seam.length; k += 2) {
+    const i = seam[k] * 3;
+    const j = seam[k + 1] * 3;
+    let x = a[i] + a[j], y = a[i + 1] + a[j + 1], z = a[i + 2] + a[j + 2];
+    const l = Math.hypot(x, y, z) || 1;
+    x /= l; y /= l; z /= l;
+    a[i] = a[j] = x;
+    a[i + 1] = a[j + 1] = y;
+    a[i + 2] = a[j + 2] = z;
+  }
+  nrm.needsUpdate = true;
 }
 
 function loftMesh(profile, len, mat, opts = {}) {
@@ -1214,29 +1208,82 @@ const PROF = {
   torso: [0.55, 0.95, 1.15, 1.22, 1.18, 1.05, 0.92, 0.88, 0.95],
 };
 
-function jointBall(r, mat) {
+const SKIN_RADIAL = 20;
+
+/** Esfera de unión con la misma sección elíptica que el loft (sx/sz). */
+function jointBall(r, mat, sx = 1, sz = 1) {
   const m = new THREE.Mesh(new THREE.SphereGeometry(r, GEO.joint[0], GEO.joint[1]), mat);
+  m.scale.set(sx, 1, sz);
   m.castShadow = true;
   return m;
 }
 
-/** Mano con palma + 4 dedos + pulgar. */
-function handMesh(r, mat, fingerLen = 1) {
-  const g = new THREE.Group();
-  const palm = loftMesh([r * 0.7, r * 0.95, r * 0.9], r * 1.1, mat, { radial: 18, sx: 1.35, sz: 0.7 });
-  palm.rotation.x = Math.PI / 2;
-  g.add(palm);
+/**
+ * Geometría de mano en pose `curl` (0 abierta relajada, 1 puño).
+ * Cuelga en −Y desde la muñeca; palma hacia +X·sgn (adentro), pulgar adelante (+Z).
+ */
+function handGeoAt(r, fl, sgn, curl) {
+  const root = new THREE.Group();
+  const parts = [];
+  const put = (parent, geo, x = 0, y = 0, z = 0) => {
+    const m = new THREE.Mesh(geo);
+    m.position.set(x, y, z);
+    parent.add(m);
+    parts.push(m);
+  };
+  const palmLen = r * 1.05;
+  put(root, loftGeo([r * 0.72, r * 0.92, r * 0.95, r * 0.86], palmLen, { radial: 14, sx: 0.55, sz: 1.05 }), 0, -palmLen * 0.5);
+  const fr = r * 0.2;
+  const lens = [0.78, 0.95, 1, 0.92];
   for (let i = 0; i < 4; i++) {
-    const f = loftMesh([r * 0.22, r * 0.2, r * 0.16], r * 0.85 * fingerLen, mat, { radial: 14 });
-    f.position.set((i - 1.5) * r * 0.42, r * 0.05, r * 0.85);
-    f.rotation.x = 0.35;
-    g.add(f);
+    const L = r * 0.5 * fl * lens[i];
+    const k1 = new THREE.Group();
+    k1.position.set(sgn * r * 0.04, -palmLen * 0.96, (i - 1.5) * r * 0.4);
+    k1.rotation.z = sgn * (0.22 + curl * 1.45);
+    root.add(k1);
+    put(k1, new THREE.SphereGeometry(fr * 1.08, 10, 8));
+    put(k1, loftGeo([fr, fr * 0.95, fr * 0.9], L, { radial: 10 }), 0, -L * 0.5);
+    const k2 = new THREE.Group();
+    k2.position.y = -L;
+    k2.rotation.z = sgn * (0.18 + curl * 1.6);
+    k1.add(k2);
+    put(k2, new THREE.SphereGeometry(fr * 0.92, 8, 6));
+    put(k2, loftGeo([fr * 0.9, fr * 0.82, fr * 0.6], L * 0.85, { radial: 10 }), 0, -L * 0.42);
   }
-  const thumb = loftMesh([r * 0.24, r * 0.2, r * 0.15], r * 0.55 * fingerLen, mat, { radial: 14 });
-  thumb.position.set(-r * 0.85, 0, r * 0.2);
-  thumb.rotation.set(0.4, 0.5, 0.9);
-  g.add(thumb);
-  return g;
+  const t = new THREE.Group();
+  t.position.set(sgn * r * 0.18, -r * 0.22, r * 0.55);
+  t.rotation.set(-0.55 + curl * 0.35, 0, sgn * (0.3 + curl * 0.75));
+  root.add(t);
+  const TL = r * 0.48 * fl;
+  put(t, loftGeo([fr * 1.25, fr * 1.15, fr], TL, { radial: 10 }), 0, -TL * 0.5);
+  const t2 = new THREE.Group();
+  t2.position.y = -TL;
+  t2.rotation.z = sgn * curl * 0.9;
+  t.add(t2);
+  put(t2, new THREE.SphereGeometry(fr * 1.02, 8, 6));
+  put(t2, loftGeo([fr, fr * 0.88, fr * 0.62], TL * 0.8, { radial: 10 }), 0, -TL * 0.4);
+  root.updateMatrixWorld(true);
+  const geos = parts.map((m) => {
+    const g = m.geometry.clone();
+    g.applyMatrix4(m.matrixWorld);
+    m.geometry.dispose();
+    return g;
+  });
+  const merged = mergeGeometries(geos, false);
+  for (const g of geos) g.dispose();
+  return merged;
+}
+
+/** Mano en un solo mesh; el puño es un morph target (influence = fistL/fistR). */
+function handMesh(r, mat, fingerLen = 1, sgn = 1) {
+  const geo = handGeoAt(r, fingerLen, sgn, 0);
+  const fist = handGeoAt(r, fingerLen, sgn, 1);
+  geo.morphAttributes.position = [fist.attributes.position];
+  geo.morphAttributes.normal = [fist.attributes.normal];
+  const m = new THREE.Mesh(geo, mat);
+  m.castShadow = true;
+  m.updateMorphTargets();
+  return m;
 }
 
 /** Pie plano (suela en XZ). loft Y → rot X 90°: largo en Z, grosor en Y. */
@@ -1390,7 +1437,8 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
   const side = extras?.side === "R" ? "R" : "L";
   const fit = extras?.clothFit ?? 1.1;
   const upper = loftMesh(mulProfile(PROF.upperArm, upperR * uBulk), upperLen, mat, {
-    radial: 14,
+    radial: SKIN_RADIAL,
+    sub: 2,
     sx: uSx,
     sz: uSx * 0.94,
   });
@@ -1398,6 +1446,7 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
   upper.userData.moldId = `skin_uarm_${side}`;
   upper.userData.moldFamily = "limb";
   sh.add(upper);
+  sh.add(jointBall(PROF.upperArm[0] * upperR * uBulk * 0.96, mat, uSx, uSx * 0.94));
   const sleeveM = extras?.sleeveMat ?? extras?.clothMat;
   if (sleeveM) {
     const sl = extras?.sleeveLen ?? 0.88;
@@ -1409,14 +1458,22 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
     cu.position.y = -upperLen * (sl * 0.52);
     cu.userData.moldId = `cloth_uarm_${side}`;
     cu.userData.moldFamily = "cloth";
-    if (extras?.wrinkle) wrinkleGiMesh(cu, extras.wrinkle, "sleeve");
+    if (extras?.wrinkle) wrinkleGiMesh(cu, extras.wrinkle, "sleeve", extras.s);
     sh.add(cu);
   }
   const elbow = new THREE.Group();
   elbow.position.y = -upperLen;
-  elbow.add(jointBall(Math.max(upperR, lowerR) * 1.15, mat));
+  elbow.add(
+    jointBall(
+      Math.max(PROF.upperArm.at(-1) * upperR * uBulk, PROF.foreArm[0] * lowerR * lBulk),
+      mat,
+      Math.max(uSx, lSx),
+      Math.max(uSx * 0.94, lSx * 0.9)
+    )
+  );
   const lower = loftMesh(mulProfile(PROF.foreArm, lowerR * lBulk), lowerLen, mat, {
-    radial: 14,
+    radial: SKIN_RADIAL,
+    sub: 2,
     sx: lSx,
     sz: lSx * 0.9,
   });
@@ -1481,15 +1538,12 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
   }
   if (extras?.hand) {
     const hs = extras.handScale ?? 1;
-    const hand = handMesh(lowerR * 1.25 * hs, extras.hand, extras.fingerLen ?? 1);
+    const hand = handMesh(lowerR * 1.25 * hs, extras.hand, extras.fingerLen ?? 1, side === "L" ? 1 : -1);
     hand.rotation.set(extras.handRx ?? 0.12, extras.handRy ?? 0, extras.handRz ?? 0);
     hand.scale.multiplyScalar(hs);
-    hand.traverse((o) => {
-      if (o.isMesh) {
-        o.userData.moldFamily = "limb";
-        o.userData.moldId = o.userData.moldId || `hand_${side}`;
-      }
-    });
+    hand.userData.moldFamily = "limb";
+    hand.userData.moldId = `hand_${side}`;
+    sh.userData.hand = hand;
     const wrist = new THREE.Group();
     wrist.position.y = -lowerLen + lowerR * 0.1;
     wrist.rotation.order = "XYZ";
@@ -1512,7 +1566,8 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
   const side = extras?.side === "R" ? "R" : "L";
   const fit = extras?.clothFit ?? 1.1;
   const thigh = loftMesh(mulProfile(PROF.thigh, thighR * tBulk), thighLen, mat, {
-    radial: 14,
+    radial: SKIN_RADIAL,
+    sub: 2,
     sx: tSx,
     sz: tSx * 0.93,
   });
@@ -1546,16 +1601,24 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
     ct.userData.moldId = `cloth_thigh_${side}`;
     ct.userData.moldFamily = "cloth";
     if (extras?.wrinkle) {
-      if (giPants) wrinkleGiMesh(ct, extras.wrinkle * 1.35, "thigh");
-      else wrinkleClothMesh(ct, extras.wrinkle);
+      if (giPants) wrinkleGiMesh(ct, extras.wrinkle * 1.35, "thigh", extras.s);
+      else wrinkleClothMesh(ct, extras.wrinkle, extras.s);
     }
     hip.add(ct);
   }
   const knee = new THREE.Group();
   knee.position.y = -thighLen;
-  knee.add(jointBall(Math.max(thighR, shinR) * 1.12, mat));
+  knee.add(
+    jointBall(
+      Math.max(PROF.thigh.at(-1) * thighR * tBulk, PROF.shin[0] * shinR * sBulk),
+      mat,
+      Math.max(tSx, sSx),
+      Math.max(tSx * 0.93, sSx * 0.9)
+    )
+  );
   const shin = loftMesh(mulProfile(PROF.shin, shinR * sBulk), shinLen, mat, {
-    radial: 14,
+    radial: SKIN_RADIAL,
+    sub: 2,
     sx: sSx,
     sz: sSx * 0.9,
   });
@@ -1585,8 +1648,8 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
     cs.userData.moldId = `cloth_shin_${side}`;
     cs.userData.moldFamily = "cloth";
     if (extras?.wrinkle) {
-      if (giPants) wrinkleGiMesh(cs, extras.wrinkle * 1.55, "shin");
-      else wrinkleClothMesh(cs, extras.wrinkle * 0.85);
+      if (giPants) wrinkleGiMesh(cs, extras.wrinkle * 1.55, "shin", extras.s);
+      else wrinkleClothMesh(cs, extras.wrinkle * 0.85, extras.s);
     }
     knee.add(cs);
   }
@@ -1595,10 +1658,11 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
     const boot = footMesh(shinR * 1.4, extras.boot, extras);
     boot.position.set(0, -shinLen + (extras.footY ?? 0), 0);
     boot.scale.multiplyScalar(fs);
+    let bn = 0;
     boot.traverse((o) => {
       if (o.isMesh) {
         o.userData.moldFamily = "cloth";
-        o.userData.moldId = o.userData.moldId || `boot_${side}`;
+        o.userData.moldId = o.userData.moldId || (bn++ ? `boot_${side}_${bn - 1}` : `boot_${side}`);
       }
     });
     knee.add(boot);
@@ -1648,6 +1712,7 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
   const hsy = sc.headSy || 1;
   const hsz = sc.headSz || 1;
   const hairRoot = new THREE.Group();
+  hairRoot.userData.hairRoot = true;
   hairRoot.position.y = (sc.hairY || 0) * s;
   headG.add(hairRoot);
   const tagHair = (m, id) => {
@@ -1675,7 +1740,7 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
   if (hasHairStyle(t)) {
     const styled = buildHairStyle(t, hc, headG.children.find((c) => c.userData.moldId === "head"));
     if (styled) headG.add(styled);
-  } else if (t === "spike" || t === "goku") {
+  } else if (t === "goku") {
     // Gokú: flequillo adelante + corona salvaje atrás/arriba
     putCap(0.02, 1.12, 0.62, 1.1);
     spikes(
@@ -1724,24 +1789,6 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
       ],
       "hair_gohan"
     );
-  } else if (t === "trunks") {
-    // Trunks: picos altos verticales
-    putCap(0.02, 1.08, 0.58, 1.02);
-    spikes(
-      [
-        { x: -0.04, y: 0.04, z: 0.11, rx: 1.15, rz: 0.2, len: 0.12, r: 0.03, sx: 0.35 },
-        { x: 0.04, y: 0.04, z: 0.11, rx: 1.15, rz: -0.2, len: 0.11, r: 0.028, sx: 0.35 },
-        { x: 0, y: 0.04, z: 0.11, rx: 1.25, len: 0.1, r: 0.026, sx: 0.4 },
-        { x: -0.09, y: 0.12, z: 0, rx: -0.15, rz: 0.25, len: 0.32, r: 0.038, sx: 0.28 },
-        { x: -0.045, y: 0.14, z: -0.02, rx: -0.05, rz: 0.1, len: 0.4, r: 0.04, sx: 0.26 },
-        { x: 0, y: 0.16, z: -0.02, rx: 0, len: 0.46, r: 0.042, sx: 0.28 },
-        { x: 0.045, y: 0.14, z: -0.02, rx: -0.05, rz: -0.1, len: 0.4, r: 0.04, sx: 0.26 },
-        { x: 0.09, y: 0.12, z: 0, rx: -0.15, rz: -0.25, len: 0.32, r: 0.038, sx: 0.28 },
-        { x: -0.06, y: 0.1, z: -0.08, rx: -0.75, rz: 0.12, len: 0.2, r: 0.034, sx: 0.3 },
-        { x: 0.06, y: 0.1, z: -0.08, rx: -0.75, rz: -0.12, len: 0.2, r: 0.034, sx: 0.3 },
-      ],
-      "hair_trunks"
-    );
   } else if (t === "raditz") {
     // Raditz: melena larga salvaje atrás
     putCap(0.02, 1.12, 0.65, 1.14);
@@ -1761,7 +1808,7 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
       ],
       "hair_raditz"
     );
-  } else if (t === "spikeV" || t === "vegeta") {
+  } else if (t === "vegeta") {
     // Vegeta: todos hacia arriba, pico en V / corona
     putCap(0.04, 1.05, 0.5, 0.98);
     spikes(
@@ -1784,7 +1831,7 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
       ],
       "hair_veg"
     );
-  } else if (t === "namek" || t === "piccolo" || t === "nail" || t === "dende" || t === "turban") {
+  } else if (t === "nail" || t === "dende" || t === "turban") {
     if (t !== "turban") {
     for (const side of [-1, 1]) {
         const ant = loftMesh(
@@ -1799,7 +1846,7 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
         tagHair(ant, `ant_${side > 0 ? "R" : "L"}`);
       }
     }
-    if (t === "piccolo" || t === "turban" || look.turban) {
+    if (t === "turban" || look.turban) {
       const cloth = surf(look.turbanC ?? look.cape ?? 0xf5f5f5, { roughness: 0.88 });
       const wrap = loftMesh(
         [0.05, 0.14, 0.175, 0.19, 0.18, 0.14, 0.06].map((r) => r * s),
@@ -1838,9 +1885,24 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
       knot.userData.moldFamily = "cloth";
       hairRoot.add(knot);
     }
-  } else if (t === "tien") {
+  } else if (t === "tien" || t === "guldo" || t === "burter") {
     /* calvo */
-  } else if (t === "helm" || t === "recoome" || t === "cui" || t === "appule") {
+  } else if (t === "dodoria") {
+    // Púas cortas repartidas por la coronilla y la nuca (theta desde +Y, phi desde +Z)
+    const R = (sc.headR || 0.16) * s * hk;
+    const list = [
+      [0.15, 0], [0.55, 0.5], [0.55, -0.5], [0.6, 1.4], [0.6, -1.4], [0.65, 2.4], [0.65, -2.4],
+      [0.5, Math.PI], [1.0, 1.9], [1.0, -1.9], [1.05, 2.7], [1.05, -2.7], [1.1, Math.PI],
+    ];
+    list.forEach(([th, ph], i) => {
+      const dir = new THREE.Vector3(Math.sin(th) * Math.sin(ph) * hsx, Math.cos(th) * hsy, Math.sin(th) * Math.cos(ph) * hsz).normalize();
+      const len = 0.06 * s * hk * hl * (i === 0 ? 1.2 : 1);
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.022 * s * hk * hr, len, 10), hc);
+      spike.position.copy(dir).multiplyScalar(R * 0.95 + len * 0.4);
+      spike.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      tagHair(spike, `hair_dodoria_${i}`);
+    });
+  } else if (t === "helm" || t === "cui" || t === "appule") {
     const helm = new THREE.Mesh(
       latheProfile(
         [
@@ -1866,7 +1928,7 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
     visor.userData.moldId = "visor";
     visor.userData.moldFamily = "cloth";
     hairRoot.add(visor);
-  } else if (t === "horns" || t === "frieza") {
+  } else if (t === "frieza" || t === "ginyu") {
     for (const side of [-1, 1]) {
       const horn = new THREE.Mesh(new THREE.ConeGeometry(0.035 * s * hr, 0.2 * s * hl, 12), hc);
       horn.position.set(side * 0.11 * s, 0.11 * s, 0);
@@ -1892,15 +1954,11 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     const hiM = surf(0xffffff, { roughness: 0.15 });
     const pupilM = surf(0x0a0a0a, { roughness: 0.3 });
     const narrow = sc.eyeType === "narrow";
-    const wide = sc.eyeType === "wide";
-    const soft = sc.eyeType === "soft";
-    const sharp = sc.eyeType === "sharp" || sc.eyeType === "anime";
-    const dot = sc.eyeType === "dot";
-    const krilin = sc.eyeType === "krilin";
-    const wR = (dot ? sc.eyeWhiteR * 0.45 : sc.eyeWhiteR) * (wide ? 1.25 : narrow ? 0.75 : krilin ? 1.12 : 1);
-    const iR = (dot ? sc.eyeIrisR * 0.7 : sc.eyeIrisR) * (wide ? 1.15 : narrow ? 0.7 : sharp ? 1.15 : krilin ? 1.35 : 1);
-    const sy = sc.eyeSy * (narrow ? 0.5 : wide ? 1.2 : soft ? 1.05 : sharp ? 0.92 : krilin ? 1.05 : 1);
-    const sx = sc.eyeSx * (sharp ? 1.25 : soft ? 1.1 : krilin ? 1.35 : 1);
+    const sharp = !narrow;
+    const wR = sc.eyeWhiteR * (narrow ? 0.75 : 1);
+    const iR = sc.eyeIrisR * (narrow ? 0.7 : 1.15);
+    const sy = sc.eyeSy * (narrow ? 0.5 : 0.92);
+    const sx = sc.eyeSx * (sharp ? 1.25 : 1);
     const shineOn = (sc.eyeShine ?? 1) > 0.5;
   for (const side of [-1, 1]) {
       const sideK = side > 0 ? "R" : "L";
@@ -1908,36 +1966,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
       const ey = sc.eyeY * s * hsy * hk;
       const ez = sc.eyeZ * s * hsz * hk;
       const tilt = side * (sc.eyeTilt || 0);
-      if (krilin) {
-        // Contorno anime Krilin: trazo grueso arriba+afuera, fino abajo; abierto al centro
-        const ew = wR * s * hk * sx;
-        const eh = wR * s * hk * sy;
-        const z = ez + 0.005 * s;
-        const tagRim = (mesh, id) => {
-          mesh.userData.moldId = id;
-          mesh.userData.moldFamily = "eye";
-          mesh.userData.faceHandle = `eye_${sideK}`;
-          headG.add(mesh);
-        };
-        // Párpado superior (grueso, arqueado hacia afuera)
-        const top = new THREE.Mesh(new THREE.CapsuleGeometry(0.0052 * s, ew * 1.45, 4, 8), lineM);
-        top.rotation.z = Math.PI / 2 + tilt + side * -0.28;
-        top.position.set(ex + side * ew * 0.12, ey + eh * 0.58, z);
-        top.scale.set(1.25, 1, 0.85);
-        tagRim(top, `eye_${sideK}_rim_t`);
-        // Esquina exterior
-        const outer = new THREE.Mesh(new THREE.CapsuleGeometry(0.0048 * s, eh * 1.05, 4, 8), lineM);
-        outer.rotation.z = tilt + side * 0.08;
-        outer.position.set(ex + side * ew * 0.92, ey + eh * 0.02, z);
-        outer.scale.set(1.1, 1, 0.85);
-        tagRim(outer, `eye_${sideK}_rim_o`);
-        // Párpado inferior (más fino y chato)
-        const bot = new THREE.Mesh(new THREE.CapsuleGeometry(0.0026 * s, ew * 1.25, 3, 6), lineM);
-        bot.rotation.z = Math.PI / 2 + tilt + side * 0.06;
-        bot.position.set(ex + side * ew * 0.1, ey - eh * 0.52, z);
-        bot.scale.set(1, 1, 0.8);
-        tagRim(bot, `eye_${sideK}_rim_b`);
-      } else if (!dot) {
+      {
         const w = new THREE.Mesh(new THREE.SphereGeometry(wR * s * hk, GEO.eye[0], GEO.eye[1]), whiteM);
         w.position.set(ex, ey, ez);
         w.scale.set(sx, sy, sharp ? 0.42 : 0.55);
@@ -1947,7 +1976,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
         w.userData.faceHandle = `eye_${sideK}`;
     headG.add(w);
         // Delineado / párpado superior (anime)
-        if ((sc.lid ?? 0) > 0.05 && !dot) {
+        if ((sc.lid ?? 0) > 0.05) {
           const lAmt = sc.lid;
           const lSx = (sc.lidSx ?? 1) * sx * (1 + 0.08 * lAmt);
           const lSy = (sc.lidSy ?? 1) * sy * (0.35 + 0.35 * lAmt);
@@ -1981,62 +2010,40 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
       const iz = (sc.irisZ ?? sc.eyeZ + 0.025) * s * hsz * hk;
       const e = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk, GEO.iris[0], GEO.iris[1]), eyeM);
       e.position.set(ix, iy, iz);
-      e.scale.set(narrow ? 1.15 : krilin ? 0.95 : 1, narrow ? 0.55 : soft ? 1.05 : krilin ? 1.25 : 1, 1);
+      e.scale.set(narrow ? 1.15 : 1, narrow ? 0.55 : 1, 1);
       e.rotation.z = tilt;
       e.userData.moldId = `eye_${sideK}_i`;
       e.userData.moldFamily = "eye";
       e.userData.faceHandle = `iris_${sideK}`;
     headG.add(e);
-      if (!dot) {
-        if (!krilin) {
-          const pupil = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk * 0.42, GEO.pupil[0], GEO.pupil[1]), pupilM);
-          pupil.position.set(ix, iy, iz + 0.008 * s);
-          pupil.userData.moldId = `eye_${sideK}_p`;
-          pupil.userData.moldFamily = "eye";
-          headG.add(pupil);
-        }
-        // Brillo iris (toggle eyeShine; en Krilin también)
-        if (shineOn) {
-          const hi = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk * (krilin ? 0.26 : 0.22), GEO.highlight[0], GEO.highlight[1]), hiM);
-          hi.position.set(ix - side * iR * s * 0.22, iy + iR * s * 0.3, iz + 0.014 * s);
-          hi.userData.moldId = `eye_${sideK}_h`;
-          hi.userData.moldFamily = "eye";
-          headG.add(hi);
-        }
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk * 0.42, GEO.pupil[0], GEO.pupil[1]), pupilM);
+      pupil.position.set(ix, iy, iz + 0.008 * s);
+      pupil.userData.moldId = `eye_${sideK}_p`;
+      pupil.userData.moldFamily = "eye";
+      headG.add(pupil);
+      if (shineOn) {
+        const hi = new THREE.Mesh(new THREE.SphereGeometry(iR * s * hk * 0.22, GEO.highlight[0], GEO.highlight[1]), hiM);
+        hi.position.set(ix - side * iR * s * 0.22, iy + iR * s * 0.3, iz + 0.014 * s);
+        hi.userData.moldId = `eye_${sideK}_h`;
+        hi.userData.moldFamily = "eye";
+        headG.add(hi);
       }
     }
   }
 
   if (!decal && sc.brow > 0.05) {
     const browM = surf(look.hairC ?? 0x1a1208, { roughness: 0.65 });
-    const krilinBrow = sc.eyeType === "krilin";
     for (const side of [-1, 1]) {
-      let b;
-      if (krilinBrow) {
-        // Cejas afiladas hacia afuera (punta exterior)
-        const len = 0.052 * s * sc.brow;
-        const thick = 0.011 * s * sc.brow;
-        b = new THREE.Mesh(new THREE.ConeGeometry(thick, len, 7), browM);
-        // Tip del cono = afuera
-        b.rotation.z = side > 0 ? -Math.PI / 2 + (sc.browTilt ?? -0.35) : Math.PI / 2 - (sc.browTilt ?? -0.35);
-        b.position.set(
-          side * (sc.eyeSep + (sc.browX || 0) + 0.012) * s,
-          sc.eyeY * s + (sc.browY ?? 0.038) * s,
-          sc.eyeZ * s - 0.01 * s + (sc.browZ || 0) * s
-        );
-        b.scale.set(1.15, 1, 0.55);
-      } else {
-        b = new THREE.Mesh(
-          new THREE.CapsuleGeometry(0.008 * s * sc.brow, 0.04 * s * sc.brow, 4, 8),
-          browM
-        );
-        b.rotation.z = Math.PI / 2 + side * (sc.browTilt ?? -0.35);
-        b.position.set(
-          side * (sc.eyeSep + (sc.browX || 0)) * s,
-          sc.eyeY * s + (sc.browY ?? 0.038) * s,
-          sc.eyeZ * s - 0.01 * s + (sc.browZ || 0) * s
-        );
-      }
+      const b = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.008 * s * sc.brow, 0.04 * s * sc.brow, 4, 8),
+        browM
+      );
+      b.rotation.z = Math.PI / 2 + side * (sc.browTilt ?? -0.35);
+      b.position.set(
+        side * (sc.eyeSep + (sc.browX || 0)) * s,
+        sc.eyeY * s + (sc.browY ?? 0.038) * s,
+        sc.eyeZ * s - 0.01 * s + (sc.browZ || 0) * s
+      );
       b.userData.moldId = `brow_${side > 0 ? "R" : "L"}`;
       b.userData.moldFamily = "face";
       headG.add(b);
@@ -2052,33 +2059,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     const nz = sc.eyeZ * s + 0.025 * s + (sc.noseZ || 0) * s;
     const nt = noseOn ? sc.noseType : "bulb";
     let nose;
-    if (nt === "anime") {
-      // Cuña anime: pequeña y afilada
-      nose = new THREE.Mesh(new THREE.ConeGeometry(0.014 * s * n, 0.032 * s * n, 5), skinN);
-      nose.rotation.x = Math.PI / 2;
-      nose.scale.set(0.55, 1, 0.85);
-      nose.position.set(0, ny, nz + 0.01 * s);
-    } else if (nt === "button") {
-      nose = new THREE.Mesh(new THREE.SphereGeometry(0.012 * s * n, 10, 8), skinN);
-      nose.scale.set(1.1, 0.85, 1.15);
-      nose.position.set(0, ny - 0.005 * s, nz + 0.012 * s);
-    } else if (nt === "soft") {
-      nose = new THREE.Mesh(new THREE.SphereGeometry(0.017 * s * n, 12, 10), skinN);
-      nose.scale.set(0.65, 1.15, 1.2);
-      nose.position.set(0, ny, nz + 0.008 * s);
-    } else if (nt === "hook") {
-      nose = new THREE.Mesh(new THREE.SphereGeometry(0.016 * s * n, 10, 8), skinN);
-      nose.scale.set(0.55, 1.4, 1.3);
-      nose.rotation.x = 0.55;
-      nose.position.set(0, ny - 0.012 * s, nz + 0.012 * s);
-    } else if (nt === "flat") {
-      nose = new THREE.Mesh(new THREE.BoxGeometry(0.038 * s * n, 0.014 * s * n, 0.022 * s * n), skinN);
-      nose.position.set(0, ny, nz + 0.008 * s);
-    } else if (nt === "ridge") {
-      nose = new THREE.Mesh(new THREE.BoxGeometry(0.016 * s * n, 0.04 * s * n, 0.02 * s * n), skinN);
-      nose.position.set(0, ny + 0.008 * s, nz + 0.006 * s);
-      nose.rotation.x = 0.25;
-    } else if (nt === "namek") {
+    if (nt === "namek") {
       const gN = new THREE.Group();
       for (const side of [-1, 1]) {
         const slit = new THREE.Mesh(new THREE.SphereGeometry(0.007 * s * n, 8, 6), skinN);
@@ -2114,21 +2095,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     const mrz = sc.mouthRz || 0;
     const lip = surf(0x6d4c41, { roughness: 0.55 });
     const dark = surf(0x3e2723, { roughness: 0.5 });
-    if (mt === "smile") {
-      const arc = new THREE.Mesh(new THREE.TorusGeometry(0.03 * s * mw, 0.005 * s, 6, 14, Math.PI * 0.75), lineM);
-      arc.rotation.set(Math.PI + 0.15 + mrx, mry, mrz);
-      arc.position.set(mx, my + 0.004 * s, mz);
-      arc.userData.moldId = "mouth";
-      arc.userData.moldFamily = "face";
-      headG.add(arc);
-    } else if (mt === "frown") {
-      const arc = new THREE.Mesh(new THREE.TorusGeometry(0.03 * s * mw, 0.005 * s, 6, 14, Math.PI * 0.7), lineM);
-      arc.rotation.set(0.15 + mrx, mry, mrz);
-      arc.position.set(mx, my + 0.008 * s, mz);
-      arc.userData.moldId = "mouth";
-      arc.userData.moldFamily = "face";
-      headG.add(arc);
-    } else if (mt === "open") {
+    if (mt === "open") {
       const m = new THREE.Mesh(new THREE.SphereGeometry(0.022 * s * mw, 12, 10), dark);
       m.scale.set(1.35, 0.7, 0.55);
       m.rotation.set(mrx, mry, mrz);
@@ -2154,13 +2121,6 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
         tooth.position.set(mx + (i - 1.5) * 0.012 * s * mw, my + 0.002 * s, mz + 0.004 * s);
         headG.add(tooth);
       }
-    } else if (mt === "smirk") {
-      const arc = new THREE.Mesh(new THREE.TorusGeometry(0.028 * s * mw, 0.005 * s, 6, 12, Math.PI * 0.45), lineM);
-      arc.rotation.set(Math.PI + 0.15 + mrx, mry, -0.35 + mrz);
-      arc.position.set(mx + 0.01 * s, my + 0.002 * s, mz);
-      arc.userData.moldId = "mouth";
-      arc.userData.moldFamily = "face";
-      headG.add(arc);
     } else {
       // line
       const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.004 * s, 0.038 * s * mw, 4, 8), lineM);
@@ -2172,7 +2132,7 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
     }
   }
 
-  if (look.hair === "bald") {
+  if (look.hair === "krilin" && !hasFaceDecal(sc)) {
     const eyeM = surf(0x212121, { roughness: 0.4 });
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2;
@@ -2413,8 +2373,8 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
   const vestLen = sc.torsoLen * s * 0.88;
   const sxAt = (v) => {
     const neck = sc.torsoNeckSx ?? 1.05;
-    const chest = sc.torsoChestSx ?? sc.torsoSx ?? 1.18;
-    const waist = sc.torsoWaistSx ?? sc.torsoSx ?? 1.18;
+    const chest = sc.torsoChestSx ?? 1.18;
+    const waist = sc.torsoWaistSx ?? 1.18;
     if (v < 0.22) return THREE.MathUtils.lerp(neck, chest, v / 0.22) * 1.2;
     if (v < 0.55) return THREE.MathUtils.lerp(chest, waist, (v - 0.22) / 0.33) * 1.24;
     return waist * 1.18;
@@ -2439,7 +2399,7 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
       0.01 * s + (sc.underZ || 0) * s
     );
     undershirt.scale.y = sc.underSy ?? 1;
-    wrinkleGiMesh(undershirt, wr * 0.55, "sleeve");
+    wrinkleGiMesh(undershirt, wr * 0.55, "sleeve", s);
     torsoG.add(tagCloth(undershirt, "undershirt"));
     // Mangas cortas de la camiseta (salen del sisa del gi)
     for (const side of [-1, 1]) {
@@ -2450,7 +2410,7 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
       });
       cap.position.set(side * 0.2 * s, yMid + vestLen * 0.28, 0);
       cap.rotation.z = side * 1.15;
-      wrinkleGiMesh(cap, wr * 0.6, "sleeve");
+      wrinkleGiMesh(cap, wr * 0.6, "sleeve", s);
       torsoG.add(tagCloth(cap, `under_sleeve_${side > 0 ? "R" : "L"}`));
     }
   }
@@ -2476,7 +2436,7 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
       );
       panel.position.set(lx * side * 0.15, yMid + ly, lz);
       panel.renderOrder = 1;
-      wrinkleGiMesh(panel, wr * 0.75, "torso");
+      wrinkleGiMesh(panel, wr * 0.75, "torso", s);
       torsoG.add(tagCloth(panel, `gi_wrap_${side > 0 ? "R" : "L"}`));
     }
   }
@@ -2497,7 +2457,7 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
     flap.scale.set(sc.giFlapSx ?? 1, sc.giFlapSy ?? 1, sc.giFlapSz ?? 1);
     flap.rotation.x = 0.12;
     flap.rotation.z = -side * 0.06;
-    wrinkleGiMesh(flap, wr * 1.1, "thigh");
+    wrinkleGiMesh(flap, wr * 1.1, "thigh", s);
     torsoG.add(tagCloth(flap, `gi_flap_${side > 0 ? "R" : "L"}`));
   }
 
@@ -2513,7 +2473,7 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
     sash.rotation.x = Math.PI / 2;
     sash.position.y = sashY;
     sash.scale.set(1.05, 1.15, 1);
-    wrinkleGiMesh(sash, wr * 1.3, "sash");
+    wrinkleGiMesh(sash, wr * 1.3, "sash", s);
     torsoG.add(tagCloth(sash, "sash"));
     // Capas extra del wrap del obi
     for (let i = 0; i < 3; i++) {
@@ -2527,12 +2487,12 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
     }
     const knot = new THREE.Mesh(new THREE.BoxGeometry(0.1 * s, 0.08 * s, 0.06 * s, 2, 2, 2), sashM);
     knot.position.set(0.02 * s, sashY, 0.17 * s);
-    wrinkleGiMesh(knot, wr, "sash");
+    wrinkleGiMesh(knot, wr, "sash", s);
     torsoG.add(tagCloth(knot, "sash_knot"));
     if (sc.showSashTail > 0.5) {
-      for (const [ox, rot] of [
-        [0.0, 0.05],
-        [0.04, -0.08],
+      for (const [ox, rot, tid] of [
+        [0.0, 0.05, "sash_tail"],
+        [0.04, -0.08, "sash_tail_2"],
       ]) {
         const tail = loftMesh(mulProfile([1, 1.05, 0.9, 0.7], 0.028 * s), 0.32 * s, sashM, {
           radial: 16,
@@ -2541,8 +2501,8 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
         });
         tail.position.set(ox * s, sashY - 0.14 * s, 0.14 * s);
         tail.rotation.z = rot;
-        wrinkleGiMesh(tail, wr * 0.9, "sash");
-        torsoG.add(tagCloth(tail, "sash_tail"));
+        wrinkleGiMesh(tail, wr * 0.9, "sash", s);
+        torsoG.add(tagCloth(tail, tid));
       }
     }
   }
@@ -2967,8 +2927,9 @@ function makeEliteCuirassGeo(profile, pecW, absW, torsoSz, inflate = 1.1, neckW 
 function makeArmorBorderTube(pts, tubeR, closed = true) {
   if (!pts?.length || pts.length < 2) return null;
   const curve = new THREE.CatmullRomCurve3(pts, closed, "catmullrom", 0.15);
-  const segs = Math.max(48, pts.length * 8);
-  return new THREE.TubeGeometry(curve, segs, tubeR, 10, closed);
+  // Los bordes eran ~80% de los tris del traje élite: tope de segmentos y sección de 6 lados (cordón fino).
+  const segs = THREE.MathUtils.clamp(pts.length * 2, 32, 128);
+  return new THREE.TubeGeometry(curve, segs, tubeR, 6, closed);
 }
 
 /** Pechera batalla: coraza + bordes 3D. */
@@ -3611,7 +3572,8 @@ function addScouter(headG, s, look, sc) {
   headG.add(tagCloth(glass, "scouter_lens"));
 }
 
-export function makeBody(altura, look, sculpt = {}) {
+/** opts.game: en partida junta también mallas moldeables (el editor necesita sus moldId). */
+export function makeBody(altura, look, sculpt = {}, opts = {}) {
   const id = sculptIdFromLook(look);
   const sc = { ...DEFAULT_SCULPT, ...(id ? loadSavedSculpt(id) : {}), ...sculpt };
   const g = new THREE.Group();
@@ -3697,9 +3659,9 @@ export function makeBody(altura, look, sculpt = {}) {
     platePecBot: sc.platePecBot,
     platePecSpan: sc.platePecSpan,
     platePecY: sc.platePecY,
-    pecW: sc.torsoChestSx ?? sc.torsoSx ?? 1.18,
-    absW: sc.torsoWaistSx ?? sc.torsoSx ?? 1.18,
-    neckW: sc.torsoNeckSx ?? sc.torsoChestSx ?? sc.torsoSx ?? 1.05,
+    pecW: sc.torsoChestSx ?? 1.18,
+    absW: sc.torsoWaistSx ?? 1.18,
+    neckW: sc.torsoNeckSx ?? sc.torsoChestSx ?? 1.05,
     torsoSz: sc.torsoSz ?? 1,
     torsoMul: sc.torsoMul ?? 0.15,
     torsoLen: sc.torsoLen ?? 0.55,
@@ -3749,11 +3711,11 @@ export function makeBody(altura, look, sculpt = {}) {
   hips.position.y = waistY;
   hips.userData.moldId = "hips";
   hips.userData.moldFamily = layered ? "cloth" : "torso";
-  if (kit === "gi") wrinkleGiMesh(hips, 1.25, "thigh");
+  if (kit === "gi") wrinkleGiMesh(hips, 1.25, "thigh", s);
   g.add(hips);
 
-  const pecW = sc.torsoChestSx ?? sc.torsoSx ?? 1.18;
-  const absW = sc.torsoWaistSx ?? sc.torsoSx ?? 1.18;
+  const pecW = sc.torsoChestSx ?? 1.18;
+  const absW = sc.torsoWaistSx ?? 1.18;
   const neckW = sc.torsoNeckSx ?? pecW * 0.9;
   const torsoMulW = sc.torsoMul * s * bruteC;
   // Solo la franja alta de hombros llega al brazo (no ensancha pecho/cintura)
@@ -3859,7 +3821,7 @@ export function makeBody(altura, look, sculpt = {}) {
   chest.castShadow = true;
   chest.userData.moldId = "chest";
   chest.userData.moldFamily = wearElitePlate || layered ? "cloth" : "torso";
-  torsoG.add(chest);
+  if (chest.visible) torsoG.add(chest);
   if (!wearElitePlate && kit !== "gi") addPecs(torsoG, s, waistY, shirtLayer || torsoC, sc, brute, ty);
 
   if (kit === "gi") {
@@ -4012,6 +3974,7 @@ export function makeBody(altura, look, sculpt = {}) {
     foreClothMat: armored || eliteSuit ? forearmM : null,
     clothFit: giFit,
     wrinkle: giWrinkle,
+    s,
     bracerType: eliteSuit ? "none" : sc.bracerType || "none",
     bracerMat: bracerM,
   };
@@ -4038,6 +4001,7 @@ export function makeBody(altura, look, sculpt = {}) {
     shinClothMat: layered ? shinM : null,
     clothFit: giFit,
     wrinkle: giWrinkle,
+    s,
     giPants: gi,
     giPantsSx: sc.giPantsSx,
     giPantsSy: sc.giPantsSy,
@@ -4088,6 +4052,10 @@ export function makeBody(altura, look, sculpt = {}) {
     { ...legBase, side: "R" }
   );
   g.add(legL, legR);
+  for (const [arm, key] of [[armL, "fistL"], [armR, "fistR"]]) {
+    const h = arm.userData.hand;
+    if (h?.morphTargetInfluences) h.onBeforeRender = () => (h.morphTargetInfluences[0] = g.userData[key] || 0);
+  }
   addSaiyanTail(g, s, sc, gearMat(look.skin, { kind: "cloth", detail: cd * 0.6, roughness: 0.88 }));
   g.userData.limbs = {
     armL,
@@ -4111,15 +4079,18 @@ export function makeBody(altura, look, sculpt = {}) {
     if (o.isMesh) o.castShadow = true;
   });
   if (sc.molds) applyMolds(g, sc.molds, s / (sc.moldAltura || 1.85));
-  mergeStaticMeshes(g, headG);
+  mergeStaticMeshes(g, headG, !!opts.game);
   return g;
 }
 
-function canMerge(c, keep) {
+/** userData que solo sirve al editor (moldeo/mangos): en partida no impide juntar mallas. */
+const EDITOR_ONLY_UD = new Set(["moldId", "moldFamily", "faceHandle"]);
+
+function canMerge(c, keep, game) {
   if (!c.isMesh || c.isSkinnedMesh || c.isInstancedMesh || c.type !== "Mesh") return false;
-  if (!c.visible || c.children.length || keep.has(c)) return false;
+  if (!c.visible || c.children.length || keep.has(c) || c.morphTargetInfluences) return false;
   if (Array.isArray(c.material) || !c.material?.userData?.shared) return false;
-  if (Object.keys(c.userData).length) return false;
+  if (Object.keys(c.userData).some((k) => !(game && EDITOR_ONLY_UD.has(k)))) return false;
   const g = c.geometry;
   if (!g?.attributes?.position || Object.keys(g.morphAttributes).length) return false;
   return !Object.values(g.attributes).some((a) => a.isInterleavedBufferAttribute);
@@ -4158,7 +4129,7 @@ function bakeGeo(c) {
  * Junta mallas hermanas rígidas con el mismo material compartido (menos draw calls).
  * No toca: moldeables, tela con viento, pelo SSJ, refs de animación ni hijos directos de la cabeza.
  */
-function mergeStaticMeshes(root, headG) {
+function mergeStaticMeshes(root, headG, game = false) {
   const keep = new Set();
   root.traverse((o) => {
     for (const v of Object.values(o.userData)) {
@@ -4170,12 +4141,12 @@ function mergeStaticMeshes(root, headG) {
   });
   const parents = [];
   root.traverse((o) => {
-    if (!o.isMesh && o !== headG && o.children.length > 1) parents.push(o);
+    if (!o.isMesh && (game || o !== headG) && !o.userData.hairRoot && o.children.length > 1) parents.push(o);
   });
   for (const p of parents) {
     const buckets = new Map();
     for (const c of p.children) {
-      if (!canMerge(c, keep)) continue;
+      if (!canMerge(c, keep, game)) continue;
       const g = c.geometry;
       const attrs = Object.keys(g.attributes)
         .sort()
@@ -4217,7 +4188,7 @@ export function applyMolds(root, molds, scale = 1) {
     if (k === 1) pos.array.set(data);
     else for (let i = 0; i < data.length; i++) pos.array[i] = data[i] * k;
     pos.needsUpdate = true;
-    o.geometry.computeVertexNormals();
+    recomputeNormals(o.geometry);
   });
 }
 

@@ -153,7 +153,6 @@ export const VEC_HANDLES = [
       sc.noseY = p.y - ((sc.eyeY ?? 0.02) - 0.025);
       sc.noseZ = p.z - ((sc.eyeZ ?? 0.13) + 0.025);
       if ((sc.nose ?? 0) < 0.15) sc.nose = 0.45;
-      if (!sc.noseType || sc.noseType === "none") sc.noseType = "anime";
     },
   },
   {

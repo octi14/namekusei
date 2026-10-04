@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { makeBody, DEFAULT_SCULPT, SCULPT_SELECTS, saveSculpt, loadSavedSculpt, clearSavedSculpt, captureMolds } from "./body.js";
+import { makeBody, DEFAULT_SCULPT, SCULPT_SELECTS, saveSculpt, loadSavedSculpt, clearSavedSculpt, captureMolds, recomputeNormals } from "./body.js";
 import { LOOK, saveLook, loadSavedLook } from "./looks.js";
 import { hasFaceDecal, sculptKeyApplies, FACE_MESH_LOOK_KEYS } from "./faceDecal.js";
 import { flushPack } from "./pack.js";
@@ -42,7 +42,7 @@ const LOOK_COLORS = [
   ["accent", "Acento", (l) => l.accent ?? 0x1565c0],
 ];
 const KITS = ["gi", "namek", "armor", "soldier", "frost", "brute"];
-const HAIRS = ["goku", "gohan", "trunks", "vegeta", "raditz", "bald", "piccolo", "turban", "nail", "dende", "tien", "frieza", "helm", "bob18", "bob17", "bobTrunks", "spikyBardock", "zaabon", "jeice"];
+const HAIRS = ["goku", "gohan", "vegeta", "raditz", "bald", "krilin", "dodoria", "guldo", "ginyu", "turban", "cui", "appule", "nail", "dende", "tien", "frieza", "helm", "bob18", "bob17", "bobTrunks", "spikyBardock", "zaabon", "jeice"];
 const MOLD_PARTS = [
   ["all", "Todas (moldeables)"],
   ["head", "Cabeza"],
@@ -329,10 +329,6 @@ const SLIDERS = [
   ["hairSpikeLen", "Pelo largo", 0.4, 2, 0.05],
   ["hairY", "Pelo Y", -0.12, 0.16, 0.005],
   "Piel / extras",
-  ["bumpScale", "Arrugas", 0, 0.1, 0.001],
-  ["sheen", "Sheen piel", 0, 1, 0.01],
-  ["sheenRough", "Sheen rough", 0.2, 1, 0.01],
-  ["skinRough", "Rough piel", 0.4, 1, 0.01],
   ["paleLift", "Palidez +L", 0, 0.15, 0.005],
   ["paleSat", "Palidez sat", 0.4, 1, 0.01],
   ["spots", "Manchas cuerpo", 0, 1, 1],
@@ -362,36 +358,9 @@ const SELECT_OPTS = {
   faceDecal: { none: "Ninguna (meshes)", piccolo: "Pikoro", trunks: "Trunks", freezer: "Freezer", recoome: "Rikum", raditz: "Raditz", nappa: "Nappa", a17: "Nº17", a18: "Nº18", a16: "Nº16", yamcha: "Yamcha", chaoz: "Chaoz", bardock: "Bardock", zaabon: "Zaabon", jeice: "Yiz", tien: "Ten Shin Han", goku: "Gokú", vegeta: "Vegeta", gohan: "Gohan", fgohan: "Gohan del futuro", krilin: "Krilin", yajirobe: "Yajirobee", satan: "Mr. Satan", guldo: "Gurdo", paragus: "Paragus", cell: "Cell", celljr: "Cell Jr.", nail: "Nail" },
   pecType: { none: "Ninguno", sphere: "Esfera", flat: "Plano", split: "Split", armor: "Armadura" },
   earType: { none: "Ninguna", round: "Redonda", pointed: "Picuda", wide: "Ancha" },
-  eyeType: {
-    anime: "Anime",
-    soft: "Suave",
-    sharp: "Afilado",
-    dot: "Punto",
-    narrow: "Estrecho",
-    wide: "Ancho",
-    krilin: "Krilin",
-    none: "Ninguno",
-  },
-  noseType: {
-    none: "Ninguna",
-    anime: "Anime",
-    bulb: "Bulbo",
-    button: "Botón",
-    hook: "Gancho",
-    flat: "Plana",
-    ridge: "Cresta",
-    soft: "Suave",
-    namek: "Namek",
-  },
-  mouthType: {
-    none: "Ninguna",
-    line: "Línea",
-    smile: "Sonrisa",
-    frown: "Ceño",
-    open: "Abierta",
-    grit: "Dientes",
-    smirk: "Media sonrisa",
-  },
+  eyeType: { anime: "Anime", narrow: "Estrecho", none: "Ninguno" },
+  noseType: { none: "Ninguna", namek: "Namek" },
+  mouthType: { none: "Ninguna", line: "Línea", open: "Abierta", grit: "Dientes" },
   padType: { none: "Ninguna", sphere: "Esfera", spaulder: "Hombrera", spiked: "Con pincho", flat: "Plana", wing: "Ala (Zarbon)" },
   plateType: { none: "Ninguna", dome: "Cúpula", flat: "Plana", ribbed: "Con nervios", split: "Doble", elite: "Freezer Force" },
   bracerType: { none: "Ninguno", cuff: "Aro", plate: "Placa", wrap: "Venda" },
@@ -1038,7 +1007,7 @@ function strokeMold(e) {
     pos.setXYZ(i, x, y, z);
   }
   pos.needsUpdate = true;
-  geo.computeVertexNormals();
+  recomputeNormals(geo);
 }
 
 function syncSculptUi() {
