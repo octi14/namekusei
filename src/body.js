@@ -1446,8 +1446,8 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
   upper.userData.moldId = `skin_uarm_${side}`;
   upper.userData.moldFamily = "limb";
   sh.add(upper);
-  sh.add(jointBall(PROF.upperArm[0] * upperR * uBulk * 0.96, mat, uSx, uSx * 0.94));
   const sleeveM = extras?.sleeveMat ?? extras?.clothMat;
+  if (!sleeveM) sh.add(jointBall(PROF.upperArm[0] * upperR * uBulk * 0.96, mat, uSx, uSx * 0.94));
   if (sleeveM) {
     const sl = extras?.sleeveLen ?? 0.88;
     const cu = loftMesh(mulProfile(PROF.upperArm, upperR * uBulk * fit), upperLen * sl, sleeveM, {
