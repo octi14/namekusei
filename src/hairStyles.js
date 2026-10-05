@@ -26,10 +26,15 @@ function headFrame(head) {
     return v;
   };
   const surfRay = (d) => {
-    _ray.set(_v.copy(d).multiplyScalar(far).add(c), d.clone().negate());
-    _ray.far = far * 2;
-    const hit = _ray.intersectObject(head, false)[0];
-    return hit ? far - hit.distance : Math.max(h.x, h.y, h.z);
+    // en el polo del torno el rayo puede pasar por el hueco central: reintentar apenas desviado
+    for (const e of [0, 0.01, 0.03]) {
+      const dd = e ? d.clone().add(_v.set(e, 0, e * 0.7)).normalize() : d;
+      _ray.set(_v.copy(dd).multiplyScalar(far).add(c), dd.clone().negate());
+      _ray.far = far * 2;
+      const hit = _ray.intersectObject(head, false)[0];
+      if (hit) return far - hit.distance;
+    }
+    return Math.min(h.x, h.y, h.z);
   };
   return { c, ax: h.x, ay: h.y, az: h.z, surf };
 }
@@ -101,6 +106,7 @@ function scalpCap(out, pt, thFront, thSide, lift, liftEdge = lift) {
       const e = (j / J) ** 2.5;
       const p = pt(sph(Math.max(0.001, (thMax * j) / J), ph), lift + (liftEdge - lift) * e);
       out.pos.push(p.x, p.y, p.z);
+      if (out.uv) out.uv.push((i / I) * 4, j / J);
     }
   }
   for (let i = 0; i < I; i++) {
@@ -116,15 +122,15 @@ function scalpCap(out, pt, thFront, thSide, lift, liftEdge = lift) {
  * Pelo de picos (Saiyan). Cada pico: [theta, phi] base en el cráneo, v1/v2 = [theta, phi] dirección
  * inicial y de la punta, L largo y w medio ancho (en semiejes X de cabeza).
  */
-function spiky(F, list, { thFront = 0.55, thSide = 1.5, mirror = true, vol = 0.04, wMul = 1 } = {}) {
+function spiky(F, list, { thFront = 0.55, thSide = 1.5, mirror = true, vol = 0.04, wMul = 1, tMul = 0.5 } = {}) {
   const out = { pos: [], idx: [] };
   const A = F.ax;
   const pt = (d, lift) => d.clone().multiplyScalar(F.surf(d) + lift).add(F.c);
   // vol: volumen de pelo bajo los picos (alto en la coronilla, baja a ~0 en la línea del pelo)
   scalpCap(out, pt, thFront, thSide, vol * A, 0.035 * A);
   const one = ({ b, v1, v2, L: L0, w: w0, t, minor = 1 }, sd) => {
-    const w = w0 * wMul;
-    const L = sd < 0 ? L0 * minor : L0;
+    const w = w0 * wMul * F.r;
+    const L = (sd < 0 ? L0 * minor : L0) * F.len;
     const p0 = pt(sph(b[0], sd * b[1]), -0.02 * A);
     const d1 = sph(v1[0], sd * v1[1]);
     const d2 = sph(v2[0], sd * v2[1]);
@@ -132,7 +138,7 @@ function spiky(F, list, { thFront = 0.55, thSide = 1.5, mirror = true, vol = 0.0
     const p1 = p0.clone().addScaledVector(d1, L * A * 0.38);
     const p2 = p1.clone().addScaledVector(dm, L * A * 0.34);
     const p3 = p2.clone().addScaledVector(d2, L * A * 0.28);
-    addStrand(out, F, [p0, p1, p2, p3], { w: w * A, t: (t ?? w * 0.5) * A, blade: true, seg: 14, radial: 8 });
+    addStrand(out, F, [p0, p1, p2, p3], { w: w * A, t: (t ?? w * tMul) * A, blade: true, seg: 14, radial: 8 });
   };
   for (const s of list) {
     if (s.center || !mirror) one(s, 1);
@@ -173,6 +179,210 @@ const BARDOCK = [
   { b: [1.45, 1.22], v1: [2.35, 1.28], v2: [2.7, 1.2], L: 0.45, w: 0.11 },
 ];
 
+// Gohan niño (Namek): flequillo de 3 picos sobre la frente, picos medianos arriba/atrás, laterales hacia afuera.
+const GOHAN_KID = [
+  { b: [0.6, 0.12], v1: [1.75, 0.15], v2: [2.75, 0.2], L: 0.95, w: 0.26 },
+  { b: [0.62, 0.45], v1: [1.75, 0.55], v2: [2.6, 0.75], L: 0.85, w: 0.24 },
+  { b: [0.72, 0.85], v1: [1.7, 1.0], v2: [2.4, 1.2], L: 0.75, w: 0.22 },
+  { b: [0.15, 0.4], v1: [0.3, 0.5], v2: [0.9, 0.8], L: 0.8, w: 0.32 },
+  { b: [0.25, Math.PI], v1: [0.45, Math.PI], v2: [1.1, Math.PI], L: 0.9, w: 0.34, center: true },
+  { b: [0.35, 1.3], v1: [0.6, 1.4], v2: [1.2, 1.6], L: 0.9, w: 0.32 },
+  { b: [0.45, 2.3], v1: [0.7, 2.3], v2: [1.3, 2.4], L: 0.95, w: 0.33 },
+  { b: [0.95, 1.5], v1: [1.3, 1.6], v2: [1.7, 1.75], L: 0.85, w: 0.3 },
+  { b: [0.95, 2.1], v1: [1.35, 2.15], v2: [1.8, 2.3], L: 0.85, w: 0.3 },
+  { b: [1.3, Math.PI], v1: [1.8, Math.PI], v2: [2.3, Math.PI], L: 0.7, w: 0.32, center: true },
+  { b: [1.25, 2.65], v1: [1.75, 2.7], v2: [2.2, 2.75], L: 0.7, w: 0.3 },
+  { b: [0.5, 1.0], v1: [0.8, 1.1], v2: [1.4, 1.3], L: 0.75, w: 0.3 },
+  { b: [0.7, 2.8], v1: [1.0, 2.85], v2: [1.6, 2.9], L: 0.8, w: 0.32 },
+  { b: [1.45, 1.22], v1: [2.35, 1.28], v2: [2.7, 1.2], L: 0.4, w: 0.12 },
+];
+
+// Gohan del futuro: estilo Gokú desordenado; flequillo corto, picos grandes que suben y se abren.
+const FGOHAN = [
+  { b: [0.62, 0.1], v1: [1.7, 0.12], v2: [2.6, 0.2], L: 0.8, w: 0.25 },
+  { b: [0.66, 0.5], v1: [1.7, 0.6], v2: [2.5, 0.85], L: 0.75, w: 0.23 },
+  { b: [0.2, 0.4], v1: [0.2, 0.55], v2: [0.65, 0.9], L: 1.05, w: 0.33 },
+  { b: [0.25, Math.PI], v1: [0.35, Math.PI], v2: [0.95, Math.PI], L: 1.1, w: 0.36, center: true },
+  { b: [0.35, 1.5], v1: [0.5, 1.6], v2: [1.0, 1.75], L: 1.1, w: 0.34 },
+  { b: [0.45, 2.35], v1: [0.6, 2.4], v2: [1.1, 2.5], L: 1.1, w: 0.34 },
+  { b: [0.95, 1.5], v1: [1.25, 1.6], v2: [1.6, 1.75], L: 0.95, w: 0.3 },
+  { b: [1.05, 2.15], v1: [1.4, 2.2], v2: [1.8, 2.35], L: 0.9, w: 0.3 },
+  { b: [1.3, Math.PI], v1: [1.75, Math.PI], v2: [2.2, Math.PI], L: 0.75, w: 0.32, center: true },
+  { b: [1.25, 2.7], v1: [1.65, 2.75], v2: [2.1, 2.8], L: 0.75, w: 0.3 },
+  { b: [0.5, 0.95], v1: [0.75, 1.05], v2: [1.3, 1.25], L: 0.9, w: 0.32 },
+  { b: [0.7, 2.85], v1: [0.9, 2.9], v2: [1.5, 2.95], L: 0.9, w: 0.33 },
+  { b: [1.45, 1.22], v1: [2.35, 1.28], v2: [2.7, 1.2], L: 0.4, w: 0.12 },
+];
+
+// Yamcha (pelo largo): flequillo en picos y melena de picos largos que cae por la espalda.
+const YAMCHA = [
+  { b: [0.5, 0.05], v1: [1.2, 0.1], v2: [2.2, 0.15], L: 0.6, w: 0.16 },
+  { b: [0.6, 0.45], v1: [1.3, 0.55], v2: [2.1, 0.8], L: 0.6, w: 0.15 },
+  { b: [0.25, 0.3], v1: [0.4, 0.5], v2: [1.3, 1.2], L: 1.0, w: 0.24 },
+  { b: [0.85, 1.4], v1: [1.4, 1.6], v2: [2.4, 1.8], L: 1.6, w: 0.25 },
+  { b: [0.7, 2.0], v1: [1.3, 2.2], v2: [2.5, 2.4], L: 2.0, w: 0.26 },
+  { b: [0.4, Math.PI], v1: [0.9, Math.PI], v2: [2.6, Math.PI], L: 2.8, w: 0.3, center: true },
+  { b: [0.6, 2.6], v1: [1.1, 2.65], v2: [2.6, 2.75], L: 2.5, w: 0.28 },
+  { b: [1.1, 2.85], v1: [1.6, 2.9], v2: [2.7, 2.95], L: 2.1, w: 0.26 },
+  { b: [0.2, 1.2], v1: [0.6, 1.5], v2: [2.0, 1.9], L: 1.4, w: 0.25 },
+  { b: [0.35, 2.3], v1: [0.8, 2.4], v2: [2.4, 2.6], L: 2.2, w: 0.27 },
+  { b: [1.45, 1.22], v1: [2.35, 1.28], v2: [2.7, 1.2], L: 0.45, w: 0.11 },
+];
+
+// Yajirobee: greña espesa y desprolija, flequillo pesado sobre la frente, todo cae hacia abajo.
+const YAJIROBE = [
+  { b: [0.45, 0], v1: [1.1, 0], v2: [1.9, 0], L: 0.7, w: 0.2, center: true },
+  { b: [0.5, 0.4], v1: [1.15, 0.45], v2: [1.9, 0.6], L: 0.7, w: 0.19 },
+  { b: [0.65, 0.85], v1: [1.3, 0.95], v2: [1.95, 1.1], L: 0.65, w: 0.18 },
+  { b: [0.15, 0.5], v1: [0.5, 0.8], v2: [1.2, 1.2], L: 0.8, w: 0.24 },
+  { b: [0.3, 2.0], v1: [0.7, 2.1], v2: [1.4, 2.2], L: 0.85, w: 0.24 },
+  { b: [0.3, Math.PI], v1: [0.7, Math.PI], v2: [1.5, Math.PI], L: 0.85, w: 0.26, center: true },
+  { b: [0.95, 1.45], v1: [1.5, 1.55], v2: [2.1, 1.6], L: 0.8, w: 0.23 },
+  { b: [0.9, 2.1], v1: [1.45, 2.2], v2: [2.15, 2.3], L: 0.85, w: 0.23 },
+  { b: [1.2, Math.PI], v1: [1.7, Math.PI], v2: [2.3, Math.PI], L: 0.85, w: 0.25, center: true },
+  { b: [1.15, 2.6], v1: [1.65, 2.65], v2: [2.25, 2.7], L: 0.8, w: 0.23 },
+  { b: [0.55, 1.15], v1: [1.0, 1.25], v2: [1.6, 1.4], L: 0.75, w: 0.22 },
+  { b: [0.65, 2.75], v1: [1.1, 2.8], v2: [1.8, 2.85], L: 0.8, w: 0.23 },
+];
+
+// Raditz: mechones anchos que bajan por la espalda (largo = semiejes X de cabeza), centro más largo.
+const RADITZ = [
+  { b: [0.9, Math.PI], v1: [2.75, Math.PI], v2: [3.10, Math.PI], L: 9, w: 0.75, center: true },
+  { b: [0.85, 2.75], v1: [2.75, 2.75], v2: [3.10, 2.7], L: 8.5, w: 0.72 },
+  { b: [0.85, 2.35], v1: [2.70, 2.3], v2: [3.05, 2.2], L: 7.5, w: 0.7 },
+  { b: [0.95, 1.95], v1: [2.2, 2.3], v2: [2.9, 2.6], L: 5.0, w: 0.62 },
+  { b: [1.05, 1.6], v1: [2.0, 2.2], v2: [2.8, 2.5], L: 3.2, w: 0.5 },
+  { b: [1.35, 2.95], v1: [2.85, 2.95], v2: [3.10, 2.9], L: 8.0, w: 0.65 },
+  { b: [1.35, 2.5], v1: [2.85, 2.5], v2: [3.10, 2.4], L: 7.0, w: 0.62 },
+  { b: [1.4, 2.1], v1: [2.3, 2.4], v2: [3.0, 2.5], L: 5.4, w: 0.55 },
+  { b: [0.55, 2.95], v1: [2.50, 2.95], v2: [3.05, 2.9], L: 8.0, w: 0.6 },
+  { b: [0.6, 2.2], v1: [2.50, 2.3], v2: [3.00, 2.4], L: 6.0, w: 0.55 },
+];
+
+// Rey Vegeta: llama de picos hacia arriba con entradas, + barba y bigote.
+const KING_VEGETA = [
+  { b: [0.5, 0], v1: [0.15, 0], v2: [0.3, Math.PI], L: 1.6, w: 0.34, center: true },
+  { b: [0.5, 0.5], v1: [0.2, 0.6], v2: [0.35, 2.0], L: 1.5, w: 0.32 },
+  { b: [0.6, 1.1], v1: [0.3, 1.3], v2: [0.4, 2.0], L: 1.45, w: 0.32 },
+  { b: [0.7, 1.6], v1: [0.4, 1.8], v2: [0.5, 2.2], L: 1.35, w: 0.3 },
+  { b: [0.8, 2.2], v1: [0.45, 2.4], v2: [0.55, 2.7], L: 1.3, w: 0.3 },
+  { b: [0.8, Math.PI], v1: [0.45, Math.PI], v2: [0.6, Math.PI], L: 1.35, w: 0.32, center: true },
+  { b: [0.25, 1.0], v1: [0.1, 1.2], v2: [0.25, 2.5], L: 1.7, w: 0.34 },
+  { b: [0.35, 2.4], v1: [0.15, 2.6], v2: [0.3, 2.9], L: 1.6, w: 0.34 },
+];
+
+/** Barba de una pieza pegada a la cara (patillas → mentón) + bigote. Ángulos como sph(). */
+function beard(F, { top = 2.12, side = 1.5, bot = 2.75, th = 0.09, mus = true } = {}) {
+  const out = { pos: [], idx: [] };
+  const A = F.ax;
+  const lerp = THREE.MathUtils.lerp;
+  const pt = (d, lift) => d.clone().multiplyScalar(F.surf(d) + lift).add(F.c);
+  const sheet = (I, J, phMax, fTh, fLift) => {
+    const base = out.pos.length / 3;
+    for (let i = 0; i <= I; i++) {
+      const ph = -phMax + (i / I) * phMax * 2;
+      const a = Math.abs(ph) / phMax;
+      for (let j = 0; j <= J; j++) {
+        const t = j / J;
+        const p = pt(sph(fTh(a, t), ph), fLift(a, t) * A);
+        out.pos.push(p.x, p.y, p.z);
+      }
+    }
+    for (let i = 0; i < I; i++)
+      for (let j = 0; j < J; j++) {
+        const a = base + i * (J + 1) + j;
+        const b = a + J + 1;
+        out.idx.push(a, a + 1, b, b, a + 1, b + 1);
+      }
+  };
+  const edge = (a, t) => Math.sqrt(Math.sin(Math.PI * t)) * (1 - a ** 6);
+  sheet(28, 12, 1.4,
+    (a, t) => lerp(lerp(top, side, a ** 1.4), lerp(bot, side + 0.7, a ** 2), t),
+    (a, t) => th * edge(a, t) * (1 + 0.8 * t * (1 - a)) - 0.005);
+  if (mus)
+    sheet(16, 4, 0.7,
+      (a, t) => lerp(1.9 + 0.08 * a * a, 2.0 + 0.22 * a * a, t),
+      (a, t) => 0.035 * edge(a, t) - 0.003);
+  return out;
+}
+
+// Tooma: picos que suben desde la frente y se peinan hacia atrás.
+const TOOMA = [
+  { b: [0.6, 0.12], v1: [0.25, 0.1], v2: [0.75, 2.9], L: 0.95, w: 0.24 },
+  { b: [0.65, 0.55], v1: [0.35, 0.7], v2: [0.9, 2.6], L: 0.9, w: 0.23 },
+  { b: [0.3, 0], v1: [0.3, 2.8], v2: [0.9, 3.0], L: 1.1, w: 0.3, center: true },
+  { b: [0.35, 1.3], v1: [0.5, 1.8], v2: [1.0, 2.4], L: 1.0, w: 0.28 },
+  { b: [0.4, Math.PI], v1: [0.7, Math.PI], v2: [1.2, Math.PI], L: 1.0, w: 0.3, center: true },
+  { b: [0.6, 2.3], v1: [0.85, 2.4], v2: [1.3, 2.6], L: 0.95, w: 0.28 },
+  { b: [0.95, 1.6], v1: [1.2, 1.9], v2: [1.6, 2.3], L: 0.8, w: 0.26 },
+  { b: [1.2, 2.6], v1: [1.6, 2.7], v2: [2.0, 2.8], L: 0.6, w: 0.26 },
+  { b: [1.45, 1.22], v1: [2.35, 1.28], v2: [2.7, 1.2], L: 0.35, w: 0.11 },
+];
+
+// Rikum: picos grandes hacia arriba y afuera (llama).
+const RIKUM = [
+  { b: [0.6, 0.15], v1: [0.2, 0.2], v2: [0.5, 0.4], L: 1.1, w: 0.26 },
+  { b: [0.65, 0.6], v1: [0.4, 0.8], v2: [0.8, 1.2], L: 1.1, w: 0.26 },
+  { b: [0.2, 0], v1: [0.1, 0], v2: [0.3, 2.5], L: 1.3, w: 0.32, center: true },
+  { b: [0.35, 1.2], v1: [0.4, 1.4], v2: [0.9, 1.6], L: 1.3, w: 0.32 },
+  { b: [0.35, 2.4], v1: [0.5, 2.5], v2: [1.0, 2.6], L: 1.3, w: 0.32 },
+  { b: [0.45, Math.PI], v1: [0.6, Math.PI], v2: [1.1, Math.PI], L: 1.2, w: 0.32, center: true },
+  { b: [0.85, 1.7], v1: [1.0, 1.7], v2: [1.3, 1.9], L: 1.1, w: 0.3 },
+  { b: [1.1, 2.5], v1: [1.4, 2.6], v2: [1.8, 2.7], L: 0.85, w: 0.3 },
+  { b: [1.3, Math.PI], v1: [1.7, Math.PI], v2: [2.1, Math.PI], L: 0.7, w: 0.3, center: true },
+  { b: [1.45, 1.22], v1: [2.35, 1.28], v2: [2.7, 1.2], L: 0.35, w: 0.11 },
+];
+
+/** Une dos peinados (pos/idx/uv) en uno; el segundo hereda uv 0 si no tiene. */
+function joinOut(a, b) {
+  const off = a.pos.length / 3;
+  const out = { ...a, pos: a.pos.concat(b.pos), idx: a.idx.concat(b.idx.map((i) => i + off)) };
+  if (a.uv || b.uv) {
+    const fill = (o) => o.uv ?? new Array((o.pos.length / 3) * 2).fill(0);
+    out.uv = fill(a).concat(fill(b));
+  }
+  return out;
+}
+
+/** Afro (Mr. Satan): masa de bollos rizados sobre cráneo y costados; cara despejada. */
+function afro(F, o = {}) {
+  const out = { pos: [], idx: [], uv: [] };
+  const A = F.ax;
+  const pt = (d, lift) => d.clone().multiplyScalar(F.surf(d) + lift).add(F.c);
+  scalpCap(out, pt, 0.6, 1.65, 0.05 * A, 0.03 * A);
+  const sg = new THREE.SphereGeometry(1, 8, 6);
+  const sp = sg.attributes.position;
+  const suv = sg.attributes.uv;
+  const six = sg.index.array;
+  const thMax = o.thMax ?? 1.7;
+  const front = o.front ?? 0.62;
+  let n = 3;
+  for (let k = 0; k < (o.n ?? 170); k++) {
+    const th = Math.acos(1 - hash(n++) * (1 - Math.cos(thMax)));
+    const ph = (hash(n++) * 2 - 1) * Math.PI;
+    if (Math.abs(ph) < 1.05 && th > front) continue;
+    const d = sph(th, ph);
+    // más alto arriba/atrás, más chato en la nuca y junto a la cara
+    const puff = 1 - 0.45 * THREE.MathUtils.smoothstep(th, 1.1, thMax) - 0.25 * Math.max(0, Math.cos(ph)) * THREE.MathUtils.smoothstep(th, 0.3, 0.9);
+    const P = pt(d, (o.lift ?? 0.42) * A * F.r * puff * (0.75 + 0.25 * hash(n++)));
+    const r = (0.2 + hash(n++) * 0.14) * A * F.r * (0.7 + 0.3 * puff);
+    const base = out.pos.length / 3;
+    const seed = hash(n++) * 100;
+    for (let v = 0; v < sp.count; v++) {
+      const x = sp.getX(v);
+      const y = sp.getY(v);
+      const z = sp.getZ(v);
+      const bump = 1 + 0.25 * (hash(seed + Math.round((x * 3 + y * 7 + z * 13) * 10)) - 0.5);
+      out.pos.push(P.x + x * r * bump, P.y + y * r * bump, P.z + z * r * bump);
+      out.uv.push(suv.getX(v) * 2 + k * 0.37, suv.getY(v) + k * 0.21);
+    }
+    for (const t of six) out.idx.push(base + t);
+  }
+  sg.dispose();
+  out.strandTex = true;
+  return out;
+}
+
 /**
  * Melena "batida": una sola masa (cáscara exterior + interior unidas en el borde).
  * Columnas alrededor de la cabeza; adelante terminan en flequillo sobre la frente, atrás cuelgan.
@@ -194,13 +404,16 @@ function mane(F, o) {
     const h = ss(a, 1.0, 1.75);
     const zig = tri(ph * (o.spikes ?? 14) + 0.5);
     const thEnd = lerp((o.fringeTh ?? 1.08) + 0.14 * zig, thE, h);
-    const liftEnd = lerp((o.frontLift ?? 0.05) * A, o.lift * A * 1.1, h);
+    const liftEnd = lerp((o.frontLift ?? 0.05) * A * F.r, o.lift * A * F.r * 1.1, h);
     const pts = [];
     for (const s of [0, 0.25, 0.5, 0.75, 1]) {
-      const lump = 1 + 0.2 * Math.sin(ph * 7 + s * 5) * Math.sin(ph * 3.3 + 1.7)
-        + 0.14 * Math.sin(ph * 13 + s * 9) * Math.sin(ph * 5 - s * 6) * s;
-      const cop = 1 + (o.copete ?? 0) * (1 - h) * Math.sin(Math.PI * Math.min(1, s * 1.15));
-      const lift = outer ? lerp(o.lift * A, liftEnd, Math.pow(s, 1.6)) * lump * cop : 0.02 * A;
+      const lk = o.smooth ? 0.15 : 1;
+      const lump = 1 + (0.2 * Math.sin(ph * 7 + s * 5) * Math.sin(ph * 3.3 + 1.7)
+        + 0.14 * Math.sin(ph * 13 + s * 9) * Math.sin(ph * 5 - s * 6) * s) * lk;
+      let cop = 1 + (o.copete ?? 0) * (1 - h) * Math.sin(Math.PI * Math.min(1, s * 1.15));
+      // raya al medio "a dos aguas": el volumen cae en la raya y sube a cada lado
+      if (o.part) cop *= lerp(1, lerp(1 - o.part, 1 + o.part * 0.25, ss(a, 0.04, 0.45)), (1 - h) * ss(s, 0.15, 0.6));
+      const lift = outer ? lerp(o.lift * A * F.r, liftEnd, Math.pow(s, 1.6)) * lump * cop : 0.02 * A;
       pts.push(pt(sph(Math.max(0.001, thEnd * s), ph), lift));
     }
     const curl = 1 - ss(a, 0.6, 1.0);
@@ -214,10 +427,10 @@ function mane(F, o) {
       const R = Math.hypot(pE.x - F.c.x, pE.z - F.c.z);
       const hx = Math.sin(ph);
       const hz = Math.cos(ph);
-      const cutY = F.c.y - F.ay * (o.cut + o.cutBack * Math.max(0, -Math.cos(ph)) + (o.zig ?? 0.3) * zig);
+      const cutY = F.c.y - F.ay * ((o.cut + o.cutBack * Math.max(0, -Math.cos(ph))) * F.len + (o.zig ?? 0.3) * zig);
       const yEnd = lerp(pE.y, cutY, h);
       for (const f of [0.3, 0.6, 0.85, 1]) {
-        const ridge = outer ? 1 + (0.1 * Math.sin(ph * 9 + f * 6) * Math.sin(ph * 5 - f * 4) + 0.06 * Math.sin(ph * 17 + f * 11)) * f : 1;
+        const ridge = outer ? 1 + (0.1 * Math.sin(ph * 9 + f * 6) * Math.sin(ph * 5 - f * 4) + 0.06 * Math.sin(ph * 17 + f * 11)) * f * (o.smooth ? 0.2 : 1) : 1;
         const rk = (1 + (o.flare ?? 0.5) * Math.pow(f, 0.8) * h) * (outer ? 1 : lerp(1, 0.86, h)) * ridge;
         const zb = (o.fallBack ?? 0) * A * f * h;
         pts.push(new THREE.Vector3(F.c.x + hx * R * rk, pE.y + (yEnd - pE.y) * f, F.c.z + hz * R * rk - zb));
@@ -295,7 +508,7 @@ function mane(F, o) {
     for (const t of six) out.idx.push(base + t);
   }
   sg.dispose();
-  out.strandTex = true;
+  out.strandTex = !o.smooth;
   out.sway = true;
   return out;
 }
@@ -424,7 +637,7 @@ function bob(F, o) {
   const rise = o.rise ?? [[0.18, 1.7], [0.42, 1.45], [0.7, 1.15]];
   let sid = 0;
 
-  const strand = (sd, u, { lift = (o.lift ?? 0.09) * A, w = (o.w ?? 0.13) * A, t = (o.t ?? 0.065) * A, inner = 0 } = {}) => {
+  const strand = (sd, u, { lift = (o.lift ?? 0.09) * A * F.r, w = (o.w ?? 0.13) * A * F.r, t = (o.t ?? 0.065) * A * F.r, inner = 0 } = {}) => {
     sid++;
     // raíz sobre la raya, empezando atrás de la frente (frente libre)
     const alpha = 0.42 - u * 1.22;
@@ -448,7 +661,7 @@ function bob(F, o) {
     const cutY =
       F.c.y -
       F.ay *
-        ((o.cut ?? 0.8) +
+        ((o.cut ?? 0.8) * F.len +
           (o.cutFront ?? 0.1) * Math.max(0, Math.cos(phiE)) +
           (o.cutBack ?? 0) * Math.max(0, -Math.cos(phiE)) +
           (o.jitter ?? 0) * (hash(sid) - 0.5));
@@ -515,23 +728,38 @@ const STYLES = {
       w: 0.135,
       t: 0.07,
     }),
-  // Trunks (Namek): hongo voluminoso con raya al medio, tapa las orejas, mechón corto sobre la frente.
+  // Trunks del futuro: raya al medio, lacio y pegado, cae recto tapando orejas hasta la mandíbula; cortinas a los lados de la cara.
   bobTrunks: (F) =>
     bob(F, {
       partX: 0,
       partGap: 0.03,
-      lift: 0.1,
-      rise: [[0.12, 2.4], [0.35, 2.3], [0.6, 1.9], [0.85, 1.45]],
-      // hongo: abulta arriba y las puntas se meten hacia adentro
-      fall: [[0.3, 0.99], [0.65, 0.93], [1, 0.89]],
-      cut: 0.42,
-      cutFront: 0.02,
-      jitter: 0.04,
-      w: 0.125,
-      t: 0.055,
-      bang: true,
-      bangShort: true,
+      lift: 0.06,
+      rise: [[0.15, 1.6], [0.4, 1.45], [0.7, 1.2]],
+      fall: [[0.35, 1.0], [0.72, 1.0], [1, 0.97]],
+      cut: 0.62,
+      cutFront: 0.12,
+      jitter: 0.07,
+      n: 16,
+      w: 0.12,
+      t: 0.05,
     }),
+  // Gohan niño (Namek): taza lacia y voluminosa, flequillo en puntas hasta las cejas, orejas libres.
+  gohanKid: (F) => mane(F, { smooth: true, frontLift: 0.16, fringeTh: 1.15, lift: 0.28, cut: -0.3, cutBack: 0.8, flare: 0.1, zig: 0.1, spikes: 18, tufts: 0 }),
+  fgohan: (F) => spiky(F, FGOHAN, { thFront: 0.8, vol: 0.18, tMul: 0.85 }),
+  // Yamcha (DB): melena espesa en picos que cae hasta media espalda, flequillo en picos.
+  yamcha: (F) => mane(F, { frontLift: 0.1, fringeTh: 1.0, lift: 0.16, cut: 1.2, cutBack: 1.7, flare: 0.3, fallBack: 0.45, zig: 0.6, spikes: 11, tufts: 0 }),
+  // Yajirobee: greña tipo casco desprolijo, flequillo hasta las cejas, puntas desparejas.
+  yajirobe: (F) => mane(F, { frontLift: 0.05, fringeTh: 1.15, lift: 0.1, cut: 0.25, cutBack: 0.35, flare: 0.08, zig: 0.25, spikes: 16, tufts: 0 }),
+  satan: (F) => afro(F),
+  kingVegeta: (F) => joinOut(spiky(F, KING_VEGETA, { thFront: 0.75, vol: 0.22, wMul: 1.4, tMul: 0.6 }), beard(F)),
+  tooma: (F) => spiky(F, TOOMA, { thFront: 0.6, vol: 0.2, wMul: 1.6, tMul: 0.6 }),
+  rikum: (F) => spiky(F, RIKUM, { thFront: 0.6, vol: 0.2, wMul: 1.25, tMul: 0.6 }),
+  // Raditz: frente despejada, masa voluminosa y mechones grandes en punta que caen hasta las rodillas.
+  raditzLong: (F) =>
+    joinOut(
+      mane(F, { smooth: true, frontLift: 0.5, fringeTh: 0.55, copete: 0.7, part: 0.7, lift: 0.34, cut: 0.6, cutBack: 2.6, flare: 0.6, fallBack: 0, zig: 0.8, spikes: 9, tufts: 0 }),
+      spiky(F, RADITZ, { thFront: 0.5, vol: 0.2, tMul: 0.5, wMul: 1.4 })
+    ),
   // Zaabon: dos aguas, melena a la mandíbula que tapa orejas, mechón largo suelto, trenza en la nuca.
   zaabon: (F) => ({
     ...bob(F, {
@@ -633,11 +861,14 @@ export function hasHairStyle(name) {
  * Devuelve un Group con el peinado, en coordenadas de headG (hermano de `head`).
  * Si tiene partes con física, group.userData.hairPhys = [{ update(dt) }].
  */
-export function buildHairStyle(name, mat, head) {
+export function buildHairStyle(name, mat, head, { r = 1, len = 1 } = {}) {
   const fn = STYLES[name];
   if (!fn || !head) return null;
   const F = headFrame(head);
+  F.r = r;
+  F.len = len;
   const out = fn(F);
+  if (out.braid) out.braid = { ...out.braid, len: out.braid.len * len, r0: out.braid.r0 * r, r1: out.braid.r1 * r };
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(out.pos, 3));
   geo.setIndex(out.idx);

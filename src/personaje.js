@@ -800,7 +800,7 @@ export class Personaje {
     if (this._hairPhysMesh !== this.mesh) {
       this._hairPhysMesh = this.mesh;
       this._hairPhys = [];
-      this.mesh.traverse((o) => o.userData.hairPhys && this._hairPhys.push(...o.userData.hairPhys));
+      this.mesh.traverse((o) => Array.isArray(o.userData.hairPhys) && this._hairPhys.push(...o.userData.hairPhys));
     }
     for (const h of this._hairPhys) h.update(dt);
     this._kiSlow = this._kiCharge || this._healing;
@@ -2018,6 +2018,8 @@ export class Personaje {
     match.deposit(this.faccion, n, this.nombre, balls);
     this.st.esf++;
     this.esfera = null;
+    this.aiLeaveBase = 8;
+    this.aiModeT = 0;
     log(`${this.nombre} depositó la esfera ${n}`, this.faccion);
     return true;
   }

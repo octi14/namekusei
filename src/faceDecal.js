@@ -31,6 +31,7 @@ import paragusUrl from "./assets/faces/paragus.png";
 import cellUrl from "./assets/faces/cell.png";
 import celljrUrl from "./assets/faces/celljr.png";
 import nailUrl from "./assets/faces/nail.png";
+import kingVegetaUrl from "./assets/faces/kingvegeta.png";
 
 // crop: [x, y, w, h] px de la fuente (solo cejas, ojos, nariz, boca). scale: ancho relativo.
 // key: [lo, hi] umbral de diferencia vs piel. ssj: misma proporciÃ³n de crop (se intercambia el map).
@@ -90,7 +91,8 @@ export const FACE_DECALS = {
   guldo: { url: guldoUrl, crop: [55, 130, 310, 265], scale: 0.84, key: [18, 60], keepWhite: true, sideEyes: true },
   paragus: { url: paragusUrl, crop: [70, 155, 280, 165], scale: 0.86, key: [18, 60], keepWhite: true },
   cell: { url: cellUrl, crop: [95, 160, 230, 210], scale: 0.75, key: [18, 60], keepWhite: true },
-  celljr: { url: celljrUrl, crop: [95, 160, 230, 210], scale: 0.75, key: [18, 60], keepWhite: true },
+  celljr: { url: celljrUrl, crop: [45, 60, 320, 310], scale: 1.04, key: [18, 60], keepWhite: true, keepSat: true },
+  kingvegeta: { url: kingVegetaUrl, crop: [48, 105, 324, 255], scale: 0.8, key: [28, 72], keepWhite: true },
   nail: { url: nailUrl, crop: [110, 180, 200, 135], scale: 0.69, key: [18, 60], keepWhite: true },
 };
 

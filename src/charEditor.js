@@ -42,7 +42,7 @@ const LOOK_COLORS = [
   ["accent", "Acento", (l) => l.accent ?? 0x1565c0],
 ];
 const KITS = ["gi", "namek", "armor", "soldier", "frost", "brute"];
-const HAIRS = ["goku", "gohan", "vegeta", "raditz", "bald", "krilin", "dodoria", "guldo", "ginyu", "turban", "cui", "appule", "nail", "dende", "tien", "frieza", "helm", "bob18", "bob17", "bobTrunks", "spikyBardock", "zaabon", "jeice"];
+const HAIRS = ["goku", "gohan", "gohanKid", "fgohan", "yamcha", "yajirobe", "satan", "raditzLong", "tooma", "rikum", "kingVegeta", "vegeta", "raditz", "bald", "krilin", "dodoria", "guldo", "ginyu", "turban", "cui", "appule", "nail", "dende", "tien", "frieza", "helm", "bob18", "bob17", "bobTrunks", "spikyBardock", "zaabon", "jeice"];
 const MOLD_PARTS = [
   ["all", "Todas (moldeables)"],
   ["head", "Cabeza"],
@@ -73,6 +73,8 @@ const SLIDERS = [
   ["foreArmLen", "Antebrazo largo", 0.1, 0.5, 0.005],
   ["upperArmBulk", "Brazo bulk", 0.5, 2.2, 0.01],
   ["foreArmBulk", "Antebrazo bulk", 0.5, 2.2, 0.01],
+  ["muscleArm", "Músculo brazos", 0, 2.5, 0.05],
+  ["muscleLeg", "Músculo piernas", 0, 2.5, 0.05],
   ["upperArmSx", "Brazo ancho", 0.5, 2.2, 0.01],
   ["foreArmSx", "Antebrazo ancho", 0.5, 2.2, 0.01],
   ["shoulderX", "Hombro sep.", 0.14, 0.38, 0.005],
@@ -328,6 +330,14 @@ const SLIDERS = [
   ["hairSpikeR", "Pelo grosor", 0.4, 2, 0.05],
   ["hairSpikeLen", "Pelo largo", 0.4, 2, 0.05],
   ["hairY", "Pelo Y", -0.12, 0.16, 0.005],
+  "Cuernos (Freezer / Ginyu)",
+  ["hornX", "Cuernos X", 0, 0.25, 0.005],
+  ["hornY", "Cuernos Y", -0.05, 0.25, 0.005],
+  ["hornZ", "Cuernos Z", -0.15, 0.15, 0.005],
+  ["hornTilt", "Cuernos inclin. lateral", -1.5, 1.5, 0.01],
+  ["hornPitch", "Cuernos inclin. adelante", -1.5, 1.5, 0.01],
+  ["hornScale", "Cuernos tamaño", 0.3, 2.5, 0.05],
+  ["hornLen", "Cuernos largo", 0.3, 2.5, 0.05],
   "Piel / extras",
   ["paleLift", "Palidez +L", 0, 0.15, 0.005],
   ["paleSat", "Palidez sat", 0.4, 1, 0.01],
@@ -355,7 +365,7 @@ const SELECT_LABELS = {
 };
 const SELECT_OPTS = {
   headType: { sphere: "Esfera", oval: "Óvalo", skull: "Cráneo", capsule: "Cápsula", pill: "Cápsula chata", block: "Angular" },
-  faceDecal: { none: "Ninguna (meshes)", piccolo: "Pikoro", trunks: "Trunks", freezer: "Freezer", recoome: "Rikum", raditz: "Raditz", nappa: "Nappa", a17: "Nº17", a18: "Nº18", a16: "Nº16", yamcha: "Yamcha", chaoz: "Chaoz", bardock: "Bardock", zaabon: "Zaabon", jeice: "Yiz", tien: "Ten Shin Han", goku: "Gokú", vegeta: "Vegeta", gohan: "Gohan", fgohan: "Gohan del futuro", krilin: "Krilin", yajirobe: "Yajirobee", satan: "Mr. Satan", guldo: "Gurdo", paragus: "Paragus", cell: "Cell", celljr: "Cell Jr.", nail: "Nail" },
+  faceDecal: { none: "Ninguna (meshes)", piccolo: "Pikoro", trunks: "Trunks", freezer: "Freezer", recoome: "Rikum", raditz: "Raditz", nappa: "Nappa", a17: "Nº17", a18: "Nº18", a16: "Nº16", yamcha: "Yamcha", chaoz: "Chaoz", bardock: "Bardock", zaabon: "Zaabon", jeice: "Yiz", tien: "Ten Shin Han", goku: "Gokú", vegeta: "Vegeta", gohan: "Gohan", fgohan: "Gohan del futuro", krilin: "Krilin", yajirobe: "Yajirobee", satan: "Mr. Satan", guldo: "Gurdo", paragus: "Paragus", cell: "Cell", celljr: "Cell Jr.", nail: "Nail", kingvegeta: "Rey Vegeta" },
   pecType: { none: "Ninguno", sphere: "Esfera", flat: "Plano", split: "Split", armor: "Armadura" },
   earType: { none: "Ninguna", round: "Redonda", pointed: "Picuda", wide: "Ancha" },
   eyeType: { anime: "Anime", narrow: "Estrecho", none: "Ninguno" },

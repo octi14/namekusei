@@ -73,11 +73,11 @@ function applyCel(m, shine = 0.4, rim = 0.22) {
     float nh = max(dot(normal, H), 0.0);
     float edge = 0.985 - uShine * 0.07;
     float spec = smoothstep(edge, edge + 0.012, nh) * uShine * lit;
-    outgoingLight += directionalLights[0].color * spec * 0.45;
+    outgoingLight += directionalLights[0].color * spec * 0.14;
   #endif
   float fr = 1.0 - max(dot(normal, V), 0.0);
-  float rimK = smoothstep(0.62, 0.8, fr) * uRim * (0.35 + 0.65 * lit);
-  outgoingLight += mix(diffuseColor.rgb, vec3(1.0), 0.55) * rimK;
+  float rimK = smoothstep(0.62, 0.8, fr) * uRim * (0.35 + 0.65 * lit) * 0.55;
+  outgoingLight += mix(diffuseColor.rgb, vec3(1.0), 0.35) * rimK;
 }
 #include <opaque_fragment>`
       );
@@ -738,6 +738,8 @@ export const DEFAULT_SCULPT = {
   foreArmBulk: 1.08,
   thighBulk: 1.12,
   shinBulk: 1.05,
+  muscleArm: 1,
+  muscleLeg: 1,
   upperArmSx: 1.12,
   foreArmSx: 1.08,
   thighSx: 1.14,
@@ -1009,6 +1011,13 @@ export const DEFAULT_SCULPT = {
   hairSpikeR: 1,
   hairSpikeLen: 1,
   hairY: 0,
+  hornX: 0.11,
+  hornY: 0.11,
+  hornZ: 0,
+  hornTilt: 0.55,
+  hornPitch: 0,
+  hornScale: 1,
+  hornLen: 1,
 };
 
 export const SCULPT_SELECTS = {
@@ -1242,6 +1251,66 @@ const PROF = {
 };
 
 const SKIN_RADIAL = 20;
+
+/**
+ * Relieve muscular sobre lofts de miembros (multiplica el radio). v: 0 arriba → 1 abajo; a: ángulo del
+ * anillo (x = cos, z = sin). +Z adelante; +X·sgn = adentro (L sgn 1, R −1).
+ */
+const MUSCLE = (() => {
+  const g = (v, c, s) => Math.exp(-(((v - c) / s) ** 2));
+  const lobe = (a, c, p) => Math.max(0, Math.cos(a - c)) ** p;
+  const ang = (x, z) => Math.atan2(z, x);
+  const F = Math.PI / 2;
+  const B = -Math.PI / 2;
+  return {
+    upperArm: (v, a, sg) =>
+      0.17 * g(v, 0.52, 0.2) * lobe(a, F, 2) +
+      0.11 * g(v, 0.4, 0.22) * lobe(a, ang(-sg * 0.5, -1), 2) +
+      0.12 * g(v, 0.06, 0.16) * lobe(a, ang(-sg, 0), 1.2),
+    foreArm: (v, a, sg) =>
+      0.12 * g(v, 0.22, 0.2) * lobe(a, ang(-sg * 0.6, 0.8), 1.5) +
+      0.08 * g(v, 0.28, 0.22) * lobe(a, ang(sg, 0.3), 1.5),
+    thigh: (v, a, sg) =>
+      0.09 * g(v, 0.42, 0.25) * lobe(a, F, 1.5) +
+      0.11 * g(v, 0.8, 0.11) * lobe(a, ang(sg * 0.8, 0.6), 2) +
+      0.06 * g(v, 0.5, 0.25) * lobe(a, ang(-sg, 0.3), 1.5) +
+      0.05 * g(v, 0.45, 0.25) * lobe(a, B, 1.5),
+    shin: (v, a, sg) =>
+      0.15 * g(v, 0.3, 0.16) * lobe(a, ang(sg * 0.35, -1), 1.6) +
+      0.1 * g(v, 0.24, 0.14) * lobe(a, ang(-sg * 0.5, -1), 2) -
+      0.03 * g(v, 0.5, 0.4) * lobe(a, F, 4),
+  };
+})();
+
+/** Marca un loft para relieve muscular. v0/vk: mapeo del v del loft al v del miembro (mangas más cortas). */
+function tagMuscle(m, kind, side, amt, v0 = 0, vk = 1) {
+  if (amt > 0) m.userData.muscle = { kind, sgn: side === "R" ? -1 : 1, amt, v0, vk };
+  return m;
+}
+
+/** Aplica relieve muscular (después de molds). Guarda el factor para que captureMolds lo descuente. */
+function applyMuscles(root) {
+  root.traverse((o) => {
+    const mu = o.isMesh && o.userData.muscle;
+    if (!mu) return;
+    const geo = o.geometry;
+    const pos = geo.attributes.position;
+    const uv = geo.attributes.uv;
+    if (!uv) return;
+    const fn = MUSCLE[mu.kind];
+    const K = new Float32Array(pos.count);
+    for (let i = 0; i < pos.count; i++) {
+      const v = Math.min(1, Math.max(0, mu.v0 + uv.getY(i) * mu.vk));
+      const k = 1 + mu.amt * 2 * fn(v, uv.getX(i) * Math.PI * 2, mu.sgn);
+      K[i] = k;
+      pos.setX(i, pos.getX(i) * k);
+      pos.setZ(i, pos.getZ(i) * k);
+    }
+    o.userData.muscleK = K;
+    pos.needsUpdate = true;
+    recomputeNormals(geo);
+  });
+}
 
 /** Esfera de unión con la misma sección elíptica que el loft (sx/sz). */
 function jointBall(r, mat, sx = 1, sz = 1) {
@@ -1477,6 +1546,8 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
   });
   upper.position.y = -upperLen / 2;
   upper.userData.moldId = `skin_uarm_${side}`;
+  const mA = extras?.muscleArm ?? 1;
+  tagMuscle(upper, "upperArm", side, mA);
   upper.userData.moldFamily = "limb";
   sh.add(upper);
   const sleeveM = extras?.sleeveMat ?? extras?.clothMat;
@@ -1490,6 +1561,7 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
     });
     cu.position.y = -upperLen * (sl * 0.52);
     cu.userData.moldId = `cloth_uarm_${side}`;
+    if (!extras?.wrinkle) tagMuscle(cu, "upperArm", side, mA, 0, sl);
     cu.userData.moldFamily = "cloth";
     if (extras?.wrinkle) wrinkleGiMesh(cu, extras.wrinkle, "sleeve", extras.s);
     sh.add(cu);
@@ -1520,6 +1592,7 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
   });
   lower.position.y = -lowerLen / 2;
   lower.userData.moldId = `skin_farm_${side}`;
+  tagMuscle(lower, "foreArm", side, mA);
   lower.userData.moldFamily = "limb";
   elbow.add(lower);
   const foreM = extras?.foreClothMat ?? (extras?.sleeveLower === false ? null : extras?.clothMat);
@@ -1531,6 +1604,7 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
     });
     cl.position.y = -lowerLen * 0.32;
     cl.userData.moldId = `cloth_farm_${side}`;
+    tagMuscle(cl, "foreArm", side, mA, -0.055, 0.75);
     cl.userData.moldFamily = "cloth";
     elbow.add(cl);
   }
@@ -1614,6 +1688,8 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
   });
   thigh.position.y = -thighLen / 2 + (extras?.thighY ?? 0);
   thigh.userData.moldId = `skin_thigh_${side}`;
+  const mL = extras?.muscleLeg ?? 1;
+  tagMuscle(thigh, "thigh", side, mL);
   thigh.userData.moldFamily = "limb";
   hip.add(thigh);
   const pantsM = extras?.pantsMat ?? extras?.clothMat;
@@ -1640,6 +1716,7 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
       poz
     );
     ct.userData.moldId = `cloth_thigh_${side}`;
+    if (!giPants) tagMuscle(ct, "thigh", side, mL, 0, 0.9);
     ct.userData.moldFamily = "cloth";
     if (extras?.wrinkle) {
       if (giPants) wrinkleGiMesh(ct, extras.wrinkle * 1.35, "thigh", extras.s);
@@ -1665,6 +1742,7 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
   });
   shin.position.y = -shinLen / 2;
   shin.userData.moldId = `skin_shin_${side}`;
+  tagMuscle(shin, "shin", side, mL);
   shin.userData.moldFamily = "limb";
   knee.add(shin);
   const shinCloth = extras?.shinClothMat ?? extras?.pantsMat ?? extras?.clothMat;
@@ -1687,6 +1765,7 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
     });
     cs.position.set(pox, -shinLen * (giPants ? 0.42 : 0.28) + poy * 0.5, poz);
     cs.userData.moldId = `cloth_shin_${side}`;
+    if (!giPants) tagMuscle(cs, "shin", side, mL, -0.07, 0.7);
     cs.userData.moldFamily = "cloth";
     if (extras?.wrinkle) {
       if (giPants) wrinkleGiMesh(cs, extras.wrinkle * 1.55, "shin", extras.s);
@@ -1779,8 +1858,8 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
     tagHair(hairCap(hc, s, y * hk, sx * hsx, sy * hsy, sz * hsz, sc.headR || 0.16), id);
 
   if (hasHairStyle(t)) {
-    const styled = buildHairStyle(t, hc, headG.children.find((c) => c.userData.moldId === "head"));
-    if (styled) headG.add(styled);
+    const styled = buildHairStyle(t, hc, headG.children.find((c) => c.userData.moldId === "head"), { r: hr, len: hl });
+    if (styled) hairRoot.add(styled);
   } else if (t === "goku") {
     // Gokú: flequillo adelante + corona salvaje atrás/arriba
     putCap(0.02, 1.12, 0.62, 1.1);
@@ -1971,9 +2050,10 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
     hairRoot.add(visor);
   } else if (t === "frieza" || t === "ginyu") {
     for (const side of [-1, 1]) {
-      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.035 * s * hr, 0.2 * s * hl, 12), hc);
-      horn.position.set(side * 0.11 * s, 0.11 * s, 0);
-      horn.rotation.z = side * 0.55;
+      const hs = sc.hornScale ?? 1;
+      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.035 * s * hr * hs, 0.2 * s * hl * hs * (sc.hornLen ?? 1), 12), hc);
+      horn.position.set(side * (sc.hornX ?? 0.11) * s, (sc.hornY ?? 0.11) * s, (sc.hornZ ?? 0) * s);
+      horn.rotation.set(sc.hornPitch ?? 0, 0, side * (sc.hornTilt ?? 0.55));
       tagHair(horn, `horn_${side > 0 ? "R" : "L"}`);
     }
   }
@@ -4001,6 +4081,7 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
     band: gi && !eliteSuit ? wristM : null,
     bandAt: "wrist",
     upperBulk: sc.upperArmBulk,
+    muscleArm: sc.muscleArm ?? 1,
     lowerBulk: sc.foreArmBulk,
     upperSx: sc.upperArmSx,
     lowerSx: sc.foreArmSx,
@@ -4022,6 +4103,7 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
   const legBase = {
     boot: bootM,
     thighBulk: sc.thighBulk,
+    muscleLeg: sc.muscleLeg ?? 1,
     shinBulk: sc.shinBulk,
     thighSx: sc.thighSx,
     thighY: (sc.thighY || 0) * s,
@@ -4120,6 +4202,7 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
     if (o.isMesh) o.castShadow = true;
   });
   if (sc.molds) applyMolds(g, sc.molds, s / (sc.moldAltura || 1.85));
+  applyMuscles(g);
   mergeStaticMeshes(g, headG, !!opts.game);
   addOutlines(g, s);
   return g;
@@ -4289,7 +4372,14 @@ export function captureMolds(root, ids) {
     if (ids && !ids.has(o.userData.moldId)) return;
     const pos = o.geometry?.attributes?.position;
     if (!pos) return;
-    molds[o.userData.moldId] = Array.from(pos.array);
+    const arr = Array.from(pos.array);
+    const K = o.userData.muscleK;
+    if (K && K.length === pos.count)
+      for (let i = 0; i < K.length; i++) {
+        arr[i * 3] /= K[i];
+        arr[i * 3 + 2] /= K[i];
+      }
+    molds[o.userData.moldId] = arr;
   });
   return molds;
 }

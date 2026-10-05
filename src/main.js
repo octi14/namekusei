@@ -100,7 +100,10 @@ const gradePass = new ShaderPass({
   vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
   fragmentShader: `uniform sampler2D tDiffuse; uniform float uSat, uCon, uVig; varying vec2 vUv;
 void main(){
-  vec4 c = texture2D(tDiffuse, vUv);
+  gl_FragColor = texture2D(tDiffuse, vUv);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  vec4 c = gl_FragColor;
   float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
   vec3 col = mix(vec3(l), c.rgb, uSat);
   col = (col - 0.5) * uCon + 0.5;
@@ -129,6 +132,35 @@ let locked = false;
 let menuOpen = false;
 const menuEl = document.getElementById("menu");
 let spectating = false;
+/** Cámara libre estilo CS (N): { pos, yaw, pitch }; el personaje propio pasa a la IA. */
+let freeCam = null;
+function toggleFreeCam() {
+  if (freeCam) {
+    freeCam = null;
+    return;
+  }
+  const d = camera.getWorldDirection(new THREE.Vector3());
+  freeCam = { pos: camera.position.clone(), yaw: Math.atan2(d.x, d.z), pitch: Math.asin(THREE.MathUtils.clamp(d.y, -1, 1)) };
+}
+function updateFreeCam(dt) {
+  const fc = freeCam;
+  const cp = Math.cos(fc.pitch);
+  const f = new THREE.Vector3(Math.sin(fc.yaw) * cp, Math.sin(fc.pitch), Math.cos(fc.yaw) * cp);
+  const l = new THREE.Vector3(Math.cos(fc.yaw), 0, -Math.sin(fc.yaw));
+  const v = new THREE.Vector3();
+  if (keys.has("KeyW")) v.add(f);
+  if (keys.has("KeyS")) v.sub(f);
+  if (keys.has("KeyA")) v.add(l);
+  if (keys.has("KeyD")) v.sub(l);
+  if (keys.has("Space")) v.y += 1;
+  if (keys.has("KeyC") || keys.has("ControlLeft")) v.y -= 1;
+  if (v.lengthSq() > 0) {
+    const sp = keys.has("ShiftLeft") || keys.has("ShiftRight") ? 90 : 28;
+    fc.pos.addScaledVector(v.normalize(), sp * dt);
+  }
+  camera.position.copy(fc.pos);
+  camera.lookAt(fc.pos.x + f.x, fc.pos.y + f.y, fc.pos.z + f.z);
+}
 let spectateIdx = 0;
 let bootMap = "namek";
 let landBloomBase = 0.42;
@@ -666,6 +698,11 @@ document.addEventListener("pointerlockchange", () => {
 addEventListener("mousemove", (e) => {
   if (!locked) return;
   const sens = 0.00115 * MOUSE;
+  if (freeCam) {
+    freeCam.yaw -= e.movementX * sens;
+    freeCam.pitch = Math.max(-1.5, Math.min(1.5, freeCam.pitch - e.movementY * 0.00135 * MOUSE));
+    return;
+  }
   // Spectate 1ª: la mirada la lleva la IA; solo órbita en 3ª
   if (spectating && !cam.third) return;
   if (spectating || cam.third) cam.orbit -= e.movementX * sens;
@@ -711,6 +748,15 @@ addEventListener("keydown", (e) => {
     return;
   }
   if (menuOpen) return;
+  if (e.code === "KeyN") {
+    toggleFreeCam();
+    return;
+  }
+  if (freeCam) {
+    keys.add(e.code);
+    if (e.code === "Space" || e.code === "Tab") e.preventDefault();
+    return;
+  }
   if (spectating && (e.code === "ArrowRight" || e.code === "KeyE")) {
     spectateIdx = (spectateIdx + 1) % people.length;
     return;
@@ -736,7 +782,7 @@ addEventListener("keydown", (e) => {
 });
 addEventListener("keyup", (e) => keys.delete(e.code));
 addEventListener("mousedown", (e) => {
-  if (!locked || spectating || match.phase !== "play") return;
+  if (!locked || spectating || freeCam || match.phase !== "play") return;
   if (e.button === 0) combat.melee(player, people);
   if (e.button === 1) lockOn();
   if (e.button === 2) combat.blast(player, false, people); // ki común
@@ -807,7 +853,7 @@ function loop(now) {
     cam.shake(0.5);
   }
   if (match.phase === "play" && !menuOpen) {
-    if (!spectating && !player.dead) {
+    if (!spectating && !freeCam && !player.dead) {
       if (player.lockT > 0 && player.lockFoe && !player.lockFoe.dead) {
         player.lockT -= dt;
         const to = player.lockFoe.pos().clone().sub(player.pos());
@@ -875,7 +921,7 @@ function loop(now) {
         player.superHold = 0;
       }
     }
-    if (!spectating && player && cam.third && !player.dead && !(player.lockT > 0)) {
+    if (!spectating && !freeCam && player && cam.third && !player.dead && !(player.lockT > 0)) {
       const neck = 0.56;
       if (Math.abs(cam.orbit) > neck) {
         const extra = cam.orbit - Math.sign(cam.orbit) * neck;
@@ -885,10 +931,11 @@ function loop(now) {
       }
     }
     for (const p of people) {
-      if (spectating || p !== player) aiStep(p, people, balls, combat, match, dt);
-      p.camLook = !spectating && p === player && cam.third && !p.dead;
+      const own = !spectating && !freeCam && p === player;
+      if (!own) aiStep(p, people, balls, combat, match, dt);
+      p.camLook = own && cam.third && !p.dead;
       p.lookOrbit = p.camLook ? cam.orbit : 0;
-      p.lookPitch = !spectating && p === player && !p.dead ? cam.pitch : 0;
+      p.lookPitch = own && !p.dead ? cam.pitch : 0;
       p.lookWorld = null;
       if (!p.dead) {
         const pos = p.pos();
@@ -928,6 +975,10 @@ function loop(now) {
   const view = viewChar();
   cam.followAiLook = spectating;
   cam.update(view, dt);
+  if (freeCam) {
+    if (cam._fpBody) cam._setFp(cam._fpBody, false);
+    updateFreeCam(dt);
+  }
   {
     const t = !spectating && player.lockT > 0 && player.lockFoe && !player.lockFoe.dead ? player.lockFoe : null;
     if (t) {

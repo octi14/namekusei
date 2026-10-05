@@ -760,56 +760,57 @@ function utilBest(p, ctx) {
   const sticky = (m) => {
     if (p.aiMode !== m) return 0;
     if (m === "wander") return 0;
-    if (m === "help") return 30;
-    if (m === "raid") return 8;
-    if (m === "camp") return 12;
+    if (m === "help") return 22;
+    if (m === "raid") return 5;
+    if (m === "camp") return 10;
     if (m === "ball") return 30;
     if (m === "charge") return 15;
-    if (m === "fight") return 25;
+    if (m === "fight") return 30;
     if (m === "deliver") return 28;
     if (m === "hide") return 16;
-    if (m === "snipe") return 18;
-    if (m === "heal") return 22;
-    if (m === "healPost") return 26;
+    if (m === "snipe") return 20;
+    if (m === "heal") return 15;
+    if (m === "healPost") return 22;
     return 20;
   };
   const rows = [];
-  let deliverS = carrying ? 52 + sticky("deliver") : -50;
+  let deliverS = carrying ? 50 + sticky("deliver") : -80;
   if (carrying && p.aiCarryStyle === "sneak") deliverS += 8;
   if (carrying && (p.aiCarryHold || 0) > 0) deliverS -= 18;
   rows.push(["deliver", deliverS]);
-  let fight = -40;
+  let fight = -30;
   if (enemy && (!critHp || enemyCarrier || carrying)) {
-    fight = (enemyCarrier ? 80 : 30) + Math.max(0, 48 - enemyDist) * 0.55 + sticky("fight");
-    if (enemyCarrier && enemyDist < 80) fight += 36;
+    fight = (enemyCarrier ? 80 : 40) + Math.max(0, 48 - enemyDist) * 0.55 + sticky("fight");
+    if (enemyCarrier && enemyDist < 100) fight += 50;
     if (enemyDist < 50 && mood.ki > 0.12) fight += 22 + agg * 8;
     if (enemyDist < 25 && mood.ki > 0.08) fight += 20;
     // Portador vs portador: no se dejan pasar
     if (carrying && enemyCarrier) fight += 58 + Math.max(0, 55 - enemyDist) * 0.4;
     if (defend || defendCall) {
-      fight += 40 + (enemyCarrier ? 22 : 10) + Math.max(0, 0.55 - agg) * 18;
+      fight += 60 + (enemyCarrier ? 22 : 10) + Math.max(0, 0.55 - agg) * 18;
       if (inHomeAir) fight += 16;
     }
-    if (role === "aggro") fight += 20;
+    if (role === "aggro") fight += 30;
     if (role === "guard" && (defend || inHomeAir || defendCall)) fight += 16;
     if (lowHp && !enemyCarrier && !carrying) fight -= 22;
     if (carrying) {
       // AJUSTE: pelear con esfera — solo si está cerca y el estilo lo permite
       if (p.aiCarryStyle === "rush" && !enemyCarrier) fight -= 35;
       else if (p.aiCarryStyle === "sneak" && !enemyCarrier) fight -= 28;
-      else fight += 6 + agg * 10; // fight style
-      if (enemyDist > 28 && !enemyCarrier) fight -= 22;
-      if (enemyDist < 16) fight += 18;
+      else fight += 15 + agg * 10; // fight style
+      if (enemyDist > 78 && !enemyCarrier) fight -= 22;
+      if (enemyDist < 36) fight += 25;
       if ((p.aiCarryHold || 0) > 0) fight += 20;
-      if (mood.ki < 0.12) fight -= 14;
+      if (mood.ki < 0.12) fight -= 10;
     }
   }
+  p.aiFightScore = fight;
   rows.push(["fight", fight]);
   let snipeS = -40;
   if (snipeOk && !critHp) {
     snipeS = 24 + sticky("snipe") + (enemyCarrier ? 42 : 8) + (role === "aggro" ? 10 : 0);
     if (mood.ki > 0.45) snipeS += 10;
-    if (carrying && !enemyCarrier) snipeS -= 50;
+    if (carrying && !enemyCarrier) snipeS -= 80;
     if (carrying && enemyCarrier && enemyDist > 28) snipeS += 18;
     if (defend || defendCall) snipeS -= 12;
   }
@@ -850,13 +851,13 @@ function utilBest(p, ctx) {
     if (mood.ki < 0.14) healPostS -= 18;
   }
   rows.push(["healPost", healPostS]);
-  let ballS = -30;
+  let ballS = -30; 
   if (ball && !carrying) {
     const d = Math.hypot(ball.mesh.position.x - p.pos().x, ball.mesh.position.z - p.pos().z);
-    ballS = 56 - d * 0.035 + sticky("ball") + (inHomeAir ? 10 : 0);
-    if (defend || defendCall) ballS -= 35;
-    if (role === "baller") ballS += 16;
-    if (role === "guard" && !defend) ballS -= 6;
+    ballS = 40 - d * 0.035 + sticky("ball") + (inHomeAir ? 10 : 0);
+    if (defend || defendCall) ballS -= 50;
+    if (role === "baller") ballS += 25;
+    if (role === "guard" && !defend) ballS -= 35;
   }
   rows.push(["ball", ballS]);
   let helpS = -40;
@@ -886,13 +887,13 @@ function utilBest(p, ctx) {
   rows.push(["camp", campS]);
   let chargeS =
     !carrying && needCharge && !(p.aiMode === "fight" && enemyDist < 28) && !defend
-      ? 34 + (0.6 - mood.ki) * 36 + sticky("charge")
+      ? 30 + (0.6 - mood.ki) * 36 + sticky("charge")
       : 0;
-  if (enemy && enemyDist < 48) chargeS -= 42;
+  if (enemy && enemyDist < 50) chargeS -= 40;
   if (enemy && enemyDist < 34 && mood.ki > 0.08) chargeS -= 28;
   if (defend || defendCall) chargeS -= 44;
-  if (helpCall && helpCall.taken < helpCall.slots) chargeS -= 18;
-  if (role === "aggro") chargeS -= 8;
+  if (helpCall && helpCall.taken < helpCall.slots) chargeS -= 20;
+  if (role === "aggro") chargeS -= 10;
   rows.push(["charge", chargeS]);
   rows.push([
     "wander",
@@ -934,7 +935,7 @@ function pickHideSpot(p, people, homeZ) {
     const d = 18 + (i % 5) * 14;
     const x = px + Math.sin(a) * d * 0.55 + (homeZ - pz) * 0.12;
     const z = pz + Math.cos(a) * d * 0.55 + (homeZ - pz) * 0.28;
-    if (isWater(x, z)) continue;
+    if (isWater(x, z) || nearAnyShip({ x, z }, BASE_HULL_R - BASE_INNER_R + 12)) continue;
     let s = groundHeight(x, z) * 0.35;
     s -= Math.hypot(x, z - homeZ) * 0.04; // preferir cerca de base
     for (const o of people) {
@@ -953,6 +954,13 @@ function pickHideSpot(p, people, homeZ) {
       bx = x;
       bz = z;
     }
+  }
+  const fac = nearAnyShip({ x: bx, z: bz }, BASE_HULL_R - BASE_INNER_R + 12);
+  if (fac) {
+    const o = fac === "z" ? -BASE_Z : BASE_Z;
+    const k = (BASE_HULL_R + 14) / (Math.hypot(bx, bz - o) || 1);
+    bx *= k;
+    bz = o + (bz - o) * k;
   }
   return { x: bx, z: bz };
 }
@@ -1024,6 +1032,10 @@ const MAX_ESCORTS = 2;
 // AJUSTE cupos de pedidos de equipo (blackboard por facción).
 const HELP_SLOTS = 2; // refuerzos a pelea / pedido de ayuda
 const DEFEND_SLOTS = 3; // refuerzos a base
+// AJUSTE help: solo se interrumpe por la muerte de la amenaza reportada, o para
+// pelear con un enemigo a menos de HELP_BREAK_DIST si su score de fight ≥ HELP_BREAK_FIGHT.
+const HELP_BREAK_DIST = 30;
+const HELP_BREAK_FIGHT = 85;
 const RAID_SLOTS = 3; // integrantes por raid anunciado
 const RAID_MAX_ACTIVE = 3; // raids concurrentes (antes era 1)
 
@@ -1729,7 +1741,21 @@ export function aiTick(p, people, balls, combat, match, dt) {
     (pick === "hide" && carrying && enemy) ||
     (pick === "heal" && (critHp || lowHp) && medic) ||
     (pick === "ball" && role === "baller" && ballCand && (p.aiMode === "wander" || p.aiMode === "charge"));
-  if (hard || (p.aiModeT || 0) <= 0) {
+  let helpHold = false;
+  if (p.aiMode === "help" && p.aiHelpFoeId != null) {
+    const hf = people.find((o) => o.id === p.aiHelpFoeId);
+    if (!hf || hf.dead || hf.s.hp <= 0) {
+      p.aiHelpFoeId = null;
+      p.aiModeT = 0;
+    } else {
+      const fightNear = pick === "fight" && enemy && enemyDist < HELP_BREAK_DIST && (p.aiFightScore || 0) >= HELP_BREAK_FIGHT;
+      if (!fightNear) {
+        helpHold = true;
+        p.aiModeT = Math.max(p.aiModeT || 0, 0.5);
+      }
+    }
+  }
+  if (!helpHold && (hard || (p.aiModeT || 0) <= 0)) {
     if (pick === "hide") {
       const spot = pickHideSpot(p, people, homeZ);
       p.aiHideX = spot.x;
@@ -1771,12 +1797,15 @@ export function aiTick(p, people, balls, combat, match, dt) {
       commitMode(p, "deliver", random(14, 28));
     } else if (pick === "deliver") commitMode(p, "deliver", random(60, 100)); // llevar esfera
     else if (pick === "help") {
+      p.aiHelpFoeId = null;
       if (helpCand) {
         /* escolta portador — aiHelpId ya seteado */
       } else if (helpCall && tryJoinCall(p, helpCall, people)) {
         /* refuerzo a pedido de ayuda */
+        p.aiHelpFoeId = helpCall.foeId ?? null;
       } else if (defendCall && tryJoinCall(p, defendCall, people)) {
         /* refuerzo a defensa */
+        p.aiHelpFoeId = defendCall.foeId ?? null;
       }
       commitMode(p, "help", 10 + seed(p) * 3);
     } else if (pick === "camp") {
@@ -2106,12 +2135,13 @@ export function aiTick(p, people, balls, combat, match, dt) {
     ) {
       combat.blast(p, false, people, dist > 48);
     }
+    // ===== SCORING GOLPE FÍSICO (melee) — decide si la IA tira el puño este frame =====
     // AJUSTE MELEE. meleeRange: alcance real del puño en combat.js es ~2.75-3.05,
     // más lejos es pegarle al aire. meleeOdds: chance por frame de tirar el golpe
     // (0.42 crecido / 0.28 normal pegado, 0.16 al límite del alcance); se
     // multiplica por MELEE de config.js, que es el dial global.
     const meleeRange = 3.1;
-    const meleeOdds = dist < 2.6 ? (mood.front > 0.2 ? 0.42 : 0.28) : dist < meleeRange ? 0.16 : 0;
+    const meleeOdds = dist < 2.6 ? (mood.front > 0.2 ? 0.72 : 0.38) : dist < meleeRange ? 0.16 : 0;
     const foeSwing = foe && (foe.posePunch || 0) > 0.05 && dist < 4.6 && facing;
     let kiIn = false;
     if ((p.flyAlt || 0) > 0.28 || p.volando) {
@@ -2155,14 +2185,19 @@ export function aiTick(p, people, balls, combat, match, dt) {
         const wp = sideWaypoint(p, help.pos().x, help.pos().z);
         const hs = hideSteer(p.pos().x, p.pos().z, wp.x, wp.z, enemy);
         dir.set(hs.x, 0, hs.z);
-      } else if (p.aiJoinKind === "help" || p.aiJoinKind === "defend") {
-        const call = p.aiJoinKind === "defend" ? tb.defend : tb.help;
-        if (call) {
-          const d = Math.hypot(call.x - p.pos().x, call.z - p.pos().z);
-          dir.set(call.x - p.pos().x, 0, call.z - p.pos().z);
-          // Al llegar: pelear si hay enemigo cerca
-          if (d < 22 && enemy) {
-            p.aiFoe = enemy;
+      } else {
+        const call = p.aiJoinKind === "defend" ? tb.defend : p.aiJoinKind === "help" ? tb.help : null;
+        const hf = p.aiHelpFoeId != null ? people.find((o) => o.id === p.aiHelpFoeId && !o.dead) : null;
+        // Sin pedido vigente: ir directo a la amenaza reportada
+        const tgt = call ? { x: call.x, z: call.z } : hf ? { x: hf.pos().x, z: hf.pos().z } : null;
+        if (tgt) {
+          const d = Math.hypot(tgt.x - p.pos().x, tgt.z - p.pos().z);
+          dir.set(tgt.x - p.pos().x, 0, tgt.z - p.pos().z);
+          // Al llegar: pelear con la amenaza reportada (o el enemigo más cercano)
+          const foe = hf && hf.pos().distanceTo(p.pos()) < 40 ? hf : enemy;
+          if (d < 22 && foe) {
+            p.aiFoe = foe;
+            p.aiHelpFoeId = null;
             commitMode(p, "fight", 12);
           }
         }
