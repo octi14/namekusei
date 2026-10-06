@@ -314,7 +314,8 @@ function hideSteer(px, pz, gx, gz, foe) {
   const nx = tx / glen;
   const nz = tz / glen;
   const base = Math.atan2(nx, nz);
-  const side = Math.sin(px * 0.013 + pz * 0.009) >= 0 ? 1 : -1;
+  // Lado estable (hacia afuera del eje central): con un lado que dependía de la posición, alternaba y zigzagueaba
+  const side = px >= 0 ? 1 : -1;
   let bx = nx;
   let bz = nz;
   let best = -1e9;
@@ -609,7 +610,11 @@ function sideWaypoint(p, gx, gz) {
   const pz = p.pos().z;
   const zDist = Math.abs(gz - pz);
   const far = Math.hypot(gx - px, gz - pz) > 70;
-  if (far && Math.abs(px) < 90) {
+  // Histéresis: entra al carril con |x| < 90 y no lo suelta hasta |x| > 150 (si no, ida y vuelta en x = 90)
+  if (!far) p._sideLane = false;
+  else if (Math.abs(px) < 90) p._sideLane = true;
+  else if (Math.abs(px) > 150) p._sideLane = false;
+  if (p._sideLane) {
     return keepDry(lane, pz + Math.sign(gz - pz || 1) * Math.min(80, zDist * 0.4));
   }
   if (zDist > 70 && Math.abs(gx) < 80 && Math.abs(px) > 220) {
@@ -2658,7 +2663,10 @@ export function aiTick(p, people, balls, combat, match, dt) {
       const bz = ball.mesh.position.z;
       goal = { x: bx, z: bz };
       const dBall = Math.hypot(bx - p.pos().x, bz - p.pos().z);
-      if (dBall < 170 || Math.abs(bz - p.pos().z) < 95) dir.set(bx - p.pos().x, 0, bz - p.pos().z);
+      const dzB = Math.abs(bz - p.pos().z);
+      if (dBall < 150 || dzB < 80) p._ballDirect = true;
+      else if (dBall > 190 && dzB > 110) p._ballDirect = false;
+      if (p._ballDirect) dir.set(bx - p.pos().x, 0, bz - p.pos().z);
       else {
         const wp = sideWaypoint(p, bx, bz);
         const hs = hideSteer(p.pos().x, p.pos().z, wp.x, wp.z, enemy);

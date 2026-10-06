@@ -2288,10 +2288,12 @@ export function createWorld(scene, id = "namek") {
   Math.random = rng;
   try {
   pickPatriarchHill();
-  refreshBasePads();
   layoutVegeta();
   layoutEarthSeed();
   layoutCellSeed();
+  // Después de los layouts: si no, la plataforma usa el relieve del sorteo anterior y,
+  // cuando otra cosa la recalcula (la maqueta), la colisión queda arriba/abajo del piso de la nave.
+  refreshBasePads();
   const earth = id === "earth";
   const cell = id === "cell";
   const city = id === "city";
