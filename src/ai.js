@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { BASE_Z, superRank, SUPER_KI, MELEE, MAP } from "./config.js";
 import { isWater, groundHeight, WATER_Y } from "./world.js";
-import { BASE_INNER_R, BASE_HULL_R, steerShipNav, nearAnyShip, shipDist, inShipBase } from "./bases.js";
+import { BASE_INNER_R, BASE_HULL_R, steerShipNav, nearAnyShip, shipDist, inShipBase, baseOrigin, baseDoorDir, steerAroundShips } from "./bases.js";
 import { powerStyle } from "./powers.js";
 import { aiTraceTick } from "./aiTrace.js";
 import { playSfx, atPos, stopSfxLoop } from "./sfx.js";
@@ -31,9 +31,9 @@ import { canSee } from "./combat.js";
  *   - Cuánto ki reserva antes de gastar               → kiBand().
  *   - Reparto de roles (guard/baller/aggro)           → aiRole().
  *   - Rango en que ve enemigos                        → foeRange en aiTick.
- *   - Pedidos de equipo (help/defend/raid) + camp     → blackboard teamBoard().
+ *   - Grupos: help (pedido), raid (escuadrón), guardia → blackboard teamBoard().
  *   - Ir a curandero / posto de cura                   → utilBest `heal` / `healPost`.
- *   - Cupos: HELP_SLOTS / DEFEND_SLOTS / RAID_SLOTS / RAID_MAX_ACTIVE.
+ *   - Cupos: HELP_SLOTS / RAID_FRAC_* / GUARD_*.
  *
  * Nota: muchas probabilidades van multiplicadas por `dt * 60`, o sea que el
  * número es "chance por frame a 60 fps" (0.004 * dt * 60 ≈ 0.24 por segundo).
@@ -719,6 +719,18 @@ function smoothYaw(p, wantYaw, dt, rate = 4.2) {
   p.yaw += dy * Math.min(1, rate * dt);
 }
 
+/** Preferencia por personaje y modo: ±10 fijo (seed) + ±5 de deriva lenta (40–60 s). */
+function modeNoise(p, mode) {
+  let h = 7;
+  for (let i = 0; i < mode.length; i++) h = (h * 31 + mode.charCodeAt(i)) % 9973;
+  const s = seed(p);
+  const r = Math.sin(s * 9301.7 + h * 49.297) * 43758.5453;
+  const fixed = (r - Math.floor(r)) * 2 - 1;
+  const t = performance.now() * 0.001;
+  const drift = Math.sin((t * Math.PI * 2) / (40 + s * 20) + h + s * 6.28);
+  return fixed * 10 + drift * 5;
+}
+
 function commitMode(p, mode, sec) {
   p.aiMode = mode;
   p.aiModeT = sec;
@@ -727,7 +739,7 @@ function commitMode(p, mode, sec) {
 /**
  * Elige el modo comparando puntajes (gana el más alto).
  * AJUSTE: acá se decide "qué le da más ganas". Incluye pedidos de equipo
- * (helpCall / defendCall / raidCall) y modo camp para guardias.
+ * (helpCall / raidCall / guardia) y modo camp.
  */
 function utilBest(p, ctx) {
   const {
@@ -747,8 +759,10 @@ function utilBest(p, ctx) {
     defend,
     role,
     helpCall,
-    defendCall,
     raidCall,
+    myCall,
+    inRaid,
+    selfDefense,
     idleish,
     hideOk,
     snipeOk,
@@ -786,12 +800,12 @@ function utilBest(p, ctx) {
     if (enemyDist < 25 && mood.ki > 0.08) fight += 20;
     // Portador vs portador: no se dejan pasar
     if (carrying && enemyCarrier) fight += 58 + Math.max(0, 55 - enemyDist) * 0.4;
-    if (defend || defendCall) {
+    if (defend) {
       fight += 60 + (enemyCarrier ? 22 : 10) + Math.max(0, 0.55 - agg) * 18;
       if (inHomeAir) fight += 16;
     }
     if (role === "aggro") fight += 30;
-    if (role === "guard" && (defend || inHomeAir || defendCall)) fight += 16;
+    if (role === "guard" && (defend || inHomeAir)) fight += 16;
     if (lowHp && !enemyCarrier && !carrying) fight -= 22;
     if (carrying) {
       // AJUSTE: pelear con esfera — solo si está cerca y el estilo lo permite
@@ -808,29 +822,15 @@ function utilBest(p, ctx) {
   rows.push(["fight", fight]);
   let snipeS = -40;
   if (snipeOk && !critHp) {
-    snipeS = 24 + sticky("snipe") + (enemyCarrier ? 42 : 8) + (role === "aggro" ? 10 : 0);
+    snipeS = 24 + sticky("snipe") + (enemyCarrier ? 12 : 8) + (role === "aggro" ? 10 : 0);
     if (mood.ki > 0.45) snipeS += 10;
     if (carrying && !enemyCarrier) snipeS -= 80;
     if (carrying && enemyCarrier && enemyDist > 28) snipeS += 18;
-    if (defend || defendCall) snipeS -= 12;
+    if (defend) snipeS -= 12;
   }
   rows.push(["snipe", snipeS]);
   let hideS = -40;
-  if (
-    hideOk ||
-    (carrying &&
-      enemy &&
-      enemyDist < 40 &&
-      (p.aiCarryStyle === "sneak" ||
-        p.aiCarryStyle === "fight" ||
-        (p.aiCarryHold || 0) > 0 ||
-        mood.front < -0.1 ||
-        lowHp))
-  ) {
-    hideS = 12 + sticky("hide") + (lowHp ? 10 : 0) + (carrying && p.aiCarryStyle === "sneak" ? 14 : 0);
-    if (carrying && p.aiCarryStyle === "fight" && mood.front < 0.15) hideS += 8;
-    if (carrying && enemyDist < 20) hideS += 10;
-  }
+  if (hideOk && !carrying) hideS = 12 + sticky("hide") + (lowHp ? 10 : 0);
   rows.push(["hide", hideS]);
   let healS = -40;
   if (!carrying && medic && mood.hp < 0.72 && medicDist < 240) {
@@ -855,7 +855,7 @@ function utilBest(p, ctx) {
   if (ball && !carrying) {
     const d = Math.hypot(ball.mesh.position.x - p.pos().x, ball.mesh.position.z - p.pos().z);
     ballS = 40 - d * 0.035 + sticky("ball") + (inHomeAir ? 10 : 0);
-    if (defend || defendCall) ballS -= 50;
+    if (defend) ballS -= 50;
     if (role === "baller") ballS += 25;
     if (role === "guard" && !defend) ballS -= 35;
   }
@@ -867,21 +867,26 @@ function utilBest(p, ctx) {
       const hd = Math.hypot(helpCall.x - p.pos().x, helpCall.z - p.pos().z);
       helpS = Math.max(
         helpS,
-        22 + sticky("help") - hd * 0.04 + (idleish ? 14 : 0) + (role === "aggro" ? 6 : 0)
+        34 + sticky("help") - hd * 0.04 + (idleish ? 14 : 0) + (role === "aggro" ? 6 : 0)
       );
     }
+    if (myCall && myCall.kind === "help") helpS = Math.max(helpS, 75 + sticky("help"));
   }
   rows.push(["help", helpS]);
   let raidS = -40;
-  if (!carrying && loot.length && !lowHp && !defend) {
-    raidS = 14 + sticky("raid") + (role === "aggro" ? 10 : 0);
-    if (role === "guard") raidS -= 20;
-    if (raidCall && raidCall.taken < raidCall.slots && idleish) raidS += 24;
-    if (p.aiJoinKind === "raid") raidS += 18;
+  // Raid solo como escuadrón: dentro es exclusivo; afuera, sumarse mientras se reúnen.
+  if (inRaid) raidS = 200;
+  else if (!carrying && raidCall && loot.length && !lowHp && !defend) {
+    raidS = 48 + (role === "aggro" ? 10 : 0) + (idleish ? 14 : 0) - (role === "guard" ? 20 : 0);
   }
   rows.push(["raid", raidS]);
   let campS = -40;
-  if (!carrying && role === "guard" && inHomeAir && !defend && !defendCall && !critHp && !enemyCarrier) {
+  const guardMember = !!(myCall && myCall.kind === "guard");
+  if (guardMember) campS = 150;
+  else if (
+    !carrying && role === "guard" && inHomeAir && !defend && !critHp && !enemyCarrier &&
+    (p.aiGuardRest || 0) < performance.now() * 0.001
+  ) {
     campS = 18 + sticky("camp") + (mood.ki > 0.4 ? 4 : 0) - (ball ? 8 : 0);
   }
   rows.push(["camp", campS]);
@@ -891,7 +896,7 @@ function utilBest(p, ctx) {
       : 0;
   if (enemy && enemyDist < 50) chargeS -= 40;
   if (enemy && enemyDist < 34 && mood.ki > 0.08) chargeS -= 28;
-  if (defend || defendCall) chargeS -= 44;
+  if (defend) chargeS -= 44;
   if (helpCall && helpCall.taken < helpCall.slots) chargeS -= 20;
   if (role === "aggro") chargeS -= 10;
   rows.push(["charge", chargeS]);
@@ -901,9 +906,20 @@ function utilBest(p, ctx) {
       ? -40
       : -6 - (inHomeAir ? 12 : 0) - (ball ? 14 : 0) - (defend ? 18 : 0) + sticky("wander"),
   ]);
-  let best = carrying ? "deliver" : "wander";
+  // En grupo: solo la función del grupo o pelear (salvo esfera / crítico).
+  const groupMode = inRaid ? "raid" : guardMember ? "camp" : myCall ? "help" : null;
+  const groupOnly = groupMode && !carrying && !critHp;
+  // Raid: pelea solo en autodefensa. Guardia: pelea si hay amenaza en casa o lo atacan.
+  // Cuando corresponde pelear, pelear reemplaza a la función del grupo (si no, 200/150 la tapaban).
+  const groupFight =
+    groupOnly && enemy && (groupMode === "raid" ? selfDefense : groupMode === "camp" ? defend || selfDefense : true);
+  let best = carrying ? "deliver" : groupOnly ? (groupFight && groupMode !== "help" ? "fight" : groupMode) : "wander";
   let bestV = -1e9;
-  for (const [k, v] of rows) {
+  for (const [k, v0] of rows) {
+    if (groupOnly && k !== groupMode && k !== "fight") continue;
+    if (groupOnly && k === "fight" && !groupFight) continue;
+    if (groupOnly && groupFight && groupMode !== "help" && k === groupMode) continue;
+    const v = (k === "deliver" && carrying) || (k === "heal" && critHp) ? v0 : v0 + modeNoise(p, k);
     if (v > bestV) {
       bestV = v;
       best = k;
@@ -1031,17 +1047,34 @@ const MAX_ESCORTS = 2;
 
 // AJUSTE cupos de pedidos de equipo (blackboard por facción).
 const HELP_SLOTS = 2; // refuerzos a pelea / pedido de ayuda
-const DEFEND_SLOTS = 3; // refuerzos a base
 // AJUSTE help: solo se interrumpe por la muerte de la amenaza reportada, o para
 // pelear con un enemigo a menos de HELP_BREAK_DIST si su score de fight ≥ HELP_BREAK_FIGHT.
 const HELP_BREAK_DIST = 30;
 const HELP_BREAK_FIGHT = 85;
-const RAID_SLOTS = 3; // integrantes por raid anunciado
-const RAID_MAX_ACTIVE = 3; // raids concurrentes (antes era 1)
+// Raid: tamaño del escuadrón = fracción del equipo según esferas del rival (5 jug/1 esf → 2; 20 jug/3 esf → 5)
+const RAID_FRAC_BASE = 0.15;
+const RAID_FRAC_PER_BALL = 0.04;
+const RAID_FRAC_MAX = 0.4;
+const RAID_TEAM_PER_SQUAD = 6; // un escuadrón simultáneo cada 6 jugadores (mín. 1)
+const RAID_MAX_REGROUPS = 2; // veces que puede replantearse tras perder más de la mitad
+const GROUP_MAX_LIFE = 45; // segundos que un grupo con miembros se sostiene desde el último pedido del líder
+const RAID_MAX_LIFE = 320; // tope total de un escuadrón de raid (incluye reagrupes)
+const RAID_AT_BASE = 40; // segundos en la base rival sin lograrlo antes de abortar
+const RAID_GATHER_MIN = 6; // espera mínima en el punto de encuentro (para sumar gente)
+const RAID_GATHER_MAX = 35; // espera máxima: sale con los que haya (mín. 2)
+// Guardia: fracción del equipo que defiende según esferas en casa (5 jug: 1→1, 3→2, 7→3; 20 jug: 1→3, 3→6, 7→12)
+const GUARD_BASE = 0.08;
+const GUARD_PER_BALL = 0.06;
+const GUARD_MAX_FRAC = 0.5;
+// Turnos de guardia: nadie guardia para siempre
+const GUARD_SHIFT_MIN = 35;
+const GUARD_SHIFT_RND = 30;
+const GUARD_REST_MIN = 50;
+const GUARD_REST_RND = 40;
 
 const _teamBoard = { z: null, f: null };
 function teamBoard(fac) {
-  if (!_teamBoard[fac]) _teamBoard[fac] = { help: null, defend: null, raid: null };
+  if (!_teamBoard[fac]) _teamBoard[fac] = { help: null, raids: [], guard: null };
   return _teamBoard[fac];
 }
 
@@ -1056,17 +1089,259 @@ function countJoiners(people, fac, callId) {
 
 function refreshCall(call, people, fac, dt) {
   if (!call) return null;
-  call.t = (call.t || 0) - dt;
+  // Se llama una vez por bot por frame: descontar tiempo real, no dt × bots.
+  const now = performance.now() * 0.001;
+  const step = call._last != null ? Math.min(0.25, Math.max(0, now - call._last)) : 0;
+  call._last = now;
+  call.t = (call.t || 0) - step;
   if (call.t <= 0) return null;
-  const who = people.find((o) => o.id === call.fromId);
-  if (!who || who.dead) return null;
-  // help sigue al que pidió; defend/raid mantienen el punto anclado
+  let who = people.find((o) => o.id === call.fromId);
+  if (!who || who.dead) {
+    // Sucesión: el grupo sigue con un miembro como líder
+    const heir = people.find((o) => !o.dead && o.faccion === fac && o.aiJoin === call.id);
+    if (!heir) return null;
+    call.fromId = heir.id;
+    who = heir;
+  }
+  // help sigue al que pidió
   if (call.kind === "help") {
     call.x = who.pos().x;
     call.z = who.pos().z;
   }
+  let foeNear = true;
+  if (call.foeId != null) {
+    const foe = people.find((o) => o.id === call.foeId);
+    if (!foe || foe.dead) return null;
+    foeNear = Math.hypot(foe.pos().x - call.x, foe.pos().z - call.z) < 80;
+  }
   call.taken = countJoiners(people, fac, call.id);
+  // Con miembros, el grupo se sostiene (tope de vida total GROUP_MAX_LIFE)
+  call.age = (call.age || 0) + step;
+  if (call.taken > 0 && foeNear && call.age < GROUP_MAX_LIFE) call.t = Math.max(call.t, 3);
   return call;
+}
+
+/**
+ * Escuadrón de raid: entidad propia, sin timer de modo.
+ * Fases: "gather" (todos al punto de encuentro) → "go" (asalto a la base rival).
+ * Termina por éxito (alguien agarra esfera), sin botín, todos caídos, tope de vida
+ * o RAID_AT_BASE s en la base rival sin lograrlo. Si cae el líder, asume un miembro.
+ */
+function pickRally(side, homeZ, enemyZ) {
+  const lim = MAP / 2 - 60;
+  let x = side * Math.min(lim, 70 + Math.random() * 120);
+  let z = homeZ + (enemyZ - homeZ) * (0.22 + Math.random() * 0.14);
+  for (let i = 0; i < 8 && isWater(x, z); i++) {
+    x *= 0.75;
+    z = homeZ + (z - homeZ) * 0.85;
+  }
+  return { x, z };
+}
+
+/** Integrantes extra (sin líder) según tamaño del equipo y esferas del rival. */
+function raidSlots(teamN, lootCount) {
+  const size = Math.round(teamN * (RAID_FRAC_BASE + RAID_FRAC_PER_BALL * lootCount));
+  return Math.max(1, Math.min(Math.ceil(teamN * RAID_FRAC_MAX), size) - 1);
+}
+
+function createRaid(p, homeZ, enemyZ, teamN, lootCount, raids) {
+  // Lado del mapa distinto a los otros escuadrones si se puede
+  const used = raids.map((r) => Math.sign(r.rally.x));
+  let side = seed(p) > 0.5 ? 1 : -1;
+  if (used.includes(side) && !used.includes(-side)) side = -side;
+  const rally = pickRally(side, homeZ, enemyZ);
+  return {
+    id: `raid:${p.id}:${Math.floor(performance.now() % 1e7)}`,
+    kind: "raid",
+    fromId: p.id,
+    slots: raidSlots(teamN, lootCount),
+    taken: 0,
+    t: 99,
+    phase: "gather",
+    rally,
+    x: rally.x,
+    z: rally.z,
+    homeZ,
+    enemyZ,
+    age: 0,
+    phaseT: 0,
+    baseT: 0,
+    goN: 0,
+    regroups: 0,
+  };
+}
+
+/**
+ * Guardia permanente de la base: cupo proporcional al equipo y a las esferas en casa.
+ * Fracción del equipo = min(GUARD_MAX_FRAC, GUARD_BASE + GUARD_PER_BALL × esferas); mín. 1 con ≥1 esfera.
+ * Asignación central (cada 0.5 s): suma a los más aptos (rol guard, cerca de casa) y libera a los más lejanos.
+ */
+function updateGuard(tb, people, fac, homeZ, balls) {
+  const now = performance.now() * 0.001;
+  const g =
+    tb.guard ||
+    { id: `guard:${fac}`, kind: "guard", fromId: null, slots: 0, taken: 0, t: 99, home: 0, _chk: -1 };
+  if (now - g._chk < 0.5) return g;
+  g._chk = now;
+  const team = people.filter((o) => !o.dead && o.faccion === fac);
+  const bots = team.filter((o) => o.controller === "ia");
+  const home = balls.items.filter((b) => b.inBase === fac && !b.held).length;
+  // Cupo con margen: oscila lento ±1 para que no sea un número fijo
+  g.wobble = (g.wobble ?? Math.random()) + 0.002;
+  const frac = Math.min(GUARD_MAX_FRAC, GUARD_BASE + GUARD_PER_BALL * home);
+  let want = home > 0 ? Math.max(1, Math.round(team.length * frac + Math.sin(g.wobble * Math.PI * 2) * 0.9)) : 0;
+  want = Math.min(want, bots.length);
+  const hd = (o) => Math.hypot(o.pos().x, o.pos().z - homeZ);
+  const isRaidLeader = (o) => tb.raids.some((r) => r.fromId === o.id);
+  const canGuard = (o) =>
+    !o.aiJoin && o.esfera == null && o.s.hp >= o.s.hpMax * 0.2 && !isRaidLeader(o) && (o.aiGuardRest || 0) < now;
+  const members = bots.filter((o) => o.aiJoin === g.id);
+  const release = (o) => {
+    clearJoin(o);
+    o.aiGuardRest = now + GUARD_REST_MIN + Math.random() * GUARD_REST_RND;
+    if (o.aiMode === "camp") o.aiModeT = 0;
+  };
+  // Turnos: quien cumplió su turno sale (si hay reemplazo) y descansa un rato peleando
+  for (let i = members.length - 1; i >= 0; i--) {
+    const o = members[i];
+    if (now - (o.aiGuardSince || now) < (o.aiGuardShift || GUARD_SHIFT_MIN)) continue;
+    if (!bots.some(canGuard)) break;
+    release(o);
+    members.splice(i, 1);
+  }
+  if (members.length > want) {
+    members.sort((a, b) => hd(b) - hd(a));
+    for (const o of members.splice(0, members.length - want)) release(o);
+  }
+  while (members.length < want) {
+    let best = null;
+    let bestS = 1e9;
+    for (const o of bots) {
+      if (!canGuard(o)) continue;
+      const role = o.aiRole || aiRole(o);
+      const s = hd(o) - (role === "guard" ? 120 : 0) + (role === "aggro" ? 140 : 0) + Math.random() * 60;
+      if (s < bestS) {
+        bestS = s;
+        best = o;
+      }
+    }
+    if (!best) break;
+    best.aiJoin = g.id;
+    best.aiJoinKind = "guard";
+    best.aiCampX = null;
+    best.aiModeT = 0;
+    best.aiGuardSince = now;
+    best.aiGuardShift = GUARD_SHIFT_MIN + Math.random() * GUARD_SHIFT_RND;
+    members.push(best);
+  }
+  g.slots = want;
+  g.taken = members.length;
+  g.home = home;
+  g.fromId = members[0]?.id ?? null;
+  return g;
+}
+
+/** Puesto de guardia en anillo alrededor de la base propia (fuera del casco). */
+function pickGuardPost(p, homeZ) {
+  for (let i = 0; i < 8; i++) {
+    const a = seed(p) * Math.PI * 2 + i * 0.8;
+    const r = 58 + seed(p) * 30;
+    const x = Math.sin(a) * r;
+    const z = homeZ + Math.cos(a) * r;
+    if (!isWater(x, z)) return { x, z };
+  }
+  return { x: 0, z: homeZ + (homeZ < 0 ? 60 : -60) };
+}
+
+function endRaid(sq, people, fac) {
+  for (const o of people) {
+    if (o.faccion !== fac) continue;
+    const mine = o.aiJoin === sq.id || o.id === sq.fromId;
+    if (o.aiJoin === sq.id) clearJoin(o);
+    if (mine && o.aiMode === "raid") o.aiModeT = 0;
+  }
+  return null;
+}
+
+function refreshRaid(sq, people, fac, lootCount, teamN) {
+  if (!sq) return null;
+  const now = performance.now() * 0.001;
+  const step = sq._last != null ? Math.min(0.25, Math.max(0, now - sq._last)) : 0;
+  sq._last = now;
+  sq.age += step;
+  sq.phaseT += step;
+  // Plantel completo (incluye caídos: el join sobrevive al respawn)
+  let leader = people.find((o) => o.id === sq.fromId);
+  const roster = people.filter((o) => o.faccion === fac && o.aiJoin === sq.id);
+  if (leader?.dead) {
+    const heir = roster.find((o) => !o.dead);
+    if (heir) {
+      clearJoin(heir);
+      leader.aiJoin = sq.id;
+      leader.aiJoinKind = "raid";
+      roster.splice(roster.indexOf(heir), 1, leader);
+      sq.fromId = heir.id;
+      leader = heir;
+    }
+  }
+  if (!leader) return endRaid(sq, people, fac);
+  const squad = [leader, ...roster];
+  const alive = squad.filter((o) => !o.dead);
+  sq.taken = roster.length;
+  sq.slots = Math.max(sq.taken, raidSlots(teamN, lootCount));
+  if (!lootCount || sq.age > RAID_MAX_LIFE || alive.some((o) => o.esfera != null)) return endRaid(sq, people, fac);
+  if (sq.phase === "gather") {
+    if (!alive.length) {
+      if (sq.phaseT > RAID_GATHER_MAX) return endRaid(sq, people, fac);
+      return sq;
+    }
+    const at = alive.filter((o) => Math.hypot(o.pos().x - sq.rally.x, o.pos().z - sq.rally.z) < 26).length;
+    const allHere = at === squad.length && squad.length >= 2;
+    const all = allHere && sq.phaseT > RAID_GATHER_MIN;
+    const full = allHere && squad.length >= sq.slots + 1;
+    if (full || all || (sq.phaseT > RAID_GATHER_MAX && alive.length >= 2)) {
+      sq.phase = "go";
+      sq.phaseT = 0;
+      sq.baseT = 0;
+      sq.goN = alive.length;
+    } else if (sq.phaseT > RAID_GATHER_MAX + 15) return endRaid(sq, people, fac);
+  } else {
+    // Cayó más de la mitad (o todos): replantear, nueva convocatoria y nuevo punto de encuentro
+    if (alive.length * 2 < sq.goN || !alive.length) {
+      if (sq.regroups >= RAID_MAX_REGROUPS) return endRaid(sq, people, fac);
+      sq.regroups++;
+      sq.phase = "gather";
+      sq.phaseT = 0;
+      sq.rally = pickRally(Math.random() < 0.5 ? 1 : -1, sq.homeZ, sq.enemyZ);
+      sq.x = sq.rally.x;
+      sq.z = sq.rally.z;
+      return sq;
+    }
+    const foeFac = fac === "z" ? "f" : "z";
+    if (alive.some((o) => shipDist(o.pos(), foeFac) < BASE_INNER_R + 45)) sq.baseT += step;
+    if (sq.baseT > RAID_AT_BASE) return endRaid(sq, people, fac);
+  }
+  return sq;
+}
+
+/** Grupos activos de un equipo (help/defend/raid) con líder y miembros, para la UI. */
+export function getTeamGroups(fac, people) {
+  const b = _teamBoard[fac];
+  if (!b) return [];
+  const out = [];
+  const g = b.guard;
+  if (g && g.slots > 0) {
+    const members = people.filter((o) => !o.dead && o.faccion === fac && o.aiJoin === g.id);
+    out.push({ kind: "guard", leader: null, members, slots: g.slots, t: 0, phase: null, home: g.home });
+  }
+  for (const c of [b.help, ...b.raids]) {
+    if (!c || c.t <= 0) continue;
+    const leader = people.find((o) => o.id === c.fromId);
+    if (!leader) continue;
+    const members = people.filter((o) => o !== leader && o.faccion === fac && o.aiJoin === c.id);
+    out.push({ kind: c.kind, leader, members, slots: c.slots, t: c.t, phase: c.phase || null });
+  }
+  return out;
 }
 
 function emitTeamCall(fac, kind, from, slots, life, extra = {}) {
@@ -1074,6 +1349,7 @@ function emitTeamCall(fac, kind, from, slots, life, extra = {}) {
   const cur = b[kind];
   if (cur && cur.fromId === from.id) {
     cur.t = Math.max(cur.t, life);
+    cur.age = 0;
     cur.x = from.pos().x;
     cur.z = from.pos().z;
     Object.assign(cur, extra);
@@ -1278,7 +1554,6 @@ function pickUnstick(p, balls) {
   p.aiUnstick = 1.1 + seed(p) * 0.6;
   p.aiFight = 0;
   p.aiCharge = false;
-  p.aiRaid = 0;
   p._stkT = 0;
   if (p.esfera != null) {
     p.aiBreak = "home";
@@ -1488,7 +1763,6 @@ export function aiTick(p, people, balls, combat, match, dt) {
   p.aiFight = Math.max(0, (p.aiFight || 0) - dt);
   p.aiLock = Math.max(0, (p.aiLock || 0) - dt);
   p.aiWander = Math.max(0, (p.aiWander || 0) - dt);
-  p.aiRaid = Math.max(0, (p.aiRaid || 0) - dt);
   p.aiCarry = Math.max(0, (p.aiCarry || 0) - dt);
   p.aiModeT = Math.max(0, (p.aiModeT || 0) - dt);
   const mood = temper(p);
@@ -1507,14 +1781,10 @@ export function aiTick(p, people, balls, combat, match, dt) {
     p.aiCarryStyle = null;
     p.aiCarryStyleT = 0;
   }
-  // Esconderse: también válido con esfera (sneak/fight bajo presión)
+  // Esconderse (solo sin esfera): crítico, o muy herido y poco agresivo
   const hideOk =
-    (critHp || (lowHp && mood.hp < 0.24 && (agg < 0.35 || mood.front < -0.2)) || carrying) &&
-    (p.aiMode === "hide" ||
-      critHp ||
-      agg < 0.35 ||
-      mood.front < -0.15 ||
-      (carrying && (p.aiCarryStyle === "sneak" || p.aiCarryStyle === "fight" || (p.aiCarryHold || 0) > 0)));
+    (critHp || (lowHp && mood.hp < 0.24 && (agg < 0.35 || mood.front < -0.2))) &&
+    (p.aiMode === "hide" || critHp || agg < 0.35 || mood.front < -0.15);
   const homeZ = p.faccion === "z" ? -BASE_Z : BASE_Z;
   const enemyZ = -homeZ;
   const baseDist = Math.hypot(p.pos().x, p.pos().z - homeZ);
@@ -1526,28 +1796,48 @@ export function aiTick(p, people, balls, combat, match, dt) {
   const loot = balls.items.filter((b) => !b.held && b.inBase && b.inBase !== p.faccion);
   const tb = teamBoard(p.faccion);
   tb.help = refreshCall(tb.help, people, p.faccion, dt);
-  tb.defend = refreshCall(tb.defend, people, p.faccion, dt);
-  tb.raid = refreshCall(tb.raid, people, p.faccion, dt);
+  const teamN = people.filter((o) => o.faccion === p.faccion).length;
+  tb.raids = tb.raids.map((sq) => refreshRaid(sq, people, p.faccion, loot.length, teamN)).filter(Boolean);
   // Limpiar join si el pedido ya no existe.
-  if (p.aiJoin && ![tb.help?.id, tb.defend?.id, tb.raid?.id].includes(p.aiJoin)) clearJoin(p);
+  tb.guard = updateGuard(tb, people, p.faccion, homeZ, balls);
+  if (p.aiJoin && ![tb.help?.id, tb.guard?.id, ...tb.raids.map((r) => r.id)].includes(p.aiJoin)) clearJoin(p);
 
-  if (carrying || !loot.length || lowHp) p.aiRaid = 0;
-  // AJUSTE raid: hasta RAID_MAX_ACTIVE anunciados; el líder emite call para sumar idle.
-  else if (p.aiRaid <= 0 && (role === "aggro" || agg > 0.55) && !carrying && Math.random() < 0.004 * dt * 60) {
-    let nRaid = 0;
-    for (const o of people) if (o.faccion === p.faccion && (o.aiRaid || 0) > 0) nRaid++;
-    if (nRaid < RAID_MAX_ACTIVE) {
-      p.aiRaid = 16 + agg * 10;
-      p.aiRaidX = (seed(p) > 0.5 ? 1 : -1) * (85 + agg * 90);
-      emitTeamCall(p.faccion, "raid", p, RAID_SLOTS, 18);
-    }
+  // Escuadrones de raid (uno cada RAID_TEAM_PER_SQUAD jugadores): los funda un agresivo
+  // cuando hay botín y no hay otro escuadrón reuniéndose con cupo libre.
+  const maxRaids = Math.max(1, Math.floor(teamN / RAID_TEAM_PER_SQUAD));
+  if (
+    tb.raids.length < maxRaids &&
+    !tb.raids.some((r) => r.fromId === p.id || (r.phase === "gather" && r.taken < r.slots)) &&
+    !carrying && loot.length && !lowHp && !p.aiJoin &&
+    (role === "aggro" || agg > 0.55) &&
+    Math.random() < 0.004 * dt * 60
+  ) {
+    tb.raids.push(createRaid(p, homeZ, enemyZ, teamN, loot.length, tb.raids));
+    p.aiModeT = 0;
+  }
+  const raidSq = tb.raids.find((r) => r.fromId === p.id || p.aiJoin === r.id) || null;
+  const raidLeader = !!(raidSq && raidSq.fromId === p.id);
+  let inRaid = !!raidSq;
+  // Salida individual: solo en estado crítico (va a curarse); el resto sigue.
+  if (inRaid && critHp) {
+    if (raidLeader) {
+      const heir = people.find((o) => !o.dead && o.faccion === p.faccion && o.aiJoin === raidSq.id);
+      if (heir) {
+        clearJoin(heir);
+        raidSq.fromId = heir.id;
+      } else {
+        endRaid(raidSq, people, p.faccion);
+        tb.raids = tb.raids.filter((r) => r !== raidSq);
+      }
+    } else clearJoin(p);
+    inRaid = false;
+    if (p.aiMode === "raid") p.aiModeT = 0;
   }
 
   if (carrying) {
-    p.aiRaid = 0;
     p.aiHelpId = null;
     p.aiCharge = false;
-    // No forzar deliver siempre: pelear/hide pueden ganar en utilBest.
+    // No forzar deliver siempre: pelear puede ganar en utilBest.
     if (!p.aiMode || (p.aiMode !== "fight" && p.aiMode !== "hide" && p.aiMode !== "deliver")) {
       commitMode(p, "deliver", 12 + seed(p) * 6);
     }
@@ -1638,6 +1928,21 @@ export function aiTick(p, people, balls, combat, match, dt) {
     p.aiMemCz = enemy.pos().z;
     p.aiMemT = 7.5;
   }
+  // Quien le acaba de pegar cuenta como enemigo aunque no esté a la vista (golpe por la espalda)
+  {
+    const tHit = performance.now() * 0.001;
+    let hitter = null;
+    let hd = 50;
+    for (const h of p.hitBy || []) {
+      if (tHit - h.t > 2 || !h.p || h.p.dead) continue;
+      const d = h.p.pos().distanceTo(p.pos());
+      if (d < hd) {
+        hd = d;
+        hitter = h.p;
+      }
+    }
+    if (hitter && (!enemy || hd < enemy.pos().distanceTo(p.pos()) - 6)) enemy = hitter;
+  }
   const enemyDist = enemy ? enemy.pos().distanceTo(p.pos()) : snipeFoe ? snipeFoe.pos().distanceTo(p.pos()) : 1e9;
   const enemyCarrier = !!(enemy && enemy.esfera != null);
   const snipeOk = !!(snipeFoe || (p.aiMode === "snipe" && p.aiFoe));
@@ -1655,14 +1960,6 @@ export function aiTick(p, people, balls, combat, match, dt) {
       emitTeamCall(p.faccion, "help", p, HELP_SLOTS, 7, { foeId: enemy.id });
     }
   }
-  if (!carrying && threat && (defend || role === "guard" || inHomeAir || baseDist < 220)) {
-    const c = emitTeamCall(p.faccion, "defend", p, DEFEND_SLOTS, 8, { foeId: threat.id });
-    if (c) {
-      c.x = threat.pos().x;
-      c.z = threat.pos().z;
-    }
-  }
-
   const helpCand = !carrying ? allyToHelp(p, people) : null;
   const ballCand = !carrying ? claimBall(p, people, balls, dt) : null;
   const idleish =
@@ -1673,10 +1970,24 @@ export function aiTick(p, people, balls, combat, match, dt) {
     (p.aiModeT || 0) < 0.2;
   const helpCall =
     tb.help && tb.help.fromId !== p.id && tb.help.taken < tb.help.slots ? tb.help : null;
-  const defendCall =
-    tb.defend && tb.defend.fromId !== p.id && tb.defend.taken < tb.defend.slots ? tb.defend : null;
-  const raidCall =
-    tb.raid && tb.raid.fromId !== p.id && tb.raid.taken < tb.raid.slots ? tb.raid : null;
+  let raidCall = null;
+  if (!inRaid) {
+    let bd = 1e9;
+    for (const r of tb.raids) {
+      if (r.phase !== "gather" || r.taken >= r.slots) continue;
+      const d = Math.hypot(r.rally.x - p.pos().x, r.rally.z - p.pos().z);
+      if (d < bd) {
+        bd = d;
+        raidCall = r;
+      }
+    }
+  }
+  // Autodefensa: única excepción a la exclusividad del raid
+  const nowS = performance.now() * 0.001;
+  const hitRecent = (p.hitBy || []).some((h) => nowS - h.t < 2 && h.p && !h.p.dead);
+  const selfDefense = !!(enemy && (hitRecent || enemyDist < 26 || (enemyCarrier && enemyDist < 60)));
+  const myCall = p.aiJoin ? [tb.help, tb.guard, ...tb.raids].find((c) => c && c.id === p.aiJoin) || null : null;
+  const guardMember = !!(myCall && myCall.kind === "guard");
 
   const dry = !isWater(p.pos().x, p.pos().z);
   // Cargar hasta band.hi (sticky): no soltar a los 2s
@@ -1721,8 +2032,10 @@ export function aiTick(p, people, balls, combat, match, dt) {
     defend,
     role,
     helpCall,
-    defendCall,
     raidCall,
+    myCall,
+    inRaid,
+    selfDefense,
     idleish,
   });
   const hardFight =
@@ -1731,16 +2044,32 @@ export function aiTick(p, people, balls, combat, match, dt) {
     !(p.aiShipJob && p.aiShipJob.t > 0) &&
     shipDist(p.pos(), p.faccion) > BASE_INNER_R + 22 &&
     shipDist(p.pos(), p.faccion === "z" ? "f" : "z") > BASE_INNER_R + 22;
-  const hard =
-    (carrying && pick === "deliver" && p.aiMode !== "deliver" && p.aiMode !== "fight" && p.aiMode !== "hide") ||
+  const cur = p.aiMode;
+  const passiveCur = cur === "wander" || cur === "charge" || cur === "camp" || (cur === "ball" && role !== "baller");
+  const protectedCur = (cur === "heal" || cur === "raid" || cur === "help") && (p.aiModeT || 0) > 0;
+  let hard =
     (pick === "deliver" && carrying) ||
     (hardFight && (carrying ? enemyDist < 36 || enemyCarrier : enemyCarrier && enemyDist < 95)) ||
     (hardFight && enemyDist < 15) ||
     (defend && hardFight && enemyDist < 32) ||
-    (pick === "snipe" && snipeOk) ||
-    (pick === "hide" && carrying && enemy) ||
+    (hardFight && passiveCur && (hitRecent || enemyDist < 30)) ||
+    (pick === "fight" && cur === "snipe" && enemy) ||
+    (pick === "snipe" && snipeOk && cur !== "fight") ||
     (pick === "heal" && (critHp || lowHp) && medic) ||
-    (pick === "ball" && role === "baller" && ballCand && (p.aiMode === "wander" || p.aiMode === "charge"));
+    (pick === "ball" && role === "baller" && ballCand && (cur === "wander" || cur === "charge")) ||
+    (pick === "help" && helpCall && (passiveCur || cur === "snipe" || cur === "healPost")) ||
+    (pick === "raid" && raidCall && (passiveCur || cur === "snipe")) ||
+    // Ya en grupo (líder o miembro): ir a su función sin esperar el timer del modo actual
+    ((pick === "raid" || pick === "help" || (pick === "camp" && guardMember)) && (myCall || inRaid) && cur !== "fight") ||
+    // Grupo atacado / guardia con amenaza: pelear ya
+    (pick === "fight" && enemy && (inRaid || guardMember) && cur !== "fight");
+  if (protectedCur) {
+    hard =
+      carrying ||
+      (pick === "fight" && enemy && (enemyDist < 10 || enemyCarrier)) ||
+      (cur === "raid" && pick === "fight") ||
+      (critHp && cur !== "heal" && pick === "heal");
+  }
   let helpHold = false;
   if (p.aiMode === "help" && p.aiHelpFoeId != null) {
     const hf = people.find((o) => o.id === p.aiHelpFoeId);
@@ -1755,7 +2084,8 @@ export function aiTick(p, people, balls, combat, match, dt) {
       }
     }
   }
-  if (!helpHold && (hard || (p.aiModeT || 0) <= 0)) {
+  if (cur === "heal" && (mood.hp > 0.85 || !p.aiMedic || p.aiMedic.dead)) p.aiModeT = 0;
+  if (!helpHold && ((hard && pick !== cur) || (p.aiModeT || 0) <= 0)) {
     if (pick === "hide") {
       const spot = pickHideSpot(p, people, homeZ);
       p.aiHideX = spot.x;
@@ -1768,7 +2098,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
       p.aiMedic = medic;
       p.aiFight = 0;
       p.aiFoe = null;
-      commitMode(p, "heal", 16 + (1 - mood.hp) * 10);
+      commitMode(p, "heal", 60);
     } else if (pick === "healPost" && healerSpec(p.nombre)) {
       const spot = pickHealPost(p, people, homeZ);
       p.aiHealX = spot.x;
@@ -1782,46 +2112,57 @@ export function aiTick(p, people, balls, combat, match, dt) {
       p.aiNestX = nest.x;
       p.aiNestZ = nest.z;
       // 10-14 segundos
-      commitMode(p, "snipe", 30 + seed(p) * 4);
+      commitMode(p, "snipe", 10 + seed(p) * 4);
       // AJUSTE DURACIONES: el 2º arg de commitMode son segundos comprometidos
       // con ese modo (no lo reevalúa hasta que se agote, salvo `hard` de arriba).
     } else if (pick === "fight" && enemy) {
       p.aiFoe = enemy;
+      // Pelear contra el blanco de un pedido = sumarse a ese grupo
+      if (!carrying && !p.aiJoin && !inRaid && helpCall && enemy.id === helpCall.foeId) tryJoinCall(p, helpCall, people);
       p.aiFight = 5 + agg * 2.8 + Math.max(0, mood.front) * 2;
       if (carrying) {
         // Pedido de ayuda al pelear con esfera
         emitTeamCall(p.faccion, "help", p, HELP_SLOTS, 7, { foeId: enemy.id });
       }
-      commitMode(p, "fight", random(15, 22) + agg * 3); // pelea 15-25 s
+      // pelea 15-25 s; en escuadrón de raid solo un cruce corto y retoma el plan
+      commitMode(p, "fight", inRaid || guardMember ? 5 + seed(p) * 2 : random(15, 22) + agg * 3);
     } else if (pick === "deliver" && carrying) {
       commitMode(p, "deliver", random(14, 28));
     } else if (pick === "deliver") commitMode(p, "deliver", random(60, 100)); // llevar esfera
     else if (pick === "help") {
       p.aiHelpFoeId = null;
-      if (helpCand) {
+      if (myCall && myCall.kind === "help") {
+        p.aiHelpFoeId = myCall.foeId ?? null;
+      } else if (helpCand) {
         /* escolta portador — aiHelpId ya seteado */
       } else if (helpCall && tryJoinCall(p, helpCall, people)) {
         /* refuerzo a pedido de ayuda */
         p.aiHelpFoeId = helpCall.foeId ?? null;
-      } else if (defendCall && tryJoinCall(p, defendCall, people)) {
-        /* refuerzo a defensa */
-        p.aiHelpFoeId = defendCall.foeId ?? null;
       }
-      commitMode(p, "help", 10 + seed(p) * 3);
+      commitMode(p, "help", 18 + seed(p) * 7);
     } else if (pick === "camp") {
-      clearJoin(p);
-      if (p.aiCampX == null || Math.hypot((p.aiCampX || 0) - p.pos().x, (p.aiCampZ || 0) - p.pos().z) > 55) {
-        const spot = pickHideSpot(p, people, homeZ);
-        p.aiCampX = spot.x;
-        p.aiCampZ = spot.z;
+      if (guardMember) {
+        // Guardia: puesto fijo alrededor de la base; dura lo que dure la asignación
+        if (p.aiCampX == null || Math.hypot(p.aiCampX, p.aiCampZ - homeZ) > 110) {
+          const spot = pickGuardPost(p, homeZ);
+          p.aiCampX = spot.x;
+          p.aiCampZ = spot.z;
+        }
+        commitMode(p, "camp", 999);
+      } else {
+        clearJoin(p);
+        if (p.aiCampX == null || Math.hypot((p.aiCampX || 0) - p.pos().x, (p.aiCampZ || 0) - p.pos().z) > 55) {
+          const spot = pickHideSpot(p, people, homeZ);
+          p.aiCampX = spot.x;
+          p.aiCampZ = spot.z;
+        }
+        commitMode(p, "camp", 14 + seed(p) * 6);
       }
-      commitMode(p, "camp", 14 + seed(p) * 6);
     } else if (pick === "ball") commitMode(p, "ball", 14 + seed(p) * 4); // buscar esfera
     else if (pick === "raid") {
-      p.aiRaid = Math.max(p.aiRaid || 0, 12);
-      if (raidCall) tryJoinCall(p, raidCall, people);
-      else emitTeamCall(p.faccion, "raid", p, RAID_SLOTS, 18);
-      commitMode(p, "raid", 30); // asalto a base enemiga
+      if (!inRaid && raidCall) tryJoinCall(p, raidCall, people);
+      // Sin timer: el modo dura lo que dure el escuadrón (endRaid lo libera)
+      commitMode(p, "raid", 999);
     } else if (pick === "charge") {
       p.aiChargeTo = band.hi;
 
@@ -1840,8 +2181,27 @@ export function aiTick(p, people, balls, combat, match, dt) {
       commitMode(p, "wander", p.aiWander);
     }
   }
+  if (p.aiJoin && p.aiMode !== "help" && p.aiMode !== "raid" && p.aiMode !== "fight" && !(guardMember && p.aiMode === "camp"))
+    clearJoin(p);
   if (p.aiMode === "fight" && enemy) p.aiFoe = enemy;
   if (p.aiMode === "snipe" && (snipeFoe || p.aiFoe)) p.aiFoe = snipeFoe || p.aiFoe;
+  if (p.aiMode === "snipe") {
+    const nowS = performance.now() * 0.001;
+    let near = null;
+    let nearS = 1e9;
+    for (const o of people) {
+      if (o.dead || o.faccion === p.faccion) continue;
+      const d = o.pos().distanceTo(p.pos());
+      const hitMe = (p.hitBy || []).some((h) => h.p === o && nowS - h.t < 3);
+      if (d > (hitMe ? 45 : 18)) continue;
+      const s = d - (hitMe ? 25 : 0);
+      if (s < nearS) {
+        nearS = s;
+        near = o;
+      }
+    }
+    if (near && near !== p.aiFoe && (!p.aiFoe || nearS < p.aiFoe.pos().distanceTo(p.pos()))) p.aiFoe = near;
+  }
 
   let dir = new THREE.Vector3();
   let ball = ballCand;
@@ -2142,21 +2502,54 @@ export function aiTick(p, people, balls, combat, match, dt) {
     // multiplica por MELEE de config.js, que es el dial global.
     const meleeRange = 3.1;
     const meleeOdds = dist < 2.6 ? (mood.front > 0.2 ? 0.72 : 0.38) : dist < meleeRange ? 0.16 : 0;
-    const foeSwing = foe && (foe.posePunch || 0) > 0.05 && dist < 4.6 && facing;
-    let kiIn = false;
-    if ((p.flyAlt || 0) > 0.28 || p.volando) {
+    // ===== GUARDIA (cubrirse) =====
+    // Amenaza: cualquier rival pegado que arranca/está por tirar golpe, o ki que viene hacia mí.
+    // Cada amenaza nueva se tira una vez contra la habilidad del bot (no es infalible).
+    const me = p.pos();
+    let threat = false;
+    for (const o of people) {
+      if (o.dead || o.faccion === p.faccion) continue;
+      const od = o.pos().distanceTo(me);
+      if (od > 4.8) continue;
+      const winding = (o.posePunch || 0) > 0 || ((o.cooldown || 0) <= 0 && (o.rush || 0) > 0.3 && od < 3.6);
+      if (winding) {
+        threat = true;
+        break;
+      }
+    }
+    if (!threat) {
       for (const s of combat.shots) {
         if (s.faccion === p.faccion) continue;
-        if (s.mesh.position.distanceTo(p.pos()) < 16) {
-          kiIn = true;
+        const sp = s.mesh.position;
+        const dx = me.x - sp.x, dy = me.y - sp.y, dz = me.z - sp.z;
+        const d = Math.hypot(dx, dy, dz);
+        if (d > 34 || d / Math.max(1, s.speed || 30) > 0.7) continue;
+        const dl = s.dir ? s.dir.length() || 1 : 1;
+        const dot = s.dir ? (s.dir.x * dx + s.dir.y * dy + s.dir.z * dz) / (dl * Math.max(0.01, d)) : 1;
+        if (dot > 0.8 || d < 5) {
+          threat = true;
           break;
         }
       }
     }
-    if (foeSwing || kiIn) p._aiGuard = 0.32;
+    const blockSkill = 0.6 + seed(p) * 0.3;
+    if (threat && !p._aiThreat) {
+      p._aiThreat = 0.45;
+      if (Math.random() < blockSkill) p._aiGuard = 0.38;
+    } else if (threat) p._aiThreat = Math.max(p._aiThreat, 0.2);
+    p._aiThreat = Math.max(0, (p._aiThreat || 0) - dt);
+    if (threat && (p._aiGuard || 0) > 0) p._aiGuard = Math.max(p._aiGuard, 0.2);
     else p._aiGuard = Math.max(0, (p._aiGuard || 0) - dt);
+    p._blockDelay = 0.02;
     p.guard((p._aiGuard || 0) > 0, dt);
-    if (!p._aiSuper && !p._blocking && dist < meleeRange && facing && Math.random() < meleeOdds * MELEE) {
+    const airborne = (p.flyAlt || 0) > 0.28 || !!p.volando;
+    if (airborne && !p._aiSuper && !p._blocking && facing && dist >= 2.2 && dist < 3.4 && (p.cooldown || 0) <= 0 && Math.random() < 0.3 * MELEE) {
+      p.rush = Math.max(p.rush || 0, 0.95);
+      const stepV = Math.min(12, Math.max(0, dist - 1) * 8);
+      p.vx += Math.sin(lookYaw) * stepV;
+      p.vz += Math.cos(lookYaw) * stepV;
+      combat.melee(p, people);
+    } else if (!p._aiSuper && !p._blocking && dist < meleeRange && facing && Math.random() < meleeOdds * MELEE) {
       // Micro-paso hacia el rival al tirar el golpe, para no quedarse corto.
       // AJUSTE: tope 9 de velocidad; 1.2 es la distancia que deja sin cerrar.
       const stepV = Math.min(9, Math.max(0, dist - 1.2) * 7);
@@ -2167,7 +2560,16 @@ export function aiTick(p, people, balls, combat, match, dt) {
   } else {
     if ((p.lockT || 0) > 0) p.lockT = Math.max(0, p.lockT - dt * 2.2);
     if (p.lockT <= 0) p.lockFoe = null;
-    if (raiding) {
+    if (raiding && inRaid && raidSq && raidSq.phase === "gather") {
+      // Punto de encuentro: llegar y esperar al resto cargando ki
+      const rx = raidSq.rally.x - p.pos().x;
+      const rz = raidSq.rally.z - p.pos().z;
+      if (Math.hypot(rx, rz) > 7) dir.set(rx, 0, rz);
+      else {
+        dir.set(0, 0, 0);
+        if (kiFrac < 0.92 && !isWater(p.pos().x, p.pos().z)) p.aiCharge = true;
+      }
+    } else if (raiding) {
       const t = loot.reduce((a, b) => {
         const da = Math.hypot(a.mesh.position.x - p.pos().x, a.mesh.position.z - p.pos().z);
         const db = Math.hypot(b.mesh.position.x - p.pos().x, b.mesh.position.z - p.pos().z);
@@ -2186,7 +2588,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
         const hs = hideSteer(p.pos().x, p.pos().z, wp.x, wp.z, enemy);
         dir.set(hs.x, 0, hs.z);
       } else {
-        const call = p.aiJoinKind === "defend" ? tb.defend : p.aiJoinKind === "help" ? tb.help : null;
+        const call = p.aiJoinKind === "help" ? tb.help : null;
         const hf = p.aiHelpFoeId != null ? people.find((o) => o.id === p.aiHelpFoeId && !o.dead) : null;
         // Sin pedido vigente: ir directo a la amenaza reportada
         const tgt = call ? { x: call.x, z: call.z } : hf ? { x: hf.pos().x, z: hf.pos().z } : null;
@@ -2273,6 +2675,47 @@ export function aiTick(p, people, balls, combat, match, dt) {
     }
   }
 
+  let aimX = p.pos().x;
+  let aimZ = p.pos().z;
+  if (carrying) {
+    aimX = 0;
+    aimZ = homeZ;
+    if (p.aiMode === "hide" && p.aiHideX != null) {
+      aimX = p.aiHideX;
+      aimZ = p.aiHideZ;
+    } else if (fighting && foe) {
+      aimX = foe.pos().x;
+      aimZ = foe.pos().z;
+    }
+  } else if (p.aiMode === "ball" && ball) {
+    aimX = ball.mesh.position.x;
+    aimZ = ball.mesh.position.z;
+  } else if (raiding && inRaid && raidSq && raidSq.phase === "gather") {
+    aimX = raidSq.rally.x;
+    aimZ = raidSq.rally.z;
+  } else if (raiding && loot.length) {
+    const t = loot[0];
+    aimX = t.mesh.position.x;
+    aimZ = t.mesh.position.z;
+  } else if (fighting && foe) {
+    aimX = foe.pos().x;
+    aimZ = foe.pos().z;
+  } else if (p.aiMode === "help" && help) {
+    aimX = help.pos().x;
+    aimZ = help.pos().z;
+  } else if (p.aiMode === "healPost" && p.aiHealX != null) {
+    aimX = p.aiHealX;
+    aimZ = p.aiHealZ;
+  } else if (p.aiMode === "heal" && p.aiMedic && !p.aiMedic.dead) {
+    aimX = p.aiMedic.aiHealX != null ? p.aiMedic.aiHealX : p.aiMedic.pos().x;
+    aimZ = p.aiMedic.aiHealZ != null ? p.aiMedic.aiHealZ : p.aiMedic.pos().z;
+  } else if (p.aiMode === "hide" && p.aiHideX != null) {
+    aimX = p.aiHideX;
+    aimZ = p.aiHideZ;
+  } else if (p.aiWanderX != null) {
+    aimX = p.aiWanderX;
+    aimZ = p.aiWanderZ;
+  }
   let shipGate = false;
   {
     const pos = p.pos();
@@ -2281,6 +2724,10 @@ export function aiTick(p, people, balls, combat, match, dt) {
     const wantFoe =
       raiding ||
       (ball && (ball.inBase === foeFac || shipDist(ball.mesh.position, foeFac) < BASE_INNER_R + 8));
+    const aimP = { x: aimX, z: aimZ };
+    const hasAim = Math.hypot(aimX - pos.x, aimZ - pos.z) > 0.5;
+    const aimFac = !hasAim ? null : inShipBase(aimP, own) ? own : inShipBase(aimP, foeFac) ? foeFac : null;
+    const meFac = inShipBase(pos, own) ? own : inShipBase(pos, foeFac) ? foeFac : null;
     let fac = null;
     let goal = null;
     if (!carrying && inShipBase(pos, own) && (p.aiLeaveBase || 0) > 0) {
@@ -2295,12 +2742,17 @@ export function aiTick(p, people, balls, combat, match, dt) {
     } else if (wantFoe && (inShipBase(pos, foeFac) || shipDist(pos, foeFac) < 160)) {
       fac = foeFac;
       goal = inShipBase(pos, foeFac) ? "enter" : "enter";
-    } else if (p.aiShipExit || inShipBase(pos, own) || inShipBase(pos, foeFac)) {
+    } else if (meFac && aimFac === meFac) {
+      p.aiShipExit = null;
+    } else if (p.aiShipExit || meFac) {
       // Dentro de una nave sin motivo: salir por la puerta sí o sí, y no soltar hasta estar bien afuera
       // (si se suelta en el umbral, el objetivo lo vuelve a meter y queda girando en la puerta).
       fac = p.aiShipExit || (inShipBase(pos, own) ? own : foeFac);
       p.aiShipExit = fac;
       goal = "exit";
+    } else if (aimFac && shipDist(pos, aimFac) < 160) {
+      fac = aimFac;
+      goal = "enter";
     }
     if (p.aiShipExit && (goal !== "exit" || shipDist(pos, p.aiShipExit) > BASE_HULL_R + 8)) p.aiShipExit = null;
     if ((p.aiLeaveBase || 0) > 0) {
@@ -2318,6 +2770,11 @@ export function aiTick(p, people, balls, combat, match, dt) {
           shipGate = true;
         }
       }
+    }
+    if (!shipGate && !meFac && (p.flyAlt || 0) < 24 && dir.lengthSq() > 0.01) {
+      const L = Math.min(70, Math.max(15, hasAim ? Math.hypot(aimX - pos.x, aimZ - pos.z) : 40)) / dir.length();
+      const around = steerAroundShips(pos.x, pos.z, pos.x + dir.x * L, pos.z + dir.z * L);
+      if (around) dir.set(around.x, 0, around.z);
     }
   }
 
@@ -2361,44 +2818,6 @@ export function aiTick(p, people, balls, combat, match, dt) {
   }
 
   const pos = p.pos();
-  let aimX = pos.x;
-  let aimZ = pos.z;
-  if (carrying) {
-    aimX = 0;
-    aimZ = homeZ;
-    if (p.aiMode === "hide" && p.aiHideX != null) {
-      aimX = p.aiHideX;
-      aimZ = p.aiHideZ;
-    } else if (fighting && foe) {
-      aimX = foe.pos().x;
-      aimZ = foe.pos().z;
-    }
-  } else if (p.aiMode === "ball" && ball) {
-    aimX = ball.mesh.position.x;
-    aimZ = ball.mesh.position.z;
-  } else if (raiding && loot.length) {
-    const t = loot[0];
-    aimX = t.mesh.position.x;
-    aimZ = t.mesh.position.z;
-  } else if (fighting && foe) {
-    aimX = foe.pos().x;
-    aimZ = foe.pos().z;
-  } else if (p.aiMode === "help" && help) {
-    aimX = help.pos().x;
-    aimZ = help.pos().z;
-  } else if (p.aiMode === "healPost" && p.aiHealX != null) {
-    aimX = p.aiHealX;
-    aimZ = p.aiHealZ;
-  } else if (p.aiMode === "heal" && p.aiMedic && !p.aiMedic.dead) {
-    aimX = p.aiMedic.aiHealX != null ? p.aiMedic.aiHealX : p.aiMedic.pos().x;
-    aimZ = p.aiMedic.aiHealZ != null ? p.aiMedic.aiHealZ : p.aiMedic.pos().z;
-  } else if (p.aiMode === "hide" && p.aiHideX != null) {
-    aimX = p.aiHideX;
-    aimZ = p.aiHideZ;
-  } else if (p.aiWanderX != null) {
-    aimX = p.aiWanderX;
-    aimZ = p.aiWanderZ;
-  }
   // Distancia real al objetivo del modo actual: la usa applyLoco para decidir
   // si vale la pena volar/correr. (aim* es el punto al que apunta cada modo.)
   const goalDist = Math.hypot(aimX - pos.x, aimZ - pos.z);
@@ -2478,7 +2897,10 @@ export function aiTick(p, people, balls, combat, match, dt) {
   if (!p._aiSuper && shipGate && dir.lengthSq() > 0.04) {
     dir.normalize();
     const x = p.mesh.position.x;
-    if (Math.abs(x) > 1.2 && nearAnyShip(p.pos(), 48) && !inShipBase(p.pos(), p.faccion === "z" ? "f" : "z"))
+    const shipFac = nearAnyShip(p.pos(), 18);
+    const inDoorLane =
+      shipFac && Math.abs(x) < 9 && (p.pos().z - baseOrigin(shipFac).z) * baseDoorDir(shipFac) > BASE_INNER_R - 10;
+    if (Math.abs(x) > 1.2 && inDoorLane)
       p.mesh.position.x += -x * Math.min(1, (p._aiFrameDt ?? dt) * 4.5);
     p.yaw = Math.atan2(dir.x, dir.z);
     aiMove(p, dir, true, dt);
@@ -2514,7 +2936,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
     unstick: p.aiBreak || "",
     join: p.aiJoinKind || "",
     carryStyle: carrying ? p.aiCarryStyle || "" : "",
-    call: [tb.help && `help ${tb.help.taken}/${tb.help.slots}`, tb.defend && `def ${tb.defend.taken}/${tb.defend.slots}`, tb.raid && `raid ${tb.raid.taken}/${tb.raid.slots}`]
+    call: [tb.help && `help ${tb.help.taken}/${tb.help.slots}`, ...tb.raids.map((r) => `raid ${r.taken}/${r.slots} ${r.phase}`), tb.guard?.slots && `guard ${tb.guard.taken}/${tb.guard.slots}`]
       .filter(Boolean)
       .join(" | "),
   };

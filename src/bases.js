@@ -74,31 +74,85 @@ export function steerShipNav(px, pz, faccion, goal) {
       if (!inCorridor) return nrm(-dx, door * (BASE_INNER_R - 8) - dz);
       return nrm(-dx * 0.3, door);
     }
-    if (inCorridor && d < BASE_HULL_R + 8) return nrm(-dx * 0.3, door);
+    if (Math.abs(dx) < 11 && front > 0 && d < BASE_HULL_R + 8) return nrm(-dx * 0.3, door);
     return null;
   }
 
   if (goal === "enter" || goal === "deposit") {
     if (inside) return goal === "deposit" ? nrm(-dx, -dz) : null;
-    if (inCorridor) return nrm(-dx * 0.3, -door);
-    const ORBIT = BASE_HULL_R + 8;
+    // Hueco libre del casco/postes: |dx| < ~13 del lado de la puerta
+    if (Math.abs(dx) < 9 && front > BASE_INNER_R - 10 && front < BASE_HULL_R + 18) return nrm(-dx * 0.4, -door);
+    // Radio libre de obstáculos del casco (la nave grande llega a ~43.6)
+    const R = BASE_HULL_R + 8;
+    const gz = door * (BASE_HULL_R + 12);
+    // ¿El segmento p → punto frente a la rampa (0, gz) no corta el círculo R?
+    const sx = -dx;
+    const sz = gz - dz;
+    const sl2 = sx * sx + sz * sz || 1;
+    const t = Math.max(0, Math.min(1, -(dx * sx + dz * sz) / sl2));
+    const cx = dx + sx * t;
+    const cz = dz + sz * t;
+    if (Math.hypot(cx, cz) > R - 0.5) return nrm(sx, sz);
+    const th = Math.atan2(dz, dx);
+    const thDoor = Math.atan2(door, 0);
+    const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+    if (d > R + 1) {
+      // Ir al punto tangente del círculo R más cercano a la puerta
+      const a = Math.acos(R / d);
+      const t1 = th + a;
+      const t2 = th - a;
+      const tp = Math.abs(wrap(t1 - thDoor)) < Math.abs(wrap(t2 - thDoor)) ? t1 : t2;
+      return nrm(Math.cos(tp) * R - dx, Math.sin(tp) * R - dz);
+    }
+    // Pegado al casco: orbitar hacia la puerta, empujando hacia afuera
+    const s = wrap(thDoor - th) >= 0 ? 1 : -1;
     const ux = dx / (d || 1);
     const uz = dz / (d || 1);
-    // Fuera del sector de la puerta: rodear el casco a radio fijo (nunca cortar a través)
-    if (uz * door < 0.82) {
-      if (d > ORBIT + 22) return nrm(-dx, -dz);
-      let tx = -uz;
-      let tz = ux;
-      if (tz * door < 0 || (Math.abs(tz) < 0.05 && tx * dx > 0)) {
-        tx = -tx;
-        tz = -tz;
-      }
-      const k = Math.max(-0.8, Math.min(0.8, (ORBIT - d) * 0.15));
-      return nrm(tx + ux * k, tz + uz * k);
+    const k = Math.max(0, Math.min(0.9, (R + 2 - d) * 0.2));
+    return nrm(-uz * s + ux * k, ux * s + uz * k);
+  }
+  return null;
+}
+
+/**
+ * Rodear naves por afuera cuando el tramo p → g cruza un casco.
+ * Devuelve { x, z } normalizado o null si el camino está libre.
+ */
+export function steerAroundShips(px, pz, gx, gz) {
+  const R = BASE_HULL_R + 8;
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  for (const fac of ["z", "f"]) {
+    const o = baseOrigin(fac);
+    const dx = px - o.x;
+    const dz = pz - o.z;
+    const d = Math.hypot(dx, dz);
+    if (d < BASE_INNER_R) continue;
+    const ex = gx - o.x;
+    const ez = gz - o.z;
+    if (Math.hypot(ex, ez) < BASE_INNER_R) continue;
+    const sx = ex - dx;
+    const sz = ez - dz;
+    const sl2 = sx * sx + sz * sz || 1;
+    const t = Math.max(0, Math.min(1, -(dx * sx + dz * sz) / sl2));
+    if (Math.hypot(dx + sx * t, dz + sz * t) > R - 0.5) continue;
+    const th = Math.atan2(dz, dx);
+    const thG = Math.atan2(ez, ex);
+    const nrm = (x, z) => {
+      const len = Math.hypot(x, z) || 1;
+      return { x: x / len, z: z / len };
+    };
+    if (d > R + 1) {
+      const a = Math.acos(R / d);
+      const t1 = th + a;
+      const t2 = th - a;
+      const tp = Math.abs(wrap(t1 - thG)) < Math.abs(wrap(t2 - thG)) ? t1 : t2;
+      return nrm(Math.cos(tp) * R - dx, Math.sin(tp) * R - dz);
     }
-    // En el sector de la puerta: alinearse con el pasillo y entrar
-    if (Math.abs(dx) > 3) return nrm(-dx, door * (BASE_HULL_R + 6) - dz);
-    return nrm(-dx * 0.3, -door);
+    const s = wrap(thG - th) >= 0 ? 1 : -1;
+    const ux = dx / (d || 1);
+    const uz = dz / (d || 1);
+    const k = Math.max(0, Math.min(0.9, (R + 2 - d) * 0.2));
+    return nrm(-uz * s + ux * k, ux * s + uz * k);
   }
   return null;
 }

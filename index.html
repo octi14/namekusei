@@ -184,6 +184,33 @@
       #ai-dbg .z { color: #ffab40; }
       #ai-dbg .f { color: #4fc3f7; }
       #ai-dbg .me { background: #fff1; }
+      #ai-groups {
+        position: absolute; left: 14px; top: calc(86px + 20vh); max-width: min(58vw, 300px);
+        max-height: calc(100vh - 86px - 20vh - 210px); overflow-y: auto;
+        z-index: 5; cursor: pointer; user-select: none;
+        font: 10px/1.35 ui-monospace, Consolas, monospace;
+        background: #0008; color: #ddd; padding: 4px 6px; border-radius: 4px;
+        text-shadow: 0 1px 2px #000;
+      }
+      #ai-groups .h { color: #81c784; font-weight: 700; letter-spacing: 0.05em; }
+      #ai-groups .hint { color: #888; font-weight: 400; letter-spacing: 0; }
+      #ai-groups .team { margin-top: 5px; font-weight: 700; text-transform: uppercase; font-size: 0.9em; }
+      #ai-groups .t-z { --tc: #ff6e40; }
+      #ai-groups .t-f { --tc: #4fc3f7; }
+      #ai-groups .team { color: var(--tc); }
+      #ai-groups .g { margin: 3px 0 0; padding: 2px 0 2px 6px; border-left: 3px solid var(--tc); }
+      #ai-groups .gt { display: flex; gap: 6px; align-items: baseline; }
+      #ai-groups .k { font-weight: 700; color: #fff; }
+      #ai-groups .g-raid .k { color: #ff5252; }
+      #ai-groups .g-guard .k { color: #69f0ae; }
+      #ai-groups .g-help .k { color: #ffd740; }
+      #ai-groups .n { color: #bbb; }
+      #ai-groups .st { color: #999; font-style: italic; margin-left: auto; }
+      #ai-groups .gm { color: #ddd; }
+      #ai-groups .me { color: #fff; font-weight: 700; text-decoration: underline; }
+      #ai-groups .dead { color: #666; text-decoration: line-through; }
+      #ai-groups.min > :not(.h) { display: none; }
+      @media (min-width: 900px) { #ai-groups { font-size: 11px; } }
       #minimap {
         position: absolute; right: 12px; bottom: 14px;
         width: 300px; height: 300px; border-radius: 8px;
@@ -930,6 +957,7 @@
       <canvas id="minimap" width="300" height="300"></canvas>
       <button type="button" id="btn-heal">CURAR</button>
       <div id="ai-dbg"></div>
+      <div id="ai-groups" style="display: none"></div>
       <div id="panel-keys">
         <kbd>WASD</kbd> mover · <kbd>Shift</kbd> correr / turbo<br />
         <kbd>Espacio</kbd> salto · 2× volar · <kbd>C</kbd> bajar / agachar · <kbd>V</kbd> cámara · <kbd>N</kbd> cámara libre · <kbd>H</kbd> ayudas<br />

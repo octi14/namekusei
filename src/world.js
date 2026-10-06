@@ -2451,6 +2451,17 @@ export function buildMapMaquette(id = "namek") {
   const prevW = WATER_Y;
   const prevT = snapTerrain();
   const hill = { x: patriarchHill.x, z: patriarchHill.z, baseY: patriarchHill.baseY };
+  // La maqueta re-sortea los layouts: guardarlos o la colisión del mapa jugado deja de coincidir con su malla.
+  const prevLayout = {
+    vegetaClusters,
+    vegetaDunes,
+    vegetaMesas,
+    vegetaRidges,
+    vegetaLoners,
+    earthPlateaus,
+    earthLakes,
+    cellIslands,
+  };
   mapId = id;
   WATER_Y = waterYFor(id);
   applyTerrainSeed((id.charCodeAt(0) * 9973 + (MAP | 0) * 131) >>> 0);
@@ -2578,6 +2589,8 @@ export function buildMapMaquette(id = "namek") {
   patriarchHill.x = hill.x;
   patriarchHill.z = hill.z;
   patriarchHill.baseY = hill.baseY;
+  ({ vegetaClusters, vegetaDunes, vegetaMesas, vegetaRidges, vegetaLoners, earthPlateaus, earthLakes, cellIslands } =
+    prevLayout);
   refreshBasePads();
   return root;
 }

@@ -1771,7 +1771,7 @@ export class Personaje {
       return;
     }
     this._blockHold = (this._blockHold || 0) + dt;
-    this._blocking = this._blockHold >= 0.08;
+    this._blocking = this._blockHold >= (this._blockDelay ?? 0.08);
     this._guarded = true;
     if (this._blocking) this.poseBlock = Math.max(this.poseBlock || 0, 0.14);
   }

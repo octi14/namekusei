@@ -5,6 +5,7 @@ import { powerStyle } from "./powers.js";
 import { getMapThumb } from "./world.js";
 import { healerSpec } from "./stats.js";
 import { canSee } from "./combat.js";
+import { getTeamGroups } from "./ai.js";
 
 function paintNames(text, people) {
   if (!people?.length) return text;
@@ -299,4 +300,56 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
       dbg.innerHTML = `<div class="h">AI DBG · ${p.nombre}</div><div class="${fac} me">${bits}</div>`;
     }
   }
+  renderGroups(p, people);
+}
+
+const GROUP_LABEL = { help: "AYUDA", raid: "ASALTO", guard: "GUARDIA" };
+let _groupsT = 0;
+
+function groupStatus(g) {
+  if (g.kind === "guard") return `defiende ${g.home} esfera${g.home === 1 ? "" : "s"}`;
+  if (g.kind === "raid") return g.phase === "gather" ? "reuniéndose" : "atacando base rival";
+  return `pelea · ${Math.ceil(g.t)}s`;
+}
+
+function renderGroups(p, people) {
+  const el = document.getElementById("ai-groups");
+  if (!el || !people) return;
+  if (!el._bound) {
+    el._bound = true;
+    el.addEventListener("click", () => el.classList.toggle("min"));
+  }
+  const now = performance.now();
+  if (now - _groupsT < 250) return;
+  _groupsT = now;
+  const name = (o) => {
+    const cls = [o === p ? "me" : "", o.dead ? "dead" : ""].join(" ").trim();
+    return `<span class="${cls}">${o.nombre}</span>`;
+  };
+  let html = "";
+  let n = 0;
+  for (const fac of ["z", "f"]) {
+    const groups = getTeamGroups(fac, people);
+    if (!groups.length) continue;
+    const label = fac === "z" ? current.zLabel : current.fLabel;
+    html += `<div class="team t-${fac}">${label}</div>`;
+    let raidN = 0;
+    for (const g of groups) {
+      n++;
+      const size = g.members.length + (g.leader ? 1 : 0);
+      const cap = g.slots + (g.leader ? 1 : 0);
+      const title = GROUP_LABEL[g.kind] + (g.kind === "raid" ? ` ${++raidN}` : "");
+      const people_ = [
+        ...(g.leader ? [`★ ${name(g.leader)}`] : []),
+        ...g.members.map(name),
+      ];
+      const list = people_.length ? people_.join(", ") : `<span class="dead">sin asignar</span>`;
+      html +=
+        `<div class="g g-${g.kind} t-${fac}">` +
+        `<div class="gt"><span class="k">${title}</span><span class="n">${size}/${cap}</span><span class="st">${groupStatus(g)}</span></div>` +
+        `<div class="gm">${list}</div></div>`;
+    }
+  }
+  el.style.display = n ? "" : "none";
+  el.innerHTML = `<div class="h">GRUPOS · ${n} <span class="hint">(tocar para ${el.classList.contains("min") ? "abrir" : "cerrar"})</span></div>${html}`;
 }
