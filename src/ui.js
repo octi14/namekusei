@@ -313,24 +313,29 @@ function groupStatus(g) {
 }
 
 function renderGroups(p, people) {
-  const el = document.getElementById("ai-groups");
-  if (!el || !people) return;
+  if (!people) return;
+  const now = performance.now();
+  if (now - _groupsT < 250) return;
+  _groupsT = now;
+  // Rojo (z) a la izquierda, azul (f) a la derecha
+  renderTeamGroups(document.getElementById("ai-groups"), "z", p, people);
+  renderTeamGroups(document.getElementById("ai-groups-f"), "f", p, people);
+}
+
+function renderTeamGroups(el, fac, p, people) {
+  if (!el) return;
   if (!el._bound) {
     el._bound = true;
     el.addEventListener("click", () => el.classList.toggle("min"));
   }
-  const now = performance.now();
-  if (now - _groupsT < 250) return;
-  _groupsT = now;
   const name = (o) => {
     const cls = [o === p ? "me" : "", o.dead ? "dead" : ""].join(" ").trim();
     return `<span class="${cls}">${o.nombre}</span>`;
   };
   let html = "";
   let n = 0;
-  for (const fac of ["z", "f"]) {
+  {
     const groups = getTeamGroups(fac, people);
-    if (!groups.length) continue;
     const label = fac === "z" ? current.zLabel : current.fLabel;
     html += `<div class="team t-${fac}">${label}</div>`;
     let raidN = 0;

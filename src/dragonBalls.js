@@ -192,6 +192,13 @@ export class DragonBalls {
     }
   }
 
+  /** Agarre cancelado: la animación pudo mover la esfera; si estaba en base, vuelve a su slot. */
+  release(b) {
+    if (!b || b.held || !b.inBase) return;
+    const slot = shipBallSlot(b.inBase, b.n);
+    b.mesh.position.set(slot.x, surfaceHeight(slot.x, slot.z) + BALL_R + 0.08, slot.z);
+  }
+
   placeInBase(n, faccion) {
     const b = this.items.find((i) => i.n === n);
     if (!b) return;

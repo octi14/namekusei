@@ -1957,6 +1957,7 @@ export class Personaje {
     if (this.dead || this.esfera != null || (!wet && (this.volando || this.flyAlt > 0.45))) {
       this.grabT = 0;
       this._grabbing = false;
+      balls.release(this._grabBall);
       this._grabBall = null;
       return;
     }
@@ -1972,10 +1973,14 @@ export class Personaje {
         }
       }
     }
-    const b = balls.near(this) || (this._grabbing ? this._grabBall : null);
+    const gb = this._grabbing ? this._grabBall : null;
+    const gbNear = gb && Math.hypot(gb.mesh.position.x - this.pos().x, gb.mesh.position.z - this.pos().z) < 3.5;
+    const b = balls.near(this) || (gbNear ? gb : null);
+    if (gb && b !== gb) balls.release(gb);
     if (!b || b.held) {
       this.grabT = 0;
       this._grabbing = false;
+      balls.release(this._grabBall);
       this._grabBall = null;
       return;
     }
@@ -1985,6 +1990,7 @@ export class Personaje {
     if ((this.stun || 0) > 0 || (this.hitRecoil || 0) > 0.05) {
       this.grabT = 0;
       this._grabbing = false;
+      balls.release(this._grabBall);
       this._grabBall = null;
       return;
     }
