@@ -1055,6 +1055,7 @@ const MAX_ESCORTS = 2; // cupo del grupo help de escolta que arma cada portador
 const HELP_SLOTS = 2; // refuerzos a pelea / pedido de ayuda
 // AJUSTE help: solo se interrumpe por la muerte de la amenaza reportada, o para
 // pelear con un enemigo a menos de HELP_BREAK_DIST si su score de fight ≥ HELP_BREAK_FIGHT.
+const BRAWL_BASE = 0.45; // chance base de que una pelea vaya al cuerpo a cuerpo (ver AJUSTE BRAWL)
 const HELP_BREAK_DIST = 30;
 const HELP_BREAK_FIGHT = 85;
 // Raid: tamaño del escuadrón = fracción del equipo según esferas del rival (5 jug/1 esf → 2; 20 jug/3 esf → 5)
@@ -2430,8 +2431,17 @@ export function aiTick(p, people, balls, combat, match, dt) {
     }
     const dist = foe.pos().distanceTo(p.pos());
     const rng = powerStyle(p.nombre, p.faccion).range || 55;
+    // AJUSTE BRAWL: cada 6-10 s el bot decide si va al cuerpo a cuerpo (ignora preferKi y se pega).
+    // Chance = BRAWL_BASE + agresividad; subir BRAWL_BASE = más piñas.
+    p._aiBrawlT = (p._aiBrawlT || 0) - dt;
+    if (p._aiBrawlT <= 0 || p._aiBrawlFoe !== foe) {
+      p._aiBrawlT = 6 + Math.random() * 4;
+      p._aiBrawlFoe = foe;
+      p._aiBrawl = Math.random() < BRAWL_BASE + agg * 0.25 + (mood.ki < 0.35 ? 0.15 : 0);
+    }
     // AJUSTE: preferir ki también vs portador a media/larga; melee si está muy cerca
     const preferKi =
+      !p._aiBrawl &&
       mood.ki > 0.28 &&
       p.s.ki > 14 &&
       (p.cooldown || 0) <= 0 &&
@@ -2530,7 +2540,7 @@ export function aiTick(p, people, balls, combat, match, dt) {
     // (0.42 crecido / 0.28 normal pegado, 0.16 al límite del alcance); se
     // multiplica por MELEE de config.js, que es el dial global.
     const meleeRange = 3.1;
-    const meleeOdds = dist < 2.6 ? (mood.front > 0.2 ? 0.72 : 0.38) : dist < meleeRange ? 0.16 : 0;
+    const meleeOdds = dist < 2.6 ? (mood.front > 0.2 || p._aiBrawl ? 0.72 : 0.38) : dist < meleeRange ? 0.22 : 0;
     // ===== GUARDIA (cubrirse) =====
     // Amenaza: cualquier rival pegado que arranca/está por tirar golpe, o ki que viene hacia mí.
     // Cada amenaza nueva se tira una vez contra la habilidad del bot (no es infalible).

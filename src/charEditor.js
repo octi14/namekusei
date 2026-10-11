@@ -27,8 +27,12 @@ const LOOK_COLORS = [
   ["shins", "Pantorrillas", (l) => l.shins ?? l.thighs ?? l.pants ?? l.suit ?? l.accent ?? l.body],
   ["hipsColor", "Cadera", (l) => l.hipsColor ?? l.pants ?? l.suit ?? l.accent ?? l.body],
   ["sash", "Fajín", (l) => l.sash ?? l.accent ?? 0x0d47a1],
+  ["gloves", "Guantes", (l) => l.gloves ?? 0xf5f5f5],
   ["wrist", "Muñequeras", (l) => l.wrist ?? l.accent ?? 0x1565c0],
   ["boots", "Botas", (l) => l.boots ?? 0x0d47a1],
+  ["bootTip", "Puntera bota", (l) => l.bootTip ?? 0xc2b25a],
+  ["bootBand", "Caña bota", (l) => l.bootBand ?? 0x2b2f3d],
+  ["bootStripe", "Franja bota", (l) => l.bootStripe ?? l.boots ?? 0xf5f5f5],
   ["cape", "Capa", (l) => l.cape ?? 0xfafafa],
   ["turbanC", "Turbante", (l) => l.turbanC ?? l.cape ?? 0xf5f5f5],
   ["suit", "Traje interior / mangas", (l) => l.suit ?? l.body],
@@ -362,6 +366,7 @@ const SELECT_LABELS = {
   bracerType: "Tipo brazales",
   upperSuit: "Traje superior",
   bootType: "Tipo calzado",
+  gloves: "Guantes",
 };
 const SELECT_OPTS = {
   headType: { sphere: "Esfera", oval: "Óvalo", skull: "Cráneo", capsule: "Cápsula", pill: "Cápsula chata", block: "Angular" },
@@ -380,7 +385,10 @@ const SELECT_OPTS = {
     combat: "Zueco combate (gi)",
     armor: "Bota armadura",
     soft: "Suave / corta",
+    saiyan: "Bota saiyajin (puntera)",
+    ginyu: "Bota Ginyu (franja)",
   },
+  gloves: { none: "No", on: "Sí" },
 };
 
 let open = false;

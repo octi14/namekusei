@@ -1,4 +1,4 @@
-import { superRank, MAP, BASE_Z } from "./config.js";
+import { superRank, MAP, BASE_Z, FLY_MAX } from "./config.js";
 import { logLines, logVersion } from "./log.js";
 import { current } from "./scenario.js";
 import { powerStyle } from "./powers.js";
@@ -9,10 +9,10 @@ import { getTeamGroups } from "./ai.js";
 
 function paintNames(text, people) {
   if (!people?.length) return text;
-  const names = [...new Set(people.map((o) => o.nombre))].sort((a, b) => b.length - a.length);
+  const names = [...new Set(people.map((o) => o.alias))].sort((a, b) => b.length - a.length);
   let s = text;
   for (const n of names) {
-    const fac = people.find((o) => o.nombre === n)?.faccion;
+    const fac = people.find((o) => o.alias === n)?.faccion;
     if (!fac) continue;
     s = s.split(n).join(`<span class="nm-${fac}">${n}</span>`);
   }
@@ -109,6 +109,12 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
   const ki = Math.max(0, (p.s.ki / p.s.kiMax) * 100);
   const rank = superRank(p.s.ki, p.s.kiMax, p.s.ataque);
   const superOk = rank > 0;
+  const hpTxt = `${Math.max(0, Math.round(p.s.hp))}/${Math.round(p.s.hpMax)}`;
+  const kiTxt = `${Math.max(0, Math.round(p.s.ki))}/${Math.round(p.s.kiMax)}`;
+  const vHp = document.getElementById("val-hp");
+  const vKi = document.getElementById("val-ki");
+  if (vHp && vHp.textContent !== hpTxt) vHp.textContent = hpTxt;
+  if (vKi && vKi.textContent !== kiTxt) vKi.textContent = kiTxt;
   document.getElementById("pl-super").textContent = rank === 3 ? "SUPER III" : rank === 2 ? "SUPER II" : "SUPER";
   const mm = Math.floor(match.t / 60);
   const ss = String(Math.floor(match.t % 60)).padStart(2, "0");
@@ -131,7 +137,7 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
     kids[i].className = t ? `orb ${t}` : "orb";
   }
   const name = document.getElementById("pl-name");
-  name.textContent = p.nombre;
+  name.textContent = p.alias;
   name.className = `who ${p.faccion}`;
   document.getElementById("pl-team").textContent = p.faccion === "z" ? current.zLabel : current.fLabel;
   document.getElementById("bar-hp").style.width = `${hp}%`;
@@ -151,7 +157,7 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
         ? `AGUA −${p.swim.toFixed(0)}m`
         : "NADANDO"
       : p.volando
-        ? `VUELO ${p.flyAlt.toFixed(0)}m`
+        ? `VUELO ${(p.flyAlt + Math.max(0, FLY_MAX - p.flyCap())).toFixed(0)}m`
         : "TIERRA";
   document.getElementById("pl-atk").textContent = p.s.ataque.toFixed(0);
   document.getElementById("pl-vel").textContent = p.s.velocidad.toFixed(0);
@@ -217,7 +223,7 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
   const kill =
     match.killToast &&
     match.phase === "play" &&
-    match.killToast.killer === p.nombre
+    match.killToast.killer === p.alias
       ? match.killToast
       : null;
   if (kill) {
@@ -240,7 +246,17 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
     document.getElementById("ko-bar").style.transform = `scaleX(${t})`;
     document.getElementById("ko-sub").textContent = `REAPARECE EN ${Math.ceil(p.deadT)}`;
   } else ko.classList.remove("on");
-  if (match.finish) {
+  const win = document.getElementById("win-modal");
+  win.classList.toggle("on", !!match.finish && !match.finish.stats);
+  if (match.finish && !match.finish.stats && win._for !== match.finish) {
+    win._for = match.finish;
+    win.className = `on ${match.finish.team || ""}`;
+    document.getElementById("win-kicker").textContent = match.finish.kicker;
+    document.getElementById("win-title").textContent = match.finish.title;
+    document.getElementById("win-sub").textContent = match.finish.sub;
+    document.getElementById("win-score").textContent = match.finish.score;
+  }
+  if (match.finish?.stats) {
     const end = document.getElementById("end");
     end.classList.add("show");
     const card = document.getElementById("end-card");
@@ -249,13 +265,25 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
     document.getElementById("end-title").textContent = match.finish.title;
     document.getElementById("end-sub").textContent = match.finish.sub;
     document.getElementById("end-score").textContent = match.finish.score;
+    const eloEl = document.getElementById("end-elo");
+    const e = match.finish.elo;
+    if (eloEl && e && eloEl._for !== e) {
+      eloEl._for = e;
+      const sign = e.delta > 0 ? "+" : "";
+      const up = e.rankAfter.name !== e.rankBefore.name ? (e.after > e.before ? " ▲ ¡SUBISTE DE RANGO!" : " ▼ BAJASTE DE RANGO") : "";
+      eloEl.innerHTML =
+        `<span class="elo-rank" style="color:${e.rankAfter.color}">${e.rankAfter.name.toUpperCase()}</span>` +
+        `<span class="elo-val">${e.before} → <b>${e.after}</b></span>` +
+        `<span class="elo-d ${e.delta >= 0 ? "pos" : "neg"}">${sign}${e.delta}</span>` +
+        `<span class="elo-note">ELO DE PRÁCTICA · rendimiento ${e.perf >= 0 ? "+" : ""}${Math.round(e.perf * 25)}%${e.games <= 10 ? ` · calibración ${e.games}/10` : ""}${up}</span>`;
+    }
   }
   const board = document.getElementById("tab-board");
   if (tabOn && people) {
     board.classList.add("on");
     const row = (o) => {
       const me = o === p ? " me" : "";
-      return `<tr class="t-${o.faccion}${me}"><td>${o.nombre}</td><td>${o.st.k}</td><td>${o.st.a}</td><td>${o.st.d}</td><td>${o.st.esf}</td><td>${Math.round(o.st.dmg)}</td></tr>`;
+      return `<tr class="t-${o.faccion}${me}"><td>${o.alias}</td><td>${o.st.k}</td><td>${o.st.a}</td><td>${o.st.d}</td><td>${o.st.esf}</td><td>${Math.round(o.st.dmg)}</td></tr>`;
     };
     const sort = (fac) =>
       people.filter((o) => o.faccion === fac).sort((a, b) => b.st.k - a.st.k || b.st.dmg - a.st.dmg);
@@ -330,7 +358,7 @@ function renderTeamGroups(el, fac, p, people) {
   }
   const name = (o) => {
     const cls = [o === p ? "me" : "", o.dead ? "dead" : ""].join(" ").trim();
-    return `<span class="${cls}">${o.nombre}</span>`;
+    return `<span class="${cls}">${o.alias}</span>`;
   };
   let html = "";
   let n = 0;

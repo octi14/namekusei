@@ -1,5 +1,7 @@
 import fs from "fs";
 import path from "path";
+import { loadEnv } from "vite";
+import { mountApi } from "./server/api.js";
 
 const dest = path.resolve("src/data");
 
@@ -12,6 +14,7 @@ export default {
     {
       name: "namekusei-pack",
       configureServer(server) {
+        mountApi((p, h) => server.middlewares.use(p, h), loadEnv(server.config.mode, process.cwd(), ""));
         server.middlewares.use("/__namekusei-ai-log", (req, res, next) => {
           if (req.method !== "POST") return next();
           const chunks = [];

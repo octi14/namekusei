@@ -53,6 +53,8 @@ export class Personaje {
   constructor(def, indexInTeam, teamCount, scene) {
     this.id = def.id;
     this.nombre = def.nombre;
+    /** Nombre visible: nick del jugador en salas online, si no el del personaje. */
+    this.alias = def.nick || def.nombre;
     this.faccion = def.faccion;
     this.s = { ...def.stats };
     this.volando = false;
@@ -150,7 +152,7 @@ export class Personaje {
 
     const tag = document.createElement("div");
     tag.className = `nametag ${def.faccion}`;
-    tag.innerHTML = `<span class="nm">${this.nombre}</span><div class="hp-mini"><i></i></div>`;
+    tag.innerHTML = `<span class="nm">${this.alias}</span><div class="hp-mini"><i></i></div>`;
     this.hpWrap = tag.querySelector(".hp-mini");
     this.hpFill = tag.querySelector("i");
     this.nameLabel = new CSS2DObject(tag);
@@ -1639,12 +1641,18 @@ export class Personaje {
       if (this._surfY != null) {
         const drop = this._surfY - surf;
         if (this.flyAlt > 0.04 || drop > 0.7) {
-          this.flyAlt = Math.max(0, Math.min(FLY_MAX, this.flyAlt + drop));
+          this.flyAlt = Math.max(0, Math.min(this.flyCap(x, z, surf), this.flyAlt + drop));
         }
       }
       this._surfY = surf;
       this.mesh.position.y = surf + this.flyAlt + lean + (this._strideBob || 0);
     }
+  }
+
+  /** Techo de vuelo medido desde el terreno, no desde techos/naves: volar sobre un edificio no sube el tope. */
+  flyCap(x = this.mesh.position.x, z = this.mesh.position.z, surf = surfaceHeight(x, z)) {
+    const ref = Math.max(groundHeight(x, z), WATER_Y);
+    return Math.max(0.5, FLY_MAX - Math.max(0, surf - ref));
   }
 
   applyFlight(dt) {
@@ -1703,7 +1711,7 @@ export class Personaje {
     }
     const prevAlt = this.flyAlt;
     const prevVy = this.vy;
-    this.flyAlt = Math.max(0, Math.min(FLY_MAX, this.flyAlt + this.vy * dt));
+    this.flyAlt = Math.max(0, Math.min(this.flyCap(), this.flyAlt + this.vy * dt));
     resolveShipCollisions(this);
     if (this.flyAlt <= 0.001) {
       if (prevAlt > 0.45 && prevVy < -5 && this._scene && !this.inSwim()) {
@@ -1879,9 +1887,9 @@ export class Personaje {
   dropBall(balls, silent = false) {
     if (this.esfera == null) return;
     const n = this.esfera;
-    balls.drop(n, this.pos().x, this.pos().z);
+    balls.drop(n, this.pos().x, this.pos().z, this.pos().y + this.height * 0.5);
     this.esfera = null;
-    if (!silent) log(`${this.nombre} soltó la esfera ${n}`, this.faccion);
+    if (!silent) log(`${this.alias} soltó la esfera ${n}`, this.faccion);
   }
 
   die(balls, killer, ki) {
@@ -1903,7 +1911,7 @@ export class Personaje {
     this.hitFlash = 0;
     if (this.hitGlow) this.hitGlow.visible = false;
     this._resetBodyEmissive();
-    this.killedBy = killer?.nombre || "";
+    this.killedBy = killer?.alias || "";
     this.killedKi = !!ki;
     this.killedTeam = killer?.faccion || "";
     this.s.hp = 0;
@@ -1917,12 +1925,12 @@ export class Personaje {
     const n = this.esfera;
     if (n != null) {
       const a = Math.random() * Math.PI * 2;
-      balls.drop(n, this.pos().x + Math.cos(a) * 2.2, this.pos().z + Math.sin(a) * 2.2);
+      balls.drop(n, this.pos().x + Math.cos(a) * 2.2, this.pos().z + Math.sin(a) * 2.2, this.pos().y + this.height * 0.5);
       this.esfera = null;
-      log(`${this.nombre} ha perdido la esfera`, this.faccion);
+      log(`${this.alias} ha perdido la esfera`, this.faccion);
     }
-    if (killer) logKill(killer.nombre, this.nombre, ki, "", killer.faccion);
-    else log(`${this.nombre} cayó`, this.faccion);
+    if (killer) logKill(killer.alias, this.alias, ki, "", killer.faccion);
+    else log(`${this.alias} cayó`, this.faccion);
     // DEATH: atk/vel caen más; def/kiMax un poco menos. Piso = orig * STAT_FLOOR.
     const mult = { ataque: DEATH_MULT_ATK, velocidad: DEATH_MULT_VEL, defensa: DEATH_MULT, kiMax: DEATH_MULT };
     for (const k of ["ataque", "defensa", "velocidad", "kiMax"]) {
@@ -2021,12 +2029,12 @@ export class Personaje {
     if (this.esfera == null || this.volando || this.flyAlt > 0.2 || !inOwnBase(this.pos(), this.faccion)) return false;
     const n = this.esfera;
     balls.placeInBase(n, this.faccion);
-    match.deposit(this.faccion, n, this.nombre, balls);
+    match.deposit(this.faccion, n, this.alias, balls);
     this.st.esf++;
     this.esfera = null;
     this.aiLeaveBase = 8;
     this.aiModeT = 0;
-    log(`${this.nombre} depositó la esfera ${n}`, this.faccion);
+    log(`${this.alias} depositó la esfera ${n}`, this.faccion);
     return true;
   }
 }

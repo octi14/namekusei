@@ -147,14 +147,14 @@ export class DragonBalls {
     personaje.esfera = b.n;
     log(
       stole
-        ? `${personaje.nombre} robó la esfera ${b.n}`
-        : `${personaje.nombre} tomó la esfera ${b.n}`,
+        ? `${personaje.alias} robó la esfera ${b.n}`
+        : `${personaje.alias} tomó la esfera ${b.n}`,
       personaje.faccion
     );
     return { n: b.n, stole };
   }
 
-  drop(n, x, z) {
+  drop(n, x, z, y = -Infinity) {
     const b = this.items.find((i) => i.n === n);
     if (!b) return;
     b.held = false;
@@ -163,7 +163,8 @@ export class DragonBalls {
     b.mesh.visible = true;
     b.vy = 2.4;
     const p = pushOutObst({ x, z }, 2.6);
-    b.mesh.position.set(p.x, surfaceHeight(p.x, p.z) + 1.1, p.z);
+    // Desde la altura de quien la suelta (en vuelo cae con la gravedad de tick)
+    b.mesh.position.set(p.x, Math.max(surfaceHeight(p.x, p.z) + 1.1, y), p.z);
   }
 
   tick(dt) {

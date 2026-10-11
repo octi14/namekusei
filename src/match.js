@@ -55,13 +55,13 @@ export class Match {
   noteKill(killer, victim) {
     if (!killer || !victim) return;
     this.lastKill = {
-      killer: killer.nombre,
+      killer: killer.alias,
       kf: killer.faccion,
-      victim: victim.nombre,
+      victim: victim.alias,
     };
     this.killToast = {
-      killer: killer.nombre,
-      victim: victim.nombre,
+      killer: killer.alias,
+      victim: victim.alias,
       faccion: killer.faccion,
       t: 2.6,
     };
@@ -74,7 +74,7 @@ export class Match {
   }
 
   winnerName() {
-    if (this.score.z > this.score.f) return "Guerreros Z";
+    if (this.score.z > this.score.f) return current.zWin;
     if (this.score.f > this.score.z) return current.fWin;
     return "Empate";
   }

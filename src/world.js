@@ -1501,31 +1501,95 @@ function addLandmarks(scene) {
   }
 }
 
-function rockTex() {
-  const n = 1024;
+/** Ruido de valor tileable (período `per` celdas) con fbm; devuelve 0..1. */
+function makeFbm(seed, per) {
+  const S = 256;
+  const tab = new Float32Array(S * S);
+  let r = seed >>> 0 || 1;
+  for (let i = 0; i < tab.length; i++) {
+    r = (r * 1664525 + 1013904223) >>> 0;
+    tab[i] = r / 4294967296;
+  }
+  const val = (x, y, p) => {
+    const xi = Math.floor(x);
+    const yi = Math.floor(y);
+    const fx = x - xi;
+    const fy = y - yi;
+    const ux = fx * fx * (3 - 2 * fx);
+    const uy = fy * fy * (3 - 2 * fy);
+    const x0 = ((xi % p) + p) % p;
+    const y0 = ((yi % p) + p) % p;
+    const x1 = (x0 + 1) % p;
+    const y1 = (y0 + 1) % p;
+    const a = tab[y0 * S + x0];
+    const b = tab[y0 * S + x1];
+    const c = tab[y1 * S + x0];
+    const d = tab[y1 * S + x1];
+    return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+  };
+  return (u, v, oct = 5) => {
+    let s = 0;
+    let amp = 0.5;
+    let f = per;
+    let norm = 0;
+    for (let o = 0; o < oct; o++) {
+      s += val(u * f, v * f, f) * amp;
+      norm += amp;
+      amp *= 0.5;
+      f *= 2;
+    }
+    return s / norm;
+  };
+}
+
+/** Piedra rojiza de Vegeta: fbm + vetas de estratos + grietas + motas. `bump` = mapa de relieve. */
+function vegetaStoneCanvas(n, seed, base, bump = false) {
   const c = document.createElement("canvas");
   c.width = c.height = n;
-  const ctx = c.getContext("2d", { willReadFrequently: true });
+  const ctx = c.getContext("2d");
   const img = ctx.createImageData(n, n);
   const d = img.data;
+  const f = makeFbm(seed, 4);
+  const g = makeFbm(seed * 7 + 3, 16);
   for (let y = 0; y < n; y++) {
     for (let x = 0; x < n; x++) {
-      const n1 = Math.sin(x * 0.035 + y * 0.021) * 0.5 + Math.sin(x * 0.09 - y * 0.07) * 0.28;
-      const n2 = Math.sin((x + y) * 0.017) * Math.cos(x * 0.011 - y * 0.013);
-      const n3 = ((x * 13 + y * 37) & 255) / 255;
-      const v = n1 * 0.45 + n2 * 0.3 + (n3 - 0.5) * 0.35;
+      const u = x / n;
+      const v = y / n;
+      const big = f(u, v, 4);
+      const fine = g(u, v, 3);
+      // Estratos ondulados (tileables en v)
+      const strata = Math.sin((v + big * 0.35) * Math.PI * 2 * 9) * 0.5 + 0.5;
+      // Grietas: valles finos del ruido
+      const crack = Math.max(0, 1 - Math.abs(f(u + 0.37, v + 0.11, 3) - 0.5) * 34);
+      let k = big * 0.55 + fine * 0.3 + strata * 0.15 - crack * 0.35;
       const i = (y * n + x) * 4;
-      d[i] = Math.max(0, Math.min(255, 110 + v * 42 + (n3 - 0.5) * 18));
-      d[i + 1] = Math.max(0, Math.min(255, 72 + v * 48 + n2 * 16));
-      d[i + 2] = Math.max(0, Math.min(255, 78 + v * 28 + n1 * 22));
+      if (bump) {
+        const h = Math.max(0, Math.min(255, k * 255));
+        d[i] = d[i + 1] = d[i + 2] = h;
+      } else {
+        k = k * 2 - 0.8;
+        d[i] = Math.max(0, Math.min(255, base[0] + k * 46 + fine * 14));
+        d[i + 1] = Math.max(0, Math.min(255, base[1] + k * 34 + strata * 8));
+        d[i + 2] = Math.max(0, Math.min(255, base[2] + k * 26));
+      }
       d[i + 3] = 255;
     }
   }
   ctx.putImageData(img, 0, 0);
-  for (let i = 0; i < 12000; i++) {
-    ctx.fillStyle = `rgba(${140 + Math.random() * 40},${80 + Math.random() * 30},${70 + Math.random() * 25},0.32)`;
-    ctx.fillRect(Math.random() * n, Math.random() * n, 1 + Math.random() * 2, 1 + Math.random() * 2);
+  if (!bump) {
+    for (let i = 0; i < n * 6; i++) {
+      const l = Math.random() < 0.5;
+      ctx.fillStyle = l ? "rgba(220,170,130,0.22)" : "rgba(40,20,18,0.25)";
+      const s = 1 + Math.random() * 1.6;
+      ctx.fillRect(Math.random() * n, Math.random() * n, s, s);
+    }
   }
+  return c;
+}
+
+function rockTex() {
+  const n = QUALITY === 0 ? 512 : 1024;
+  const c = vegetaStoneCanvas(n, 9137, [112, 70, 74]);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(42, 42);
@@ -2034,8 +2098,37 @@ function vegetaMats() {
     rib: new THREE.MeshLambertMaterial({ color: 0x5c6bc0 }),
     win: new THREE.MeshLambertMaterial({ color: 0x0d47a1 }),
     rivet: new THREE.MeshLambertMaterial({ color: 0x3949ab }),
-    rock: new THREE.MeshLambertMaterial({ color: 0x6d4c41 }),
+    rock: vegetaRockMat(),
   };
+}
+
+function vegetaRockMat() {
+  const n = QUALITY === 0 ? 256 : 512;
+  const map = new THREE.CanvasTexture(vegetaStoneCanvas(n, 4421, [104, 66, 56]));
+  map.colorSpace = THREE.SRGBColorSpace;
+  const bump = new THREE.CanvasTexture(vegetaStoneCanvas(n, 4421, null, true));
+  for (const t of [map, bump]) {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1.5, 1.5);
+    t.anisotropy = 8;
+  }
+  return new THREE.MeshStandardMaterial({ map, bumpMap: bump, bumpScale: 2.2, roughness: 0.96, metalness: 0, flatShading: true });
+}
+
+/** Roca irregular: icosaedro con vértices desplazados (comparten posición → sin grietas). */
+function vegetaRockGeo() {
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  const p = geo.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const k = 1 + Math.sin(v.x * 5.1 + v.y * 2.3) * 0.12 + Math.sin(v.z * 4.3 - v.x * 3.1) * 0.1 + Math.cos(v.y * 6.7) * 0.07;
+    v.multiplyScalar(k);
+    if (v.y < -0.35) v.y = -0.35 + (v.y + 0.35) * 0.4;
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  return geo;
 }
 
 function vegetaTower(scene, x, z, kind, s, mats) {
@@ -2134,7 +2227,7 @@ function addVegetaInstallations(scene) {
     vegetaTower(scene, p.x, p.z, i % 3, 0.95 + (i % 3) * 0.18, mats);
   }
   const dummy = new THREE.Object3D();
-  const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), mats.rock, 220);
+  const rocks = new THREE.InstancedMesh(vegetaRockGeo(), mats.rock, 220);
   const m = MAP / 2 - 90;
   let r = 0;
   let g = 0;
@@ -2160,6 +2253,170 @@ function addVegetaInstallations(scene) {
   rocks.instanceMatrix.needsUpdate = true;
   scene.add(rocks);
 }
+
+/**
+ * Viento de arena (Vegeta): nubes de polvo bajas y difusas que se arrastran con el viento
+ * + granos finos casi invisibles, en una caja que sigue a la cámara. Aparece en ráfagas
+ * (calma la mayor parte del tiempo) y solo en franjas del terreno. En tormenta cierra la niebla.
+ */
+let sandDust = null;
+const SAND_BOX = 90;
+
+function dustSprite() {
+  const n = 64;
+  const c = document.createElement("canvas");
+  c.width = c.height = n;
+  const ctx = c.getContext("2d");
+  const img = ctx.createImageData(n, n);
+  const f = makeFbm(771, 3);
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const dx = (x - n / 2) / (n / 2);
+      const dy = (y - n / 2) / (n / 2);
+      const r = Math.hypot(dx, dy);
+      const fall = Math.max(0, 1 - r);
+      const a = fall * fall * (0.45 + f(x / n, y / n, 4) * 0.9);
+      const i = (y * n + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = Math.min(255, a * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return new THREE.CanvasTexture(c);
+}
+
+function sandLayer(scene, N, size, tex, hFn) {
+  const pos = new Float32Array(N * 3);
+  const col = new Float32Array(N * 4);
+  const L = { N, pos, col, px: new Float32Array(N), pz: new Float32Array(N), h: new Float32Array(N), sp: new Float32Array(N), gy: new Float32Array(N) };
+  for (let i = 0; i < N; i++) {
+    L.px[i] = (Math.random() * 2 - 1) * SAND_BOX;
+    L.pz[i] = (Math.random() * 2 - 1) * SAND_BOX;
+    L.h[i] = hFn();
+    L.sp[i] = 0.75 + Math.random() * 0.5;
+    L.gy[i] = NaN;
+    const tint = 0.9 + Math.random() * 0.15;
+    col[i * 4] = 0.8 * tint;
+    col[i * 4 + 1] = 0.47 * tint;
+    col[i * 4 + 2] = 0.44 * tint;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 4));
+  const mat = new THREE.PointsMaterial({ size, map: tex, vertexColors: true, transparent: true, depthWrite: false, fog: true });
+  const pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false;
+  pts.renderOrder = 2;
+  pts.visible = false;
+  scene.add(pts);
+  L.pts = pts;
+  return L;
+}
+
+function addSandWind(scene) {
+  const q = QUALITY ?? 1;
+  const tex = dustSprite();
+  const puffs = sandLayer(scene, [90, 160, 240][q], 9, tex, () => 0.6 + Math.pow(Math.random(), 1.8) * 3.2);
+  puffs.aMax = 0.13;
+  const grains = sandLayer(scene, [250, 500, 800][q], 0.16, tex, () => 0.05 + Math.pow(Math.random(), 2) * 1.6);
+  grains.aMax = 0.55;
+  sandDust = { scene, layers: [puffs, grains], rr: 0, ox: null, oz: null, phase: "calm", pt: 25 + Math.random() * 30, amt: 0, fog: null };
+}
+
+/** Calma 45–90 s → sube 5 s → tormenta 14–24 s → baja 7 s. */
+function sandStormAmt(s, dt) {
+  s.pt -= dt;
+  if (s.pt <= 0) {
+    if (s.phase === "calm") (s.phase = "up"), (s.pt = 5);
+    else if (s.phase === "up") (s.phase = "storm"), (s.pt = 14 + Math.random() * 10);
+    else if (s.phase === "storm") (s.phase = "down"), (s.pt = 7);
+    else (s.phase = "calm"), (s.pt = 45 + Math.random() * 45);
+  }
+  const target = s.phase === "up" || s.phase === "storm" ? 1 : 0;
+  const rate = s.phase === "up" ? 0.2 : 0.14;
+  s.amt += Math.max(-rate * dt, Math.min(rate * dt, target - s.amt));
+  return s.amt;
+}
+
+function updateSandWind(camPos, dt, t) {
+  const s = sandDust;
+  if (!s || !camPos) return;
+  const amt = sandStormAmt(s, dt);
+  // Niebla: en tormenta se cierra y se tiñe de polvo (solo la niebla de superficie)
+  const fog = s.scene.fog;
+  if (fog && fog.near > 10) {
+    if (!s.fog || s.fog.ref !== fog) s.fog = { ref: fog, near: fog.near, far: fog.far, color: fog.color.clone() };
+    const e = amt * amt * (3 - 2 * amt);
+    fog.near = s.fog.near * (1 - e * 0.75);
+    fog.far = s.fog.far * (1 - e * 0.62);
+    fog.color.copy(s.fog.color).lerp(_sandFogC, e * 0.55);
+  }
+  const vis = amt > 0.01;
+  for (const L of s.layers) L.pts.visible = vis;
+  if (!vis) {
+    s.ox = null;
+    return;
+  }
+  const ang = 0.7 + Math.sin(t * 0.045) * 0.5;
+  const gust = (15 + Math.sin(t * 0.6) * 5 + Math.sin(t * 1.7) * 2.5) * (0.55 + amt * 0.45);
+  const dx = Math.cos(ang);
+  const dz = Math.sin(ang);
+  const B = SAND_BOX;
+  if (s.ox == null) {
+    s.ox = camPos.x;
+    s.oz = camPos.z;
+  }
+  const dcx = Math.max(-B, Math.min(B, camPos.x - s.ox));
+  const dcz = Math.max(-B, Math.min(B, camPos.z - s.oz));
+  s.ox = camPos.x;
+  s.oz = camPos.z;
+  for (let li = 0; li < s.layers.length; li++) {
+    const L = s.layers[li];
+    const { N, pos, col, px, pz, h, sp, gy } = L;
+    const puff = li === 0;
+    // Altura de suelo: unas pocas por frame (round-robin), barato en mobile
+    const step = Math.max(12, (N / 10) | 0);
+    for (let k = 0; k < step; k++) {
+      const i = (s.rr + k) % N;
+      const g = groundHeight(camPos.x + px[i], camPos.z + pz[i]);
+      gy[i] = Number.isNaN(gy[i]) ? g : gy[i] + (g - gy[i]) * 0.5;
+    }
+    for (let i = 0; i < N; i++) {
+      // Las nubes van un poco más lentas que los granos y ondulan de costado
+      const v = gust * sp[i] * (puff ? 0.6 : 1);
+      const lat = puff ? Math.sin(t * 0.4 + i * 1.7) * 1.2 * dt : 0;
+      let x = px[i] + (dx * v - dz * lat) * dt - dcx;
+      let z = pz[i] + (dz * v + dx * lat) * dt - dcz;
+      let wrap = false;
+      while (x > B) (x -= 2 * B), (wrap = true);
+      while (x < -B) (x += 2 * B), (wrap = true);
+      while (z > B) (z -= 2 * B), (wrap = true);
+      while (z < -B) (z += 2 * B), (wrap = true);
+      const wx = camPos.x + x;
+      const wz = camPos.z + z;
+      if (wrap || Number.isNaN(gy[i])) gy[i] = groundHeight(wx, wz);
+      px[i] = x;
+      pz[i] = z;
+      const m =
+        0.5 +
+        0.32 * Math.sin(wx * 0.011 + wz * 0.004 - t * 0.35) +
+        0.18 * Math.sin(wz * 0.017 - wx * 0.006 + t * 0.21);
+      const mask = 0.25 + 0.75 * Math.max(0, Math.min(1, (m - 0.4) / 0.35));
+      const fade = Math.max(0, Math.min(1, (B - Math.max(Math.abs(x), Math.abs(z))) / 18));
+      const flick = puff ? 0.75 + 0.25 * Math.sin(t * 0.9 + i * 2.3) : 0.6 + 0.4 * Math.sin(t * 7 + i * 3.1);
+      col[i * 4 + 3] = L.aMax * amt * mask * fade * flick;
+      pos[i * 3] = x;
+      pos[i * 3 + 1] = gy[i] + h[i] + (puff ? 0 : Math.abs(Math.sin(t * 4 * sp[i] + i)) * 0.35);
+      pos[i * 3 + 2] = z;
+    }
+    L.pts.position.set(camPos.x, 0, camPos.z);
+    L.pts.geometry.attributes.position.needsUpdate = true;
+    L.pts.geometry.attributes.color.needsUpdate = true;
+  }
+  s.rr = (s.rr + 24) % 1e6;
+}
+
+const _sandFogC = new THREE.Color(0xb05a5a);
 
 function addRocks(scene) {
   if (mapId === "city" || mapId === "vegeta") return;
@@ -2207,6 +2464,7 @@ function addRocks(scene) {
 export function updateWorld(camPos, dt = 0, camFwd = null) {
   const t = (updateWorld._t = (updateWorld._t || 0) + dt);
   grassWind.value = t;
+  if (sandDust) updateSandWind(camPos, dt, t);
   if (waterMesh?.material.map) {
     waterMesh.material.map.offset.x += dt * 0.028;
     waterMesh.material.map.offset.y += dt * 0.016;
@@ -2272,6 +2530,7 @@ export function updateWorld(camPos, dt = 0, camFwd = null) {
 }
 
 export function createWorld(scene, id = "namek") {
+  sandDust = null;
   mapId = id;
   WATER_Y = waterYFor(id);
   obstacles.length = 0;
@@ -2393,7 +2652,10 @@ export function createWorld(scene, id = "namek") {
   bindBaseWorld({ groundHeight, addObst, shadowMesh });
   addShipBases(scene);
   if (city) addCityDistrict(scene);
-  else if (vegeta) addVegetaInstallations(scene);
+  else if (vegeta) {
+    addVegetaInstallations(scene);
+    addSandWind(scene);
+  }
   else if (earth) {
     addKameHouse(scene);
     addEarthTrees(scene, true);

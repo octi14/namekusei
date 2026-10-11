@@ -871,6 +871,7 @@ export const DEFAULT_SCULPT = {
   footPitch: 0,
   bootCuff: 1.05,
   bootType: "tall", // tall | combat | armor | soft
+  gloves: "none", // none | on
   // capa / cinturón
   capeScale: 1,
   capeThick: 1,
@@ -1032,7 +1033,8 @@ export const SCULPT_SELECTS = {
   plateType: ["none", "dome", "flat", "ribbed", "split", "elite"],
   bracerType: ["none", "cuff", "plate", "wrap"],
   upperSuit: ["none", "freezerElite"],
-  bootType: ["tall", "combat", "armor", "soft"],
+  bootType: ["tall", "combat", "armor", "soft", "saiyan", "ginyu"],
+  gloves: ["none", "on"],
 };
 
 const INERT_KEYS = ["torsoSx", "showLapels", "giLapelTilt", "bumpScale", "sheen", "sheenRough", "skinRough"];
@@ -1394,6 +1396,8 @@ function footMesh(r, mat, o = {}) {
   if (type === "combat") return combatBootMesh(r, mat, o);
   if (type === "armor") return armorBootMesh(r, mat, o);
   if (type === "soft") return softBootMesh(r, mat, o);
+  if (type === "saiyan") return saiyanBootMesh(r, mat, o);
+  if (type === "ginyu") return ginyuBootMesh(r, mat, o);
   return tallBootMesh(r, mat, o);
 }
 
@@ -1428,95 +1432,246 @@ function tallBootMesh(r, mat, o = {}) {
 }
 
 /**
- * Zueco de combate (Gokú/Krilin/Gohan): caña blanda media, suela plana,
- * puntera redondeada y bandas de ajuste. Colores: Botas + Acento/Placa.
+ * Zueco gi (Gokú/Gohan/Krilin): zapato bajo en punta + caña de tela holgada con pliegues.
+ * Colores: Botas = zapato; Caña bota = caña (si no, Placa/Acento).
  */
 function combatBootMesh(r, mat, o = {}) {
   const g = new THREE.Group();
-  const trim = o.bootTrim || mat;
-  const len = r * (o.footLen ?? 2.2);
-  const sx = o.footSx ?? 1.15;
-  const sy = o.footSy ?? 0.32;
-  const cuffH = r * (o.bootCuff ?? 0.85) * 0.92;
-  const pitch = o.footPitch ?? 0.06;
+  const shaftM = o.bootBandSet ? o.bootBand : o.bootTrim || mat;
+  const len = r * (o.footLen ?? 2.3);
+  const sx = o.footSx ?? 1.12;
+  const sy = o.footSy ?? 0.36;
   const halfH = r * sy;
-
-  // Caña blanda (más baja y ligeramente cónica)
-  const cuff = loftMesh([r * 0.95, r * 1.05, r * 1.02, r * 0.98], cuffH, mat, {
+  const foot = new THREE.Group();
+  foot.position.set(0, -halfH * 1.6, len * 0.2);
+  foot.rotation.x = o.footPitch ?? 0;
+  g.add(foot);
+  const sole = loftMesh([0.18, 0.62, 0.9, 1.04, 1.08, 1.0, 0.86].map((k) => r * k), len, mat, {
     radial: 14,
-    sx: 1.05,
-    sz: 1.08,
+    sx,
+    sz: (v) => sy * (0.6 + v * 0.9),
   });
-  cuff.position.y = -cuffH * 0.15;
-  g.add(cuff);
-
-  // Bandas de ajuste (estilo venda)
-  for (const t of [0.2, 0.48, 0.72]) {
-    const band = new THREE.Mesh(
-      new THREE.TorusGeometry(r * 1.12, r * 0.09, 8, 16),
-      trim
-    );
-    band.rotation.x = Math.PI / 2;
-    band.position.y = -cuffH * t;
-    band.scale.set(1.05, 1.08, 1);
-    g.add(band);
-  }
-
-  const y0 = -cuffH * 0.55 - halfH * 0.4;
-  const z0 = len * 0.22;
-
-  // Suela plana blanda
-  const sole = loftMesh(
-    [r * 0.72, r * 1.0, r * 1.08, r * 0.95, r * 0.7],
-    len,
-    mat,
-    { radial: 12, sx, sz: sy * 0.85 }
-  );
-  sole.rotation.x = Math.PI / 2 + pitch;
-  sole.position.set(0, y0, z0);
-  g.add(sole);
-
-  // Empeine / puente
-  const vamp = loftMesh([r * 0.9, r * 0.95, r * 0.75], r * 0.7, mat, {
-    radial: 12,
-    sx: sx * 0.95,
-    sz: sy * 1.1,
+  sole.rotation.x = Math.PI / 2;
+  foot.add(sole);
+  // Boca del zapato (tobillo)
+  const collarH = halfH * 3.4;
+  const collar = loftMesh([1.24, 1.2, 1.18, 1.16].map((k) => r * k), collarH, mat, { radial: 16, sx: 1.05, sz: 1.12 });
+  collar.position.y = -halfH * 1.5 + collarH * 0.3;
+  g.add(collar);
+  // Caña de tela suelta: perfil ondulado + un pliegue inclinado que cae sobre el zapato
+  const H = r * (o.bootCuff ?? 0.85) * 1.6;
+  const bottom = -halfH * 1.5 + collarH * 0.62;
+  const shaft = loftMesh([1.34, 1.46, 1.4, 1.5, 1.42, 1.54, 1.4, 1.14].map((k) => r * k), H, shaftM, {
+    radial: 16,
+    sub: 2,
+    sx: (v) => 1.06 + 0.05 * Math.sin(v * 9),
+    sz: (v) => 1.12 + 0.05 * Math.cos(v * 7),
   });
-  vamp.rotation.x = Math.PI / 2 + pitch * 0.5;
-  vamp.position.set(0, y0 + halfH * 0.55, z0 + len * 0.05);
-  g.add(vamp);
-
-  // Puntera redondeada (zueco)
-  const toe = loftMesh([r * 0.85, r * 0.7, r * 0.35], r * 0.55, mat, {
-    radial: 12,
-    sx: sx * 1.02,
-    sz: sy * 0.95,
+  shaft.position.y = bottom + H * 0.5;
+  g.add(shaft);
+  [0.8].forEach((t, i) => {
+    const fold = new THREE.Mesh(new THREE.TorusGeometry(r * (1.44 + t * 0.1), r * 0.06, 6, 20), shaftM);
+    fold.rotation.set(Math.PI / 2 + (i % 2 ? 0.14 : -0.12), 0, i % 2 ? 0.1 : -0.08);
+    fold.position.y = bottom + H * (1 - t);
+    fold.scale.set(1.08, 1.14, 1);
+    g.add(fold);
   });
-  toe.rotation.x = Math.PI / 2 + pitch;
-  toe.position.set(0, y0 - halfH * 0.05, z0 + len * 0.42);
-  g.add(toe);
-
-  // Ribete de suela (acento)
-  const welt = loftMesh([r * 0.78, r * 1.05, r * 1.12, r * 0.82], len * 0.92, trim, {
-    radial: 12,
-    sx: sx * 1.06,
-    sz: sy * 0.45,
-  });
-  welt.rotation.x = Math.PI / 2 + pitch;
-  welt.position.set(0, y0 - halfH * 0.35, z0);
-  g.add(welt);
-
-  return g;
+  return fuseBoot(g);
 }
 
 /** Bota de armadura: caña rígida + puntera más cuadrada. */
+/** Bota armadura (Jeice, soldados): una pieza de un color, caña hasta abajo de la rodilla con puño ancho, punta lisa. */
 function armorBootMesh(r, mat, o = {}) {
-  const g = tallBootMesh(r, mat, { ...o, bootCuff: (o.bootCuff ?? 1.05) * 1.15, footSy: (o.footSy ?? 0.36) * 1.1 });
-  const trim = o.bootTrim || mat;
-  const plate = new THREE.Mesh(new THREE.BoxGeometry(r * 1.6, r * 0.35, r * 1.1), trim);
-  plate.position.set(0, -r * (o.bootCuff ?? 1.05) * 0.35, r * 0.15);
-  g.add(plate);
-  return g;
+  const g = new THREE.Group();
+  const { halfH } = pointyFoot(g, r, mat, mat, { ...o, ridges: false });
+  const fs = o.footScale ?? 1;
+  const shaftH = o.shinLen ? (o.shinLen * 0.78 * ((o.bootCuff ?? 2.2) / 2.2)) / fs : r * (o.bootCuff ?? 2.2) * 1.5;
+  const bottom = -halfH * 1.5;
+  const opt = { radial: 16, sx: 1.04, sz: 1.14, sub: 2 };
+  const legH = shaftH * 0.8;
+  const leg = loftMesh([1.32, 1.36, 1.32, 1.24, 1.16, 1.14, 1.18].map((k) => r * k), legH, mat, opt);
+  leg.position.y = bottom + legH * 0.5;
+  g.add(leg);
+  // Pliegue del tobillo
+  const crease = new THREE.Mesh(new THREE.TorusGeometry(r * 1.16, r * 0.07, 6, 20), mat);
+  crease.rotation.x = Math.PI / 2;
+  crease.position.y = bottom + legH * 0.2;
+  crease.scale.set(1.04, 1.14, 1);
+  g.add(crease);
+  // Puño superior ancho (doblez)
+  const cuffH = shaftH * 0.22;
+  const cuff = loftMesh([1.44, 1.46, 1.42, 1.34].map((k) => r * k), cuffH, mat, opt);
+  cuff.position.y = bottom + legH + cuffH * 0.5 - cuffH * 0.15;
+  g.add(cuff);
+  return fuseBoot(g);
+}
+
+/**
+ * Pie en punta compartido (saiyajin / Ginyu): pie blanco que baja hacia una puntera levantada con 3 nervios.
+ * footLen/footSx/footSy/footPitch escalan pie y puntera juntos. Devuelve y del pie (para apoyar la caña).
+ */
+function pointyFoot(g, r, mat, tip, o) {
+  const len = r * (o.footLen ?? 2.3);
+  const sx = o.footSx ?? 1.18;
+  const sy = o.footSy ?? 0.4;
+  const pitch = o.footPitch ?? 0;
+  const halfH = r * sy;
+  const y0 = -halfH * 1.6;
+  const z0 = len * 0.2;
+  // profile[0] = adelante tras rotar; empeine alto atrás
+  // Pie y puntera giran juntos (footPitch); la suela termina dentro de la puntera para no asomar
+  const foot = new THREE.Group();
+  foot.position.set(0, y0, z0);
+  foot.rotation.x = pitch;
+  g.add(foot);
+  const soleLen = len * 0.85;
+  const sole = loftMesh([0.5, 0.82, 1.0, 1.08, 1.06, 0.92].map((k) => r * k), soleLen, mat, {
+    radial: 14,
+    sx,
+    sz: (v) => sy * (0.75 + v * 0.75),
+  });
+  sole.rotation.x = Math.PI / 2;
+  sole.position.z = -(len - soleLen) * 0.5;
+  foot.add(sole);
+  const capLen = len * 0.42;
+  const cap = new THREE.Group();
+  cap.position.set(0, -halfH * 0.05, len * 0.16);
+  const capProf = [0.04, 0.32, 0.6, 0.8, 0.9];
+  const shell = loftMesh(capProf.map((k) => r * k), capLen, tip, { radial: 14, sx: sx * 1.06, sz: sy * 1.2 });
+  shell.rotation.x = Math.PI / 2;
+  shell.position.z = capLen * 0.5;
+  cap.add(shell);
+  if (o.ridges !== false) for (const t of [0.1, 0.3, 0.5]) {
+    const k = capProf[4] - (capProf[4] - capProf[0]) * t;
+    const ridge = new THREE.Mesh(new THREE.TorusGeometry(r * (k + 0.06), r * 0.06, 6, 18), tip);
+    ridge.position.z = capLen * t;
+    ridge.scale.set(sx * 1.06, sy * 1.2, 1);
+    cap.add(ridge);
+  }
+  foot.add(cap);
+  return { halfH };
+}
+
+/**
+ * Funde las piezas en UNA malla (un solo molde en el editor). Cada pieza conserva su color como
+ * color de vértice sobre un material blanco (un material = sigue teniendo contorno anime).
+ */
+function fuseBoot(g) {
+  g.updateMatrixWorld(true);
+  const geos = [];
+  const col = new THREE.Color();
+  g.traverse((o) => {
+    if (!o.isMesh) return;
+    const src = o.geometry;
+    const geo = new THREE.BufferGeometry();
+    for (const k of ["position", "normal", "uv"]) geo.setAttribute(k, src.attributes[k].clone());
+    geo.setIndex(src.index.clone());
+    geo.applyMatrix4(o.matrixWorld);
+    col.copy(o.material.color);
+    const n = geo.attributes.position.count;
+    const c = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) c.set([col.r, col.g, col.b], i * 3);
+    geo.setAttribute("color", new THREE.BufferAttribute(c, 3));
+    geos.push(geo);
+  });
+  const mat = gearMat(0xffffff, { kind: "cloth", unique: true });
+  mat.vertexColors = true;
+  const m = new THREE.Mesh(mergeGeometries(geos, false), mat);
+  m.castShadow = true;
+  const out = new THREE.Group();
+  out.add(m);
+  return out;
+}
+
+/**
+ * Bota saiyajin (Krilin/Nappa/Raditz en Namek): caña blanca holgada con pliegues y borde enrollado,
+ * pie en punta. Colores: Botas + Puntera bota.
+ */
+function saiyanBootMesh(r, mat, o = {}) {
+  const g = new THREE.Group();
+  const { halfH } = pointyFoot(g, r, mat, o.bootTip || mat, o);
+  // Caña hasta media pantorrilla: más alta que la bota "tall" con el mismo bootCuff
+  const cuffH = r * (o.bootCuff ?? 1.35) * 1.3;
+  const shaft = loftMesh(
+    [1.26, 1.3, 1.22, 1.26, 1.18, 1.18, 1.08, 0.98].map((k) => r * k),
+    cuffH,
+    mat,
+    { radial: 16, sx: 1.04, sz: 1.1, sub: 2 }
+  );
+  shaft.position.y = cuffH * 0.5 - halfH * 1.5;
+  g.add(shaft);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(r * 1.26, r * 0.12, 8, 20), mat);
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = shaft.position.y + cuffH * 0.5;
+  rim.scale.set(1.04, 1.1, 1);
+  g.add(rim);
+  return fuseBoot(g);
+}
+
+/**
+ * Bota Fuerza Ginyu / soldados de Freezer: caña ajustada hasta abajo de la rodilla, tobillo blanco,
+ * franja de color entre dos aros blancos, pie en punta. Colores: Botas + Franja bota + Puntera bota.
+ */
+/** Tira vertical sobre un loft (mismo perfil/escala), centrada en el ángulo a0 (0 = +X). */
+function sideStripe(profile, len, mat, sx, sz, a0, w) {
+  const pos = [], uv = [], idx = [];
+  const n = profile.length, cols = 4;
+  for (let i = 0; i < n; i++) {
+    const y = len * 0.5 - (i / (n - 1)) * len;
+    for (let j = 0; j <= cols; j++) {
+      const a = a0 - w + (2 * w * j) / cols;
+      pos.push(Math.cos(a) * profile[i] * sx, y, Math.sin(a) * profile[i] * sz);
+      uv.push(j / cols, i / (n - 1));
+    }
+  }
+  for (let i = 0; i < n - 1; i++)
+    for (let j = 0; j < cols; j++) {
+      const a = i * (cols + 1) + j, b = a + cols + 1;
+      idx.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, mat);
+}
+
+function ginyuBootMesh(r, mat, o = {}) {
+  const g = new THREE.Group();
+  const band = o.bootBand || mat;
+  const stripe = o.bootStripe || mat;
+  const { halfH } = pointyFoot(g, r, mat, o.bootTip || mat, o);
+  // Alto ligado a la pantorrilla real (footScale escala el grupo entero)
+  const fs = o.footScale ?? 1;
+  const shaftH = o.shinLen ? (o.shinLen * 0.78 * ((o.bootCuff ?? 2.2) / 2.2)) / fs : r * (o.bootCuff ?? 2.2) * 1.5;
+  const bottom = -halfH * 1.5;
+  // Tobillo blanco (ensancha hacia el pie)
+  const ankleH = shaftH * 0.3;
+  const ankle = loftMesh([1.14, 1.14, 1.16, 1.18].map((k) => r * k), ankleH, mat, { radial: 16, sx: 1.04, sz: 1.14 });
+  ankle.position.y = bottom + ankleH * 0.5;
+  g.add(ankle);
+  // Franja de color ajustada, apenas acampanada arriba
+  const bandH = shaftH * 0.62;
+  const bandM = loftMesh([1.32, 1.36, 1.32, 1.24, 1.14].map((k) => r * k), bandH, band, { radial: 16, sx: 1.04, sz: 1.14 });
+  bandM.position.y = bottom + ankleH + bandH * 0.5;
+  g.add(bandM);
+  for (const side of [0, Math.PI]) {
+    const st = sideStripe([1.32, 1.36, 1.32, 1.24, 1.14].map((k) => r * k * 1.03), bandH, stripe, 1.04, 1.14, side, 0.2);
+    st.position.y = bandM.position.y;
+    g.add(st);
+  }
+  // Aros blancos: borde inferior (grueso) y superior (fino)
+  const ringLo = new THREE.Mesh(new THREE.TorusGeometry(r * 1.16, r * 0.1, 8, 20), stripe);
+  ringLo.rotation.x = Math.PI / 2;
+  ringLo.position.y = bottom + ankleH;
+  ringLo.scale.set(1.04, 1.14, 1);
+  g.add(ringLo);
+  const topH = shaftH * 0.08;
+  const top = loftMesh([1.38, 1.38, 1.34].map((k) => r * k), topH, stripe, { radial: 16, sx: 1.04, sz: 1.14 });
+  top.position.y = bottom + ankleH + bandH + topH * 0.5;
+  g.add(top);
+  return fuseBoot(g);
 }
 
 /** Calzado blando corto (casi zapatilla). */
@@ -1775,7 +1930,7 @@ function makeLeg(thighR, shinR, thighLen, shinLen, mat, x, y, extras) {
   }
   if (extras?.boot) {
     const fs = extras.footScale ?? 1;
-    const boot = footMesh(shinR * 1.4, extras.boot, extras);
+    const boot = footMesh(shinR * 1.4, extras.boot, { ...extras, shinLen });
     boot.position.set(0, -shinLen + (extras.footY ?? 0), 0);
     boot.scale.multiplyScalar(fs);
     let bn = 0;
@@ -3808,7 +3963,7 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
     : kit === "armor" || kit === "soldier"
       ? suitM
       : kit === "brute"
-        ? pantsM
+        ? gearMat(look.suit ?? pantsHex, { kind: clothKind, detail: clothDet })
         : kit === "namek" || kit === "gi"
           ? shirtM
           : null;
@@ -4077,7 +4232,7 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
   const giFit = gi ? Math.max(sc.clothFit ?? 1.12, 1.32) : sc.clothFit ?? 1.12;
   const giWrinkle = gi ? 0.65 + Math.max(0, (sc.clothDetail ?? 0.55) - 0.4) * 0.6 : 0;
   const armBase = {
-    hand: skin,
+    hand: sc.gloves === "on" ? gearMat(look.gloves ?? 0xf5f5f5, { kind: "cloth", detail: cd * 0.6 }) : skin,
     band: gi && !eliteSuit ? wristM : null,
     bandAt: "wrist",
     upperBulk: sc.upperArmBulk,
@@ -4116,6 +4271,10 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
     footPitch: sc.footPitch,
     bootCuff: sc.bootCuff,
     bootType: sc.bootType || "tall",
+    bootTip: gearMat(look.bootTip ?? 0xc2b25a, { kind: "cloth", detail: 0.4 }),
+    bootBand: gearMat(look.bootBand ?? 0x2b2f3d, { kind: "cloth" }),
+    bootBandSet: look.bootBand != null,
+    bootStripe: gearMat(look.bootStripe ?? look.boots ?? 0xf5f5f5, { kind: "cloth" }),
     bootTrim: gearMat(look.trim ?? look.accent ?? look.wrist ?? 0xf5f5f5, {
       kind: "cloth",
       detail: cd * 0.7,

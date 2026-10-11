@@ -1,48 +1,26 @@
+/** Los equipos se nombran solo por color. */
+const TEAM_NAMES = { zLabel: "NARANJA", fLabel: "AZUL", zShort: "NARANJA", fShort: "AZUL", zWin: "Naranja", fWin: "Azul" };
+
 export const MAPS = {
   namek: {
     id: "namek",
-    zLabel: "GUERREROS Z",
-    fLabel: "FREEZER",
-    zShort: "Z",
-    fShort: "FREEZER",
-    zWin: "Guerreros Z",
-    fWin: "Freezer",
+    ...TEAM_NAMES,
   },
   earth: {
     id: "earth",
-    zLabel: "GUERREROS Z",
-    fLabel: "SAIYAJIN",
-    zShort: "Z",
-    fShort: "SAIYAJIN",
-    zWin: "Guerreros Z",
-    fWin: "Saiyajin",
+    ...TEAM_NAMES,
   },
   cell: {
     id: "cell",
-    zLabel: "GUERREROS Z",
-    fLabel: "CELL",
-    zShort: "Z",
-    fShort: "CELL",
-    zWin: "Guerreros Z",
-    fWin: "Cell",
+    ...TEAM_NAMES,
   },
   city: {
     id: "city",
-    zLabel: "GUERREROS Z",
-    fLabel: "ANDROIDES",
-    zShort: "Z",
-    fShort: "ANDRO",
-    zWin: "Guerreros Z",
-    fWin: "Androides",
+    ...TEAM_NAMES,
   },
   vegeta: {
     id: "vegeta",
-    zLabel: "SAIYAJIN",
-    fLabel: "FREEZER",
-    zShort: "SAIYA",
-    fShort: "FREEZER",
-    zWin: "Saiyajin",
-    fWin: "Freezer",
+    ...TEAM_NAMES,
   },
 };
 

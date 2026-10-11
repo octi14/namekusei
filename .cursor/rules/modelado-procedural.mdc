@@ -1,0 +1,33 @@
+---
+description: Metodología para modelar partes del cuerpo y ropa procedurales (body.js) con verificación visual
+globs: src/body.js,src/charEditor.js,src/looks.js,src/data/sculpts.json,src/data/looks.json
+alwaysApply: false
+---
+
+# Modelado procedural de partes y ropa (cápsulas, `body.js`)
+
+Caso de referencia: **bota saiyajin** (`saiyanBootMesh`). Repetir este flujo.
+
+## 1. Entender antes de tocar
+- Leer la pieza análoga existente (p. ej. `tallBootMesh`/`combatBootMesh`) y el dispatcher (`footMesh`).
+- Ver de dónde salen los parámetros: `sc.*` = `src/data/sculpts.json` por personaje; colores = `look.*` (`looks.json`/`looks.js`); materiales = `gearMat(hex, { kind })`.
+- Revisar valores reales del personaje (p. ej. `bootCuff`, `footLen`) con un script node sobre el JSON: los defaults casi nunca aplican.
+- Personajes Mixamo (`CHAR_RIG` en `gokuRig.js`: Gokú, Vegeta…) **no** usan estas mallas.
+
+## 2. Construir con primitivas de `body.js`
+- `loftMesh(profile, len, mat, { radial, sx, sz, sub })`: loft **centrado**, `profile[0]` arriba (+Y). `sx`/`sz` aceptan `(v) => …` (v: 0 arriba → 1 abajo).
+- Pie/puntera: `rotation.x = π/2` ⇒ `profile[0]` queda **adelante (+Z)** y `sz` pasa a ser el **alto**.
+- Detalles (nervios, bordes enrollados): `TorusGeometry` (plano XY; `rotation.x = π/2` para anillo horizontal).
+- Subpartes inclinables: `Group` con pivote atrás; en X, rotación **negativa levanta** la punta.
+- Escalar todo con `r` y los parámetros del sculpt (`?? default`), nunca valores absolutos.
+
+## 3. Integrar como opción, no reemplazo
+- Nuevo valor en el enum (`bootType: [...]` en `body.js`) + rama en el dispatcher.
+- Label en `charEditor.js` (opciones del tipo) y, si hay color nuevo, fila de color (`["bootTip", "Puntera bota", (l) => l.bootTip ?? hex]`) + material en `legBase`/equivalente.
+- Asignar a personajes editando `sculpts.json` con un script node (JSON sin indentar, como lo guarda el editor).
+
+## 4. Verificar visualmente e iterar
+- `npm run dev` y: `node scripts/shotEditor.mjs <Personaje> [zoom] [x y w h]` → `logs/shot-front.png` y `logs/shot-side.png`.
+- Primero sin recorte para ubicar la pieza (la imagen vista se reduce ~0.8: multiplicar coords ×1.25), luego con recorte (sale a 3×).
+- Mirar **frente y costado** contra la referencia: proporción (alto de caña), qué tapa a qué (piel asomando, suela oculta), dirección de la punta, color bajo el toon (los amarillos tienden a naranja: bajar saturación/rojo).
+- Ajustar de a 2–3 parámetros por iteración y volver a capturar hasta que coincida.

@@ -4,9 +4,9 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
-import { TEAM_SIZE, superRank, loadSettings, applySettings, applySandbox, snapshot, PIXEL, BLOOM, SHADOWS, MOUSE, FOV, MAP, MATCH_MINS } from "./config.js";
+import { TEAM_SIZE, superRank, loadSettings, applySettings, applySandbox, applyRoom, snapshot, PIXEL, BLOOM, SHADOWS, MOUSE, FOV, MAP, MATCH_MINS } from "./config.js";
 import { createWorld, updateWorld, WATER_Y, buildMapMaquette } from "./world.js";
-import { buildRoster, buildSandboxRoster } from "./roster.js";
+import { buildRoster, buildSandboxRoster, buildRoomRoster, teamHeroes } from "./roster.js";
 import { setScenario, current } from "./scenario.js";
 import { Personaje, resolvePeople } from "./personaje.js";
 import { DragonBalls, resolveBallCollisions } from "./dragonBalls.js";
@@ -14,6 +14,11 @@ import { Match } from "./match.js";
 import { Combat, canSee, eyeAim } from "./combat.js";
 import { PlayerCamera, updateSeenBars } from "./camera.js";
 import { aiStep } from "./ai.js";
+import { updateEndShowcase } from "./endShowcase.js";
+import { initOnline, onlineScreen } from "./online.js";
+import { log as logLine } from "./log.js";
+import { initConsole, cmd } from "./devConsole.js";
+import { applyMatchRating, postMatchRating, fetchRating, loadRating, rankOf, RANKS } from "./rating.js";
 import { fxInit, fxTick, fxKiRise, fxDust, fxTrail } from "./fx.js";
 import { renderHud } from "./ui.js";
 import { setAudioListener, playSfx, stopSfxLoop, atPos } from "./sfx.js";
@@ -130,6 +135,8 @@ const keys = new Set();
 let keysOn = true;
 let locked = false;
 let menuOpen = false;
+/** Partida de sala online: el menú no pausa ni permite spectear/cambiar de personaje. */
+let onlineMatch = false;
 const menuEl = document.getElementById("menu");
 let spectating = false;
 /** Cámara libre estilo CS (N): { pos, yaw, pitch }; el personaje propio pasa a la IA. */
@@ -174,15 +181,15 @@ const HEROES = {
 };
 
 const OPTS = [
-  { tab: "partida", key: "TEAM_SIZE", label: "Jugadores por equipo", min: 3, max: 20, step: 1, boot: true },
-  { tab: "partida", key: "MAP", label: "Tamaño del mapa", min: 1000, max: 3000, step: 100, boot: true },
+  { tab: "partida", key: "TEAM_SIZE", label: "Jugadores por equipo", min: 3, max: 50, step: 1, boot: true },
+  { tab: "partida", key: "MAP", label: "Tamaño del mapa", min: 1000, max: 2000, step: 50, boot: true },
   {
     tab: "partida", key: "MATCH_MIN", label: "Duración", boot: true, sel: MATCH_MINS.map((m) => [m, m ? `${m} min` : "Ilimitado"]),
   },
   { tab: "opciones", key: "SFX_VOL", label: "Volumen", min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%` },
   { tab: "opciones", key: "QUALITY", label: "Gráficos", sel: [[0, "Baja"], [1, "Media"], [2, "Alta"]] },
   { tab: "opciones", key: "MOUSE", label: "Sensibilidad", min: 0.3, max: 2.5, step: 0.05 },
-  { tab: "opciones", key: "CAM_ZOOM", label: "Zoom 3ª persona", min: 1.6, max: 14, step: 0.05, fmt: (v) => (+v).toFixed(2) },
+  { tab: "opciones", key: "CAM_ZOOM", label: "Zoom 3ª persona", min: 1.6, max: 6, step: 0.05, fmt: (v) => (+v).toFixed(2) },
 ];
 const TABS = [
   ["partida", "Partida"],
@@ -278,18 +285,101 @@ buildOpts(document.getElementById("title-opts"), document.getElementById("title-
 const frontEl = document.getElementById("front");
 let frontScreen = "splash";
 
+const TOP_TAB = { title: "title", play: "play", online: "online", browse: "online", create: "online", join: "online", extras: "extras", credits: "extras", opts: "opts" };
+const topEl = document.getElementById("topbar");
+const wipeEl = document.querySelector("#front .fx-wipe");
+wipeEl.addEventListener("animationend", () => wipeEl.classList.remove("go"));
+
 function showFront(id) {
+  const prev = frontScreen;
   frontScreen = id;
   if (frontEl) frontEl.hidden = false;
   for (const s of document.querySelectorAll("#front .screen")) {
     s.classList.toggle("on", s.id === `screen-${id}`);
   }
+  const tab = TOP_TAB[id];
+  topEl.hidden = !tab;
+  frontEl.classList.toggle("has-top", !!tab);
+  if (tab) paintTopbar(tab);
+  if (id === "title") paintHub();
+  if (prev && prev !== id && prev !== "splash") {
+    wipeEl.classList.remove("go");
+    void wipeEl.offsetWidth;
+    wipeEl.classList.add("go");
+  }
   mqLive = id === "setup";
+  onlineScreen(id);
   if (id === "setup") {
     sizeMaquette();
     paintBootMap();
   }
 }
+
+function paintTopbar(tab) {
+  const btn = topEl.querySelector(`[data-tab="${tab}"]`);
+  topEl.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("on", b === btn));
+  const ink = topEl.querySelector(".tb-ink");
+  requestAnimationFrame(() => {
+    ink.style.left = `${btn.offsetLeft + 12}px`;
+    ink.style.width = `${btn.offsetWidth - 24}px`;
+  });
+  const nick = localStorage.getItem("nk-nick") || "Jugador";
+  const r = loadRating();
+  const rk = rankOf(r.elo);
+  document.getElementById("tb-me").innerHTML =
+    `<span class="av">${escHtml(nick[0].toUpperCase())}</span><span><div class="nm">${escHtml(nick)}</div>` +
+    `<div class="rk" style="color:${rk.color}">${rk.name} · ${r.elo}</div></span>`;
+}
+
+function escHtml(t) {
+  return String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+
+const HUB_MAPS = [
+  { id: "namek", name: "Namek", sub: "Planeta", bg: "linear-gradient(160deg, #7cb342, #1b5e20 55%, #0b1f0c)" },
+  { id: "earth", name: "Tierra", sub: "Saga saiyan", bg: "linear-gradient(160deg, #64b5f6, #2e7d32 60%, #0d1f0d)" },
+  { id: "cell", name: "Islas", sub: "Saga Cell", bg: "linear-gradient(160deg, #90caf9, #1565c0 55%, #08203a)" },
+  { id: "city", name: "Ciudad", sub: "Trunks del futuro", bg: "linear-gradient(160deg, #b0bec5, #455a64 55%, #12181b)" },
+  { id: "vegeta", name: "Planeta Vegeta", sub: "Era saiyajin", bg: "linear-gradient(160deg, #f48fb1, #ad1457 55%, #2a0614)" },
+];
+let hubMapI = 0;
+let hubMapTimer = 0;
+
+function showHubMap(i) {
+  hubMapI = (i + HUB_MAPS.length) % HUB_MAPS.length;
+  const m = HUB_MAPS[hubMapI];
+  const tile = document.getElementById("hub-maps");
+  tile.style.setProperty("--mbg", m.bg);
+  const t = document.getElementById("hub-map-name");
+  t.textContent = m.name;
+  t.classList.remove("swap");
+  void t.offsetWidth;
+  t.classList.add("swap");
+  document.getElementById("hub-map-sub").textContent = m.sub;
+  document.getElementById("hub-map-pips").innerHTML = HUB_MAPS.map((_, k) => `<i class="${k === hubMapI ? "on" : ""}"></i>`).join("");
+}
+
+function paintHub() {
+  const r = loadRating();
+  const rk = rankOf(r.elo);
+  const next = RANKS.find((x) => x.min > r.elo);
+  const lo = Number.isFinite(rk.min) ? rk.min : 0;
+  const pct = next ? Math.max(0, Math.min(100, ((r.elo - lo) / (next.min - lo)) * 100)) : 100;
+  const el = document.getElementById("hub-rank");
+  el.style.setProperty("--rc", rk.color);
+  el.innerHTML =
+    `<span class="t-kicker">Tu rango</span><span class="elo">${r.elo}</span><span class="t-title" style="font-size:22px">${rk.name}</span>` +
+    `<span class="t-sub">${r.games} partidas · ${r.wins}V ${r.losses}D${next ? ` · ${next.min - r.elo} para ${next.name}` : ""}</span>` +
+    `<div class="bar"><i style="width:0"></i></div>`;
+  requestAnimationFrame(() => (el.querySelector(".bar i").style.width = `${pct}%`));
+  showHubMap(hubMapI);
+  clearInterval(hubMapTimer);
+  hubMapTimer = setInterval(() => (frontScreen === "title" ? showHubMap(hubMapI + 1) : clearInterval(hubMapTimer)), 4200);
+}
+
+document.getElementById("hub-maps").addEventListener("click", () => {
+  document.querySelector(`#front .maps [data-map="${HUB_MAPS[hubMapI].id}"]`)?.click();
+});
 
 function hideFront() {
   if (frontEl) frontEl.hidden = true;
@@ -371,8 +461,27 @@ splashEl?.addEventListener("click", (e) => {
   if (e.target?.closest?.("#tr-skip")) return;
   skipSplash();
 });
+let setupMode = "quick";
 document.querySelectorAll("#front [data-go]").forEach((b) => {
-  b.addEventListener("click", () => showFront(b.dataset.go));
+  b.addEventListener("click", () => {
+    if (b.dataset.mode) {
+      setupMode = b.dataset.mode;
+      const t = document.getElementById("setup-title");
+      if (t) t.textContent = setupMode === "sandbox" ? "ENTRENAMIENTO" : "PARTIDA RÁPIDA";
+    }
+    showFront(b.dataset.go);
+  });
+});
+document.querySelectorAll("#front [data-tool]").forEach((b) => {
+  b.addEventListener("click", () => {
+    if (b.dataset.tool === "char") {
+      if (animEditorOpen()) setAnimEditor(false);
+      toggleCharEditor();
+    } else {
+      if (charEditorOpen()) setCharEditor(false);
+      toggleAnimEditor();
+    }
+  });
 });
 
 function dumpGroup(g) {
@@ -459,15 +568,36 @@ document.querySelectorAll("#front [data-map]").forEach((b) => {
     paintBootMap();
   };
 });
-document.getElementById("btn-play").onclick = () => startGame(bootMap);
+initOnline({
+  teamHeroes,
+  showFront,
+  front: () => frontScreen,
+  startLocal: (room) => startGame(room.map, { room }),
+  netLeft,
+  netBack,
+  netHostGone,
+});
+document.getElementById("btn-play").onclick = () =>
+  setupMode === "sandbox"
+    ? startGame(bootMap, { who: document.getElementById("opt-hero").value, sandbox: true })
+    : startGame(bootMap);
 applyGfx();
-showFront("splash");
-runTrailer();
+fetchRating().then((r) => {
+  if (!r || !TOP_TAB[frontScreen]) return;
+  paintTopbar(TOP_TAB[frontScreen]);
+  if (frontScreen === "title") paintHub();
+});
+if (sessionStorage.getItem("nk-to-title")) {
+  sessionStorage.removeItem("nk-to-title");
+  finishTrailerToTitle();
+} else {
+  showFront("splash");
+  runTrailer();
+}
 paintBootMap();
 mqLive = false;
 
 function applyLabels() {
-  document.getElementById("sc-f-lab").textContent = current.fShort;
   document.getElementById("tab-f-h").textContent = current.fLabel;
   document.getElementById("menu-f-h").textContent = current.fLabel;
 }
@@ -478,6 +608,9 @@ async function startGame(id, opts = {}) {
     applySandbox(420, 1);
     sandboxMode = true;
   }
+  onlineMatch = !!opts.room;
+  menuEl.classList.toggle("online", onlineMatch);
+  if (opts.room) applyRoom(opts.room.size, opts.room.mins, opts.room.mapSize);
   await preloadGoku();
   setScenario(id);
   if (id === "vegeta") {
@@ -568,20 +701,22 @@ async function startGame(id, opts = {}) {
   renderer.toneMappingExposure = landExposure;
   createWorld(scene, id);
   applyGfx();
-  const roster = opts.sandbox && who ? buildSandboxRoster(who, id) : buildRoster(id);
+  const roster = opts.room ? buildRoomRoster(id, opts.room) : opts.sandbox && who ? buildSandboxRoster(who, id) : buildRoster(id);
   const zTeam = roster.filter((r) => r.faccion === "z");
   const fTeam = roster.filter((r) => r.faccion === "f");
   people = roster.map((def) => {
     const team = def.faccion === "z" ? zTeam : fTeam;
     const i = team.indexOf(def);
-    return new Personaje(def, i, Math.max(1, team.length), scene);
+    const p = new Personaje(def, i, Math.max(1, team.length), scene);
+    p._def = def;
+    return p;
   });
   balls = new DragonBalls(scene);
   match = new Match();
   cam = new PlayerCamera(camera);
   combat = new Combat(scene, balls, cam, match);
   const want = who || document.getElementById("opt-hero").value;
-  player = people.find((p) => p.nombre === want) || people.find((p) => p.nombre === "Gokú") || people[0];
+  player = people.find((p) => p._def.me) || people.find((p) => p.nombre === want) || people.find((p) => p.nombre === "Gokú") || people[0];
   player.controller = "humano";
   player.nameLabel.element.classList.add("yo");
   fillMenu();
@@ -625,6 +760,7 @@ function setMenu(open) {
   menuOpen = open;
   menuEl.classList.toggle("open", open);
   if (open) {
+    keys.clear();
     document.exitPointerLock();
     buildOpts(document.getElementById("menu-opts"), document.getElementById("menu-tabs"), true);
   }
@@ -664,7 +800,7 @@ function fillMenu() {
     for (const p of people.filter((x) => x.faccion === fac)) {
       const b = document.createElement("button");
       b.type = "button";
-      b.textContent = p.nombre;
+      b.textContent = p.alias;
       b.onclick = () => takeControl(p);
       box.appendChild(b);
     }
@@ -672,6 +808,111 @@ function fillMenu() {
 }
 document.getElementById("btn-continuar").onclick = () => setMenu(false);
 document.getElementById("btn-spectate").onclick = () => startSpectate();
+
+// ---------- Consola (tecla a la izquierda del 1) ----------
+initConsole();
+{
+  const needGame = () => {
+    if (!worldReady) throw new Error("Solo dentro de una partida");
+  };
+  const noOnline = () => {
+    needGame();
+    if (onlineMatch) throw new Error("No disponible en partidas online");
+  };
+  const find = (q) => {
+    const s = (q || "").toLowerCase();
+    const p = people.find((o) => o.alias.toLowerCase() === s) || people.find((o) => o.alias.toLowerCase().includes(s));
+    if (!p) throw new Error(`No encontré a "${q}"`);
+    return p;
+  };
+  cmd("players", "lista de personajes (nick, bando, vida, control)", () => {
+    needGame();
+    return people
+      .map((o) => `${o.faccion === "z" ? "NAR" : "AZU"}  ${o.alias.padEnd(20)} ${o.nombre.padEnd(16)} ${String(Math.round(o.s.hp)).padStart(4)}/${o.s.hpMax}  ${o.controller}${o.dead ? " (KO)" : ""}`)
+      .join("\n");
+  });
+  cmd("pos", "posición del jugador", () => {
+    needGame();
+    const p = player.pos();
+    return `x ${p.x.toFixed(1)}  y ${p.y.toFixed(1)}  z ${p.z.toFixed(1)}`;
+  });
+  cmd("score", "marcador", () => (needGame(), `Naranja ${match.score.z} — ${match.score.f} Azul`));
+  cmd("elo", "tu ELO y rango", () => {
+    const r = loadRating();
+    return `${r.elo} · ${rankOf(r.elo).name} · ${r.games} partidas (${r.wins}V ${r.losses}D)`;
+  });
+  cmd("get", "get [CLAVE] · ver ajustes", (a) => {
+    const s = snapshot();
+    return a[0] ? `${a[0]} = ${s[a[0]]}` : Object.entries(s).map(([k, v]) => `${k} = ${v}`).join("\n");
+  });
+  cmd("set", "set CLAVE valor · cambia un ajuste (ver get)", (a) => {
+    if (!(a[0] in snapshot())) throw new Error("Clave inválida (ver get)");
+    applySettings({ [a[0]]: +a[1] });
+    applyGfx();
+    return `${a[0]} = ${snapshot()[a[0]]}`;
+  });
+  cmd("heal", "vida y ki al máximo (no online)", () => {
+    noOnline();
+    player.s.hp = player.s.hpMax;
+    player.s.ki = player.s.kiMax;
+    return "OK";
+  });
+  cmd("ssj", "alterna super saiyajin (no online)", () => (noOnline(), player.setSsj(!player.ssj), `ssj ${player.ssj ? "on" : "off"}`));
+  cmd("control", "control NICK · tomar el control de otro personaje (no online)", (a) => (noOnline(), takeControl(find(a.join(" "))), "OK"));
+  cmd("net_leave", "net_leave NICK · simula desconexión", (a) => (netLeft(a.join(" ")), "OK"));
+  cmd("net_back", "net_back NICK · simula reconexión", (a) => (netBack(a.join(" ")), "OK"));
+  cmd("net_hostgone", "simula que el anfitrión se fue", () => (netHostGone(), "OK"));
+  cmd("quit", "volver al menú principal", () => exitToMenu());
+}
+
+// ---------- Salas online: desconexiones (las dispara online.js; TODO NET: eventos del socket) ----------
+const seatOf = (nick) => (onlineMatch ? people.find((p) => p._def.nick === nick && !p._def.me) : null);
+
+/** Un jugador se fue o se cayó: su personaje pasa a la IA y queda reservado para cuando vuelva. */
+function netLeft(nick) {
+  const p = seatOf(nick);
+  if (!p || p._away) return;
+  p._away = true;
+  p.controller = "ia";
+  p.nameLabel.element.classList.add("away");
+  logLine(`${nick} se desconectó · lo controla la IA`, p.faccion);
+}
+
+/** Volvió (misma sala, mismo nick): recupera su personaje tal como lo dejó la IA. */
+function netBack(nick) {
+  const p = seatOf(nick);
+  if (!p || !p._away) return;
+  p._away = false;
+  p.controller = "remoto"; // TODO NET: sus inputs llegan por socket
+  p.nameLabel.element.classList.remove("away");
+  logLine(`${nick} volvió a la partida`, p.faccion);
+}
+
+/** Sin servidor dedicado la sala vive en el anfitrión: si se va, la partida termina. */
+function netHostGone() {
+  if (!onlineMatch) return;
+  logLine("El anfitrión cerró la sala · la partida terminó", "z");
+  setTimeout(exitToMenu, 3000);
+}
+
+/** Vuelve al inicio recargando (el mundo no se desmonta en caliente). */
+function exitToMenu() {
+  sessionStorage.setItem("nk-to-title", "1");
+  location.reload();
+}
+document.getElementById("btn-exit").onclick = () => {
+  if (!sandboxMode && match && !match.finish && !confirm("¿Abandonar la partida? Se pierde el progreso.")) return;
+  exitToMenu();
+};
+document.getElementById("end-exit").onclick = exitToMenu;
+document.getElementById("win-stats").onclick = () => {
+  if (match?.finish) match.finish.stats = true;
+};
+addEventListener("keydown", (e) => {
+  if (e.code !== "Enter" || !match?.finish) return;
+  if (!match.finish.stats) match.finish.stats = true;
+  else exitToMenu();
+});
 
 function resize() {
   const w = innerWidth;
@@ -692,7 +933,7 @@ document.getElementById("click-msg").onclick = () => {
 document.addEventListener("pointerlockchange", () => {
   locked = document.pointerLockElement === canvas;
   document.getElementById("click-msg").style.display =
-    !worldReady || locked || menuOpen ? "none" : "flex";
+    !worldReady || locked || menuOpen || match?.finish ? "none" : "flex";
   if (locked && match) match.start(sandboxMode);
 });
 addEventListener("mousemove", (e) => {
@@ -847,13 +1088,14 @@ function loop(now) {
     }
     return;
   }
-  if (!menuOpen) match.tick(dt);
+  const paused = menuOpen && !onlineMatch;
+  if (!paused) match.tick(dt);
   if (match.banner === "GO" && match.flash !== loop._go) {
     loop._go = match.flash;
     cam.shake(0.5);
   }
-  if (match.phase === "play" && !menuOpen) {
-    if (!spectating && !freeCam && !player.dead) {
+  if (match.phase === "play" && !paused) {
+    if (!menuOpen && !spectating && !freeCam && !player.dead) {
       if (player.lockT > 0 && player.lockFoe && !player.lockFoe.dead) {
         player.lockT -= dt;
         const to = player.lockFoe.pos().clone().sub(player.pos());
@@ -1037,6 +1279,17 @@ function loop(now) {
   fxTick(dt);
   if (bloomPass.enabled && bloomPass.strength > 0.04) composer.render();
   else renderer.render(scene, camera);
+  if (match.finish && !match.finish.elo && !sandboxMode && player) {
+    const winner = match.finish.title === "EMPATE" ? null : match.finish.team || null;
+    const fin = match.finish;
+    document.exitPointerLock();
+    fin.elo = applyMatchRating(player, people, winner);
+    // El servidor recalcula desde su ELO; si responde, reemplaza el resultado local
+    postMatchRating(player, people, winner, current.id).then((r) => {
+      if (r) fin.elo = r;
+    });
+  }
+  updateEndShowcase(match, people, dt);
   labelR.render(scene, camera);
 }
 requestAnimationFrame(loop);

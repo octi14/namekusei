@@ -100,6 +100,11 @@
       .hp { background: linear-gradient(180deg, #76ff03, #1b5e20); }
       .ki { background: linear-gradient(180deg, #4fc3f7, #01579b); }
       .bar { position: relative; }
+      .bar > em.val {
+        position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center;
+        transform: skewX(12deg); font: 700 11px/1 Segoe UI, sans-serif; font-style: normal;
+        color: #fff; text-shadow: 0 0 2px #000, 0 1px 2px #000; pointer-events: none; letter-spacing: 0.04em;
+      }
       .ki-mark {
         position: absolute; left: 80%; top: -1px; bottom: -1px; width: 2px;
         background: #ffeb3b; box-shadow: 0 0 6px #ffc107; z-index: 2;
@@ -473,43 +478,136 @@
       }
       #screen-splash.tr-lit .tr-skip { opacity: 0.7; }
       #screen-splash .tr-skip:hover { opacity: 1; color: #fff; border-color: #ff9f3c; }
-      /* Title */
-      #screen-title {
-        justify-content: flex-end; padding-bottom: max(32px, 8vh);
+      /* Barra superior (estilo consola) */
+      #topbar {
+        position: absolute; left: 0; right: 0; top: 0; z-index: 5; height: 64px;
+        display: flex; align-items: center; gap: 28px; padding: 0 28px;
+        background: linear-gradient(180deg, #050b10f2, #050b10aa 70%, transparent);
+        animation: tbIn 0.6s cubic-bezier(0.22, 1, 0.36, 1);
       }
-      #screen-title .title-hero {
-        position: absolute; inset: 0; display: flex; flex-direction: column;
-        justify-content: center; padding: 0 20px; pointer-events: none;
+      #topbar[hidden] { display: none; }
+      @keyframes tbIn { from { opacity: 0; transform: translateY(-100%); } }
+      .tb-logo { appearance: none; border: 0; background: none; cursor: pointer; display: flex; flex-direction: column; line-height: 0.85; padding: 0; }
+      .tb-logo b { font: normal 26px "Saiyan Sans", "Lilita One", Impact, sans-serif; color: #ffd54f; letter-spacing: 0.04em;
+        text-shadow: 0 2px 0 #c62828, 0 0 14px #ff6f0055; }
+      .tb-logo i { font: normal 13px "Saiyan Sans", "Lilita One", Impact, sans-serif; font-style: normal; color: #fff; letter-spacing: 0.5em; }
+      .tb-tabs { position: relative; display: flex; gap: 4px; height: 100%; }
+      .tb-tabs button { appearance: none; border: 0; background: none; cursor: pointer; padding: 0 18px;
+        font: 600 20px "Teko", sans-serif; letter-spacing: 0.2em; text-transform: uppercase; color: #8fa39a; transition: color 0.2s; }
+      .tb-tabs button:hover { color: #fff; }
+      .tb-tabs button.on { color: #fff8e7; text-shadow: 0 0 12px #ff9f3c88; }
+      .tb-ink { position: absolute; bottom: 10px; height: 3px; left: 0; width: 0; background: linear-gradient(90deg, #ffc107, #ff6f00);
+        box-shadow: 0 0 10px #ff9800; transition: left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+      .tb-me { margin-left: auto; display: flex; align-items: center; gap: 12px; padding: 6px 14px 6px 6px;
+        background: #0c1820cc; border: 1px solid #ffffff14; clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px); }
+      .tb-me .av { width: 38px; height: 38px; display: grid; place-items: center; font: 20px "Russo One", Impact, sans-serif; color: #fff;
+        background: linear-gradient(160deg, #ff9800, #c45c18); }
+      .tb-me .nm { font: 600 15px "Outfit", sans-serif; color: #fff; }
+      .tb-me .rk { font: 600 13px "Teko", sans-serif; letter-spacing: 0.18em; text-transform: uppercase; }
+      #front.has-top .screen:not(.hub):not(#screen-splash) { padding-top: 84px; }
+      #front.has-top .screen.sub { justify-content: flex-start; align-items: flex-start; padding: 120px 28px 28px; }
+      #front.has-top .screen.sub .sub-head .ux-back { display: none; }
+      #front.has-top .screen.sub .sub-head h2 { font-size: 44px; }
+      #front.has-top .screen.sub .sub-nav > *, #front.has-top .screen.sub .on-nick, #front.has-top .screen.sub .on-offline { animation: slideIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+      @keyframes slideIn { from { opacity: 0; transform: translateX(-24px); } }
+      #front.has-top .screen.sub .sub-nav > :nth-child(2) { animation-delay: 0.06s; }
+      #front.has-top .screen.sub .sub-nav > :nth-child(3) { animation-delay: 0.12s; }
+      #front.has-top .screen.sub .sub-nav > :nth-child(4) { animation-delay: 0.18s; }
+      #front.has-top .screen.sub .sub-nav > :nth-child(5) { animation-delay: 0.24s; }
+      /* Transición entre pantallas: barrido diagonal */
+      #front .fx-wipe { position: absolute; inset: 0; z-index: 6; pointer-events: none; visibility: hidden;
+        background: linear-gradient(100deg, transparent 0 30%, #ff9800 30% 34%, #0a141c 34% 66%, #ffc107 66% 68%, transparent 68%);
+        background-size: 300% 100%; }
+      #front .fx-wipe.go { visibility: visible; animation: wipe 0.55s cubic-bezier(0.65, 0, 0.35, 1) forwards; }
+      @keyframes wipe { from { background-position: 100% 0; } to { background-position: 0 0; } }
+      /* Inicio: hub de tiles */
+      #screen-title.hub { padding: 84px 28px 56px; }
+      .hub-grid {
+        flex: 1; min-height: 0; display: grid; gap: 14px;
+        grid-template-columns: 1.7fr 1fr 1fr; grid-template-rows: 1fr 1fr;
+        grid-template-areas: "hero online rank" "hero train maps";
       }
-      #screen-title .title-balls {
-        display: flex; gap: 6px; margin-bottom: 10px;
+      .tile {
+        position: relative; overflow: hidden; appearance: none; border: 0; cursor: pointer; text-align: left; color: #f4f7f5;
+        display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding: 18px 20px;
+        background: linear-gradient(160deg, #10222bdd, #0a1418ee); box-shadow: inset 0 0 0 1px #ffffff12, 0 14px 40px #0007;
+        clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px));
+        opacity: 0; transform: translateY(24px);
+        transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s, filter 0.25s;
       }
-      #screen-title .title-balls .dball {
-        width: 18px; height: 18px; opacity: 1; transform: none;
-        box-shadow: 0 0 8px #ff6f0066;
-      }
-      #screen-title .title-balls .dball .star { width: 28%; height: 28%; margin: -14% 0 0 -14%; }
-      #screen-title .title-kicker {
-        font-family: "Teko", sans-serif; font-weight: 600; font-size: 15px;
-        letter-spacing: 0.48em; color: #ffab40; margin: 0 0 6px;
-      }
-      #screen-title .title-logo.db-logo {
-        font-size: clamp(40px, 12vw, 92px);
-      }
-      #screen-title .title-arena {
-        font-family: "Saiyan Sans", "Lilita One", Impact, sans-serif;
-        font-size: clamp(26px, 7vw, 48px); letter-spacing: 0.22em; margin: 2px 0 0;
-        color: #fff; text-shadow: 0 3px 0 #b71c1c, 0 0 20px #ff3d0033;
-      }
-      #screen-title .title-tag {
-        margin: 14px 0 0; max-width: 28ch;
-        font-size: 15px; font-weight: 600; line-height: 1.45; color: #c5d4cc;
-        letter-spacing: 0.02em;
-      }
-      #screen-title .title-nav {
-        position: relative; width: min(420px, 100%);
-        display: flex; flex-direction: column; gap: 8px;
-      }
+      #screen-title.on .tile { animation: tileIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards; animation-delay: calc(0.08s + var(--i) * 0.07s); }
+      @keyframes tileIn { to { opacity: 1; transform: none; } }
+      button.tile:hover, button.tile:focus-visible { outline: none; transform: translateY(-4px) scale(1.012); filter: brightness(1.15);
+        box-shadow: inset 0 0 0 2px #ffc107aa, 0 18px 50px #000a, 0 0 30px #ff980033; }
+      .tile::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+        background: linear-gradient(115deg, transparent 40%, #ffffff18 50%, transparent 60%); transform: translateX(-120%); }
+      button.tile:hover::after { transform: translateX(120%); transition: transform 0.7s ease; }
+      .t-kicker { position: relative; font: 600 13px "Teko", sans-serif; letter-spacing: 0.32em; text-transform: uppercase; color: #ffab40; }
+      .t-title { position: relative; font: 30px/1 "Russo One", Impact, sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: #fff8e7; }
+      .t-sub { position: relative; font: 600 13px "Outfit", sans-serif; color: #b9c9c0; }
+      .t-hero { grid-area: hero; padding: 34px; background: radial-gradient(ellipse at 70% 35%, #ff8f0055, transparent 60%), linear-gradient(160deg, #3a1606, #160805 60%, #07090c); }
+      .t-hero .t-title { font-size: clamp(40px, 4.4vw, 64px); text-shadow: 0 4px 0 #b71c1c, 0 0 30px #ff6f0066; }
+      .t-hero .t-sub { max-width: 36ch; font-size: 15px; }
+      .t-cta { position: relative; align-self: flex-start; margin-top: 14px; padding: 10px 26px 8px; font: 600 24px "Teko", sans-serif; letter-spacing: 0.24em;
+        background: linear-gradient(90deg, #ffc107, #ff6f00); color: #2a0e00; clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+        animation: ctaPulse 2.4s ease-in-out infinite; }
+      @keyframes ctaPulse { 50% { box-shadow: 0 0 0 0 transparent; filter: brightness(1.2); } }
+      .hero-art { position: absolute; inset: 0; pointer-events: none; }
+      .hero-rays { position: absolute; right: -25%; top: -40%; width: 110%; aspect-ratio: 1;
+        background: repeating-conic-gradient(from 0deg, #ff980014 0 6deg, transparent 6deg 18deg);
+        border-radius: 50%; animation: spin 40s linear infinite; mask: radial-gradient(circle, #000 20%, transparent 68%); }
+      .hero-orb { position: absolute; right: 16%; top: 18%; width: clamp(120px, 14vw, 210px); aspect-ratio: 1; border-radius: 50%;
+        background: radial-gradient(circle at 32% 28%, #fff3c4, #ffb300 30%, #ff8f00 55%, #e65100 80%, #bf360c);
+        box-shadow: 0 0 60px #ff9800aa, 0 0 140px #ff6f0055, inset -14px -20px 34px #bf360caa;
+        animation: orbFloat 5s ease-in-out infinite; }
+      .hero-orb .star { position: absolute; left: 50%; top: 50%; width: 18%; height: 18%; margin: -9% 0 0 -9%; background: #c62828;
+        clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
+      .hero-orb .star:nth-child(1) { transform: translate(-65%, -65%); } .hero-orb .star:nth-child(2) { transform: translate(65%, -65%); }
+      .hero-orb .star:nth-child(3) { transform: translate(-65%, 65%); } .hero-orb .star:nth-child(4) { transform: translate(65%, 65%); }
+      @keyframes orbFloat { 50% { transform: translateY(-14px) rotate(6deg); } }
+      .hero-ring { position: absolute; right: calc(16% + clamp(60px, 7vw, 105px)); top: calc(18% + clamp(60px, 7vw, 105px)); width: 0; height: 0;
+        animation: spin 18s linear infinite; }
+      .hero-ring .dball { position: absolute; width: 26px; height: 26px; margin: -13px; opacity: 0.9;
+        transform: rotate(calc(var(--k) * 51.43deg)) translateY(clamp(-200px, -17vw, -120px)); }
+      .hero-ring .dball[data-n="1"] { --k: 0; } .hero-ring .dball[data-n="2"] { --k: 1; } .hero-ring .dball[data-n="3"] { --k: 2; }
+      .hero-ring .dball[data-n="4"] { --k: 3; } .hero-ring .dball[data-n="5"] { --k: 4; } .hero-ring .dball[data-n="6"] { --k: 5; } .hero-ring .dball[data-n="7"] { --k: 6; }
+      .hero-ring .dball .star { width: 26%; height: 26%; margin: -13% 0 0 -13%; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .hero-sparks i { position: absolute; bottom: -10px; width: 3px; height: 18px; border-radius: 2px; background: linear-gradient(#fff8, #ffc107);
+        box-shadow: 0 0 8px #ffc107; opacity: 0; animation: spark 3.2s linear infinite; }
+      .hero-sparks i:nth-child(1) { left: 52%; animation-delay: 0s; } .hero-sparks i:nth-child(2) { left: 61%; animation-delay: 0.4s; }
+      .hero-sparks i:nth-child(3) { left: 70%; animation-delay: 1.1s; } .hero-sparks i:nth-child(4) { left: 78%; animation-delay: 1.7s; }
+      .hero-sparks i:nth-child(5) { left: 86%; animation-delay: 0.8s; } .hero-sparks i:nth-child(6) { left: 66%; animation-delay: 2.2s; }
+      .hero-sparks i:nth-child(7) { left: 56%; animation-delay: 2.7s; } .hero-sparks i:nth-child(8) { left: 92%; animation-delay: 1.4s; }
+      @keyframes spark { 0% { opacity: 0; transform: translateY(0); } 15% { opacity: 1; } 100% { opacity: 0; transform: translateY(-70vh); } }
+      .t-online { grid-area: online; background: radial-gradient(ellipse at 100% 0%, #1565c066, transparent 60%), linear-gradient(160deg, #0d2233, #08121a); }
+      .t-dots { position: absolute; top: 18px; right: 18px; display: flex; gap: 4px; align-items: center; }
+      .t-dots i { width: 12px; height: 12px; border-radius: 3px; background: #ff9800; opacity: 0.25; animation: dotOn 3s ease-in-out infinite; }
+      .t-dots b ~ i { background: #42a5f5; }
+      .t-dots b { font: 12px "Russo One", Impact, sans-serif; color: #ffc107; margin: 0 4px; }
+      .t-dots i:nth-child(1) { animation-delay: 0s; } .t-dots i:nth-child(2) { animation-delay: 0.2s; } .t-dots i:nth-child(3) { animation-delay: 0.4s; }
+      .t-dots i:nth-child(4) { animation-delay: 0.6s; } .t-dots i:nth-child(5) { animation-delay: 0.8s; } .t-dots i:nth-child(7) { animation-delay: 0.1s; }
+      .t-dots i:nth-child(8) { animation-delay: 0.3s; } .t-dots i:nth-child(9) { animation-delay: 0.5s; } .t-dots i:nth-child(10) { animation-delay: 0.7s; } .t-dots i:nth-child(11) { animation-delay: 0.9s; }
+      @keyframes dotOn { 40%, 80% { opacity: 1; box-shadow: 0 0 8px currentColor; } }
+      .t-rank { grid-area: rank; cursor: default; background: radial-gradient(ellipse at 100% 100%, color-mix(in srgb, var(--rc, #ffd54f) 22%, transparent), transparent 60%), linear-gradient(160deg, #1a1a10, #0b0d0a); }
+      .t-rank .elo { position: relative; font: 600 44px/0.9 "Teko", sans-serif; color: var(--rc); text-shadow: 0 0 18px var(--rc); }
+      .t-rank .bar { position: relative; height: 5px; margin-top: 6px; background: #ffffff18; }
+      .t-rank .bar i { position: absolute; inset: 0 auto 0 0; background: var(--rc); box-shadow: 0 0 8px var(--rc); transition: width 1s ease 0.5s; }
+      .t-train { grid-area: train; background: radial-gradient(ellipse at 100% 0%, #2e7d3255, transparent 60%), linear-gradient(160deg, #0f2219, #08110d); }
+      .t-maps { grid-area: maps; background: var(--mbg, #222); transition: transform 0.25s, box-shadow 0.25s, filter 0.25s, background 0.8s; }
+      .t-maps::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 30%, #000c); }
+      .t-maps .t-title.swap { animation: mapSwap 0.6s ease; }
+      @keyframes mapSwap { from { opacity: 0; transform: translateX(20px); } }
+      .t-pips { position: relative; display: flex; gap: 5px; margin-top: 6px; }
+      .t-pips i { width: 18px; height: 3px; background: #ffffff40; transition: background 0.3s; }
+      .t-pips i.on { background: #ffc107; }
+      .hub-ticker { position: absolute; left: 0; right: 0; bottom: 0; height: 34px; overflow: hidden; display: flex; align-items: center;
+        background: #050b10e6; border-top: 1px solid #ffc10733; }
+      .hub-ticker div { display: flex; gap: 60px; white-space: nowrap; padding-left: 100%; animation: ticker 45s linear infinite;
+        font: 600 15px "Teko", sans-serif; letter-spacing: 0.2em; color: #c5d4cc; }
+      .hub-ticker span::before { content: "◆ "; color: #ffc107; }
+      @keyframes ticker { to { transform: translateX(-100%); } }
+      #screen-title .title-ver { bottom: 44px; right: 28px; left: auto; }
       .ux-btn {
         appearance: none; border: 0; cursor: pointer; text-align: left;
         font-family: "Teko", sans-serif; font-weight: 600; font-size: 22px;
@@ -530,6 +628,112 @@
       .ux-btn.primary:hover, .ux-btn.primary:focus-visible {
         background: linear-gradient(90deg, #e06a1ecc, #a33810cc);
       }
+      .ux-btn[disabled] { cursor: not-allowed; opacity: 0.45; transform: none; background: #0c1820aa; border-left-color: transparent; }
+      .ux-soon {
+        font: 600 11px/1 "Outfit", sans-serif; font-style: normal; letter-spacing: 0.1em; text-transform: uppercase;
+        color: #ffc107; border: 1px solid #ffc10766; padding: 2px 6px; margin-left: 8px; vertical-align: middle;
+      }
+      .title-ver {
+        position: absolute; left: 16px; bottom: 12px; margin: 0;
+        font: 600 11px/1 "Outfit", sans-serif; letter-spacing: 0.12em; opacity: 0.4;
+      }
+      #front .screen.sub { flex-direction: column; justify-content: center; align-items: flex-end; padding-right: min(6vw, 64px); }
+      .sub-head { display: flex; align-items: center; gap: 16px; width: min(420px, 100%); margin-bottom: 14px; }
+      .sub-head h2 {
+        margin: 0; font-family: "Russo One", Impact, sans-serif; font-size: 30px; letter-spacing: 0.14em; color: #fff8e7;
+      }
+      .sub-nav { position: relative; width: min(420px, 100%); display: flex; flex-direction: column; gap: 8px; }
+      .sub-group { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+      .sub-label { margin: 0; font: 600 14px/1 "Teko", sans-serif; letter-spacing: 0.3em; color: #7ec8a3; }
+      /* Online (vista previa, sin red) */
+      .on-offline { width: min(420px, 100%); margin: -6px 0 10px; font: 600 11px/1 "Outfit", sans-serif; letter-spacing: 0.14em; color: #ffc107; opacity: 0.8; }
+      .on-nick { width: min(420px, 100%); display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font: 600 13px "Outfit", sans-serif; color: #c5d4cc; }
+      #front input, #front select { font: 600 14px "Outfit", sans-serif; color: #fff; background: #0c1820; border: 1px solid #ffffff2a; padding: 8px 10px; outline: none; }
+      #front input:focus, #front select:focus { border-color: #ff9f3c; }
+      .on-nick input { flex: 1; }
+      .on-search { margin: auto; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+      .on-search h2 { margin: 8px 0 0; font: 30px "Russo One", Impact, sans-serif; letter-spacing: 0.16em; color: #fff8e7; }
+      #on-search-t { margin: 0; font: 600 34px "Teko", sans-serif; letter-spacing: 0.1em; color: #ffc107; }
+      .on-search-msg { margin: 0 0 12px; font: 600 14px "Outfit", sans-serif; color: #c5d4cc; min-height: 1.4em; }
+      .on-slots { display: flex; align-items: center; gap: 18px; margin: 4px 0 14px; }
+      .on-slot-team { display: flex; gap: 10px; }
+      .on-slot-vs { font: 22px "Russo One", Impact, sans-serif; color: #ffc107; }
+      .on-slot { width: 64px; display: flex; flex-direction: column; align-items: center; gap: 4px; opacity: 0.35; filter: grayscale(1); transition: opacity 0.3s, filter 0.3s; }
+      .on-slot i { width: 56px; height: 56px; border-radius: 10px; display: grid; place-items: center; font: normal 26px "Russo One", Impact, sans-serif; color: #fff;
+        background: #26302c; border: 2px solid #4a5a52; }
+      .on-slot span { max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 11px "Outfit", sans-serif; color: #c5d4cc; }
+      .on-slot.on { opacity: 1; filter: none; }
+      .t-z .on-slot.on i { background: linear-gradient(160deg, #ff9800, #c45c18); border-color: #ffcc80; box-shadow: 0 0 12px #ff980088; }
+      .t-f .on-slot.on i { background: linear-gradient(160deg, #42a5f5, #1565c0); border-color: #90caf9; box-shadow: 0 0 12px #42a5f588; }
+      .on-slot.me i { outline: 2px solid #fff8e7; outline-offset: 2px; }
+      .on-spin { position: relative; width: 120px; height: 120px; animation: onSpin 3.2s linear infinite; }
+      .on-spin span { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px; border-radius: 50%;
+        background: radial-gradient(circle at 35% 30%, #fff6c8, #ff9800 45%, #c45c18); box-shadow: 0 0 10px #ff6f0088; }
+      .on-spin span:nth-child(1) { transform: rotate(0deg) translateY(-48px); animation: onPulse 1.4s 0s ease-in-out infinite; }
+      .on-spin span:nth-child(2) { transform: rotate(51.43deg) translateY(-48px); animation: onPulse 1.4s 0.2s ease-in-out infinite; }
+      .on-spin span:nth-child(3) { transform: rotate(102.86deg) translateY(-48px); animation: onPulse 1.4s 0.4s ease-in-out infinite; }
+      .on-spin span:nth-child(4) { transform: rotate(154.29deg) translateY(-48px); animation: onPulse 1.4s 0.6000000000000001s ease-in-out infinite; }
+      .on-spin span:nth-child(5) { transform: rotate(205.72deg) translateY(-48px); animation: onPulse 1.4s 0.8s ease-in-out infinite; }
+      .on-spin span:nth-child(6) { transform: rotate(257.15deg) translateY(-48px); animation: onPulse 1.4s 1s ease-in-out infinite; }
+      .on-spin span:nth-child(7) { transform: rotate(308.58deg) translateY(-48px); animation: onPulse 1.4s 1.2000000000000002s ease-in-out infinite; }
+      @keyframes onSpin { to { transform: rotate(360deg); } }
+      @keyframes onPulse { 50% { filter: brightness(1.6); } }
+      .on-head-btns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .on-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; font: 600 13px "Outfit", sans-serif; color: #c5d4cc; }
+      .on-filters #on-filter { flex: 1; min-width: 180px; }
+      .on-rooms { width: 100%; border-collapse: collapse; font: 600 14px "Outfit", sans-serif; }
+      .on-rooms th { text-align: left; font: 600 13px "Teko", sans-serif; letter-spacing: 0.24em; color: #7ec8a3; padding: 6px 10px; }
+      .on-rooms td { padding: 10px; background: #0c1820cc; border-top: 2px solid #050a0d; color: #e8eee9; }
+      .on-rooms tr:hover td { background: #163028ee; }
+      .on-rooms .full { color: #ff8a80; }
+      .on-rooms .ping-g { color: #69f0ae; } .on-rooms .ping-y { color: #ffd740; } .on-rooms .ping-r { color: #ff5252; }
+      .on-rooms .lock { opacity: 0.7; margin-right: 6px; }
+      .on-rooms button { font: 600 14px "Teko", sans-serif; letter-spacing: 0.18em; padding: 6px 12px 4px; cursor: pointer; color: #fff;
+        background: linear-gradient(90deg, #c45c18, #8b2e0a); border: 0; }
+      .on-rooms button[disabled] { opacity: 0.35; cursor: not-allowed; }
+      .on-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; max-width: 860px; }
+      .on-form label { display: flex; flex-direction: column; gap: 6px; font: 600 12px "Outfit", sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: #9fb3a8; }
+      .on-form .ux-btn { grid-column: 1 / -1; justify-self: start; min-width: 260px; }
+      .on-join { width: min(420px, 100%); display: flex; flex-direction: column; gap: 10px; }
+      #on-code { font: 600 40px "Teko", sans-serif; letter-spacing: 0.5em; text-align: center; text-transform: uppercase; padding: 10px; }
+      .on-err { margin: 0; min-height: 1.2em; font: 600 13px "Outfit", sans-serif; color: #ff8a80; }
+      .on-code { font: 600 18px "Teko", sans-serif; letter-spacing: 0.3em; color: #ffc107; border: 1px dashed #ffc10788; padding: 6px 10px 4px; cursor: copy; }
+      .on-code:empty { display: none; }
+      .on-room { display: grid; grid-template-columns: 1fr 1fr 1.1fr; gap: 12px; }
+      @media (max-width: 900px) { .on-room { grid-template-columns: 1fr 1fr; } .on-side { grid-column: 1 / -1; } }
+      .on-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+      .on-cfg { background: #0c1820cc; padding: 10px 12px; border-top: 3px solid #ffc107; }
+      .on-cfg h3 { margin: 0 0 8px; font: 600 16px "Teko", sans-serif; letter-spacing: 0.24em; color: #ffc107; }
+      .on-cfg h3 em { font: 600 11px "Outfit", sans-serif; font-style: normal; letter-spacing: 0.08em; color: #9fb3a8; margin-left: 6px; }
+      .on-cfg-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center; font: 600 13px "Outfit", sans-serif; }
+      .on-cfg-grid > span { color: #9fb3a8; }
+      .on-cfg-grid > b { color: #fff; font-weight: 600; }
+      .on-cfg-grid select, .on-cfg-grid input { padding: 4px 8px !important; font-size: 13px !important; }
+      .on-team { background: #0c1820cc; padding: 10px; border-top: 3px solid var(--tc); display: flex; flex-direction: column; gap: 8px; }
+      .on-team.t-z { --tc: #ff6e40; } .on-team.t-f { --tc: #4fc3f7; }
+      .on-team h3 { margin: 0; font: 600 18px "Teko", sans-serif; letter-spacing: 0.24em; color: var(--tc); }
+      .on-team ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+      .on-team li { display: flex; gap: 8px; align-items: center; padding: 7px 8px; background: #050a0d99; font: 600 14px "Outfit", sans-serif; color: #e8eee9; }
+      .on-team li.empty { color: #ffffff40; font-style: italic; }
+      .on-team li.bot { color: #9fb3a8; }
+      .on-team li.me { outline: 1px solid var(--tc); }
+      .on-team li .hero { margin-left: auto; font-size: 12px; color: #9fb3a8; }
+      .on-team li .rdy { font: 600 12px "Teko", sans-serif; letter-spacing: 0.2em; color: #69f0ae; }
+      .on-team li .host { color: #ffc107; }
+      .on-switch { align-self: flex-start; margin-top: auto; }
+      .on-chat { background: #0c1820cc; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 260px; }
+      .on-chat-log { flex: 1; overflow-y: auto; max-height: 360px; font: 500 13px/1.45 "Outfit", sans-serif; color: #dfe7e2; }
+      .on-chat-log .sys { color: #7ec8a3; font-style: italic; }
+      .on-chat-log b { color: #ffc107; }
+      .on-chat input { width: 100%; box-sizing: border-box; }
+      .on-room-foot { display: flex; gap: 12px; align-items: center; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; font: 600 13px "Outfit", sans-serif; color: #c5d4cc; }
+      .on-room-foot .ux-btn { min-width: 200px; }
+      #on-ready.on { background: linear-gradient(90deg, #2e7d32cc, #1b5e20cc); border-left-color: #69f0ae; }
+      #on-start[disabled] { opacity: 0.4; cursor: not-allowed; }
+      #on-toast { position: absolute; left: 50%; bottom: 28px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 30;
+        font: 600 14px "Outfit", sans-serif; color: #fff; background: #000c; border-left: 3px solid #ffc107; padding: 10px 16px; transition: opacity 0.25s, transform 0.25s; }
+      #on-toast.on { opacity: 1; transform: translate(-50%, 0); }
+      .credits { width: min(420px, 100%); font-family: "Outfit", sans-serif; font-size: 14px; line-height: 1.6; color: #c5d4cc; }
       .ux-btn .ux-hint {
         display: block; margin-top: 2px;
         font-family: "Outfit", sans-serif; font-size: 11px; font-weight: 600;
@@ -589,7 +793,7 @@
         #front .maps { flex-direction: column; overflow-x: hidden; overflow-y: auto; max-height: min(52vh, 480px); scroll-snap-type: y mandatory; }
         #front .maps button { width: 100%; }
         #screen-title { justify-content: center; padding-left: min(8vw, 80px); }
-        #screen-title .title-hero { justify-content: center; padding-left: 0; max-width: 55%; }
+        #screen-title .title-hero { justify-content: center; padding-left: min(8vw, 80px); max-width: 55%; }
         #screen-title .title-nav { margin-left: auto; margin-right: min(6vw, 64px); }
       }
       #front button[data-map="namek"] {
@@ -689,6 +893,84 @@
         margin-top: 14px; opacity: 0.95; max-width: 480px;
       }
       .end-score { font-size: 28px; margin-top: 16px; color: #ffc107; letter-spacing: 0.2em; font-family: "Teko", sans-serif; }
+      /* Fin de partida: escena 3D a pantalla completa; título arriba y stats abajo encima del canvas */
+      #end { background: #05060a; flex-direction: column; justify-content: space-between; }
+      #end-show { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+      #end .end-card {
+        position: relative; z-index: 1; margin-top: max(16px, 4vh); background: none; border: 0; box-shadow: none;
+        clip-path: none; padding: 0 16px; text-shadow: 0 2px 12px #000;
+      }
+      #end-elo { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; align-items: baseline; font-family: "Teko", sans-serif; }
+      #end-elo:empty { display: none; }
+      #end-elo .elo-rank { font-size: 26px; letter-spacing: 0.2em; }
+      #end-elo .elo-val { font-size: 22px; letter-spacing: 0.08em; color: #ddd; }
+      #end-elo .elo-val b { color: #fff; }
+      #end-elo .elo-d { font-size: 26px; font-weight: 700; }
+      #end-elo .elo-d.pos { color: #69f0ae; } #end-elo .elo-d.neg { color: #ff5252; }
+      #end-elo .elo-note { flex-basis: 100%; font: 600 11px "Outfit", sans-serif; letter-spacing: 0.12em; opacity: 0.6; }
+      #screen-pick { padding: 28px; gap: 10px; background: radial-gradient(ellipse at 50% 0%, #ff980022, transparent 60%); }
+      .pk-head { display: flex; align-items: flex-end; justify-content: space-between; }
+      .pk-kick { margin: 0; font: 600 14px "Teko", sans-serif; letter-spacing: 0.4em; color: #ffab40; }
+      .pk-head h2 { margin: 0; font: 40px "Russo One", Impact, sans-serif; letter-spacing: 0.1em; color: #fff8e7; text-transform: uppercase; }
+      .pk-t { margin: 0; font: 600 64px/1 "Teko", sans-serif; color: #ffc107; text-shadow: 0 0 20px #ff980088; }
+      .pk-t.hot { color: #ff5252; animation: pkHot 0.5s ease-in-out infinite alternate; }
+      @keyframes pkHot { to { transform: scale(1.12); } }
+      .pk-msg { margin: 0; font: 600 15px "Outfit", sans-serif; color: #c5d4cc; letter-spacing: 0.06em; }
+      .pk-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px 1fr 260px; gap: 18px; }
+      .pk-team { --tc: #ff6e40; } .pk-team.t-f { --tc: #4fc3f7; }
+      .pk-team h3 { margin: 0 0 8px; font: 600 18px "Teko", sans-serif; letter-spacing: 0.24em; color: var(--tc); }
+      .pk-team ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+      .pk-team li { display: flex; align-items: center; gap: 10px; padding: 8px; background: #0c1820cc; border-left: 3px solid #ffffff22; opacity: 0.6;
+        transition: opacity 0.3s, border-color 0.3s; }
+      .pk-team li.lk { opacity: 1; border-left-color: var(--tc); animation: pkLock 0.4s ease; }
+      @keyframes pkLock { from { background: color-mix(in srgb, var(--tc) 50%, #0c1820); } }
+      .pk-team li.me { outline: 1px solid #fff8e7aa; }
+      .pk-team li i { width: 40px; height: 40px; display: grid; place-items: center; font: normal 20px "Russo One", Impact, sans-serif; color: #fff;
+        background: color-mix(in srgb, var(--tc) 60%, #000); }
+      .pk-team li span { display: flex; flex-direction: column; min-width: 0; }
+      .pk-team li b { font: 600 14px "Outfit", sans-serif; color: #fff; }
+      .pk-team li em { font: 600 12px "Outfit", sans-serif; font-style: normal; color: #9fb3a8; }
+      .pk-grid { align-content: center; display: grid; grid-template-columns: repeat(3, minmax(0, 170px)); justify-content: center; gap: 12px; }
+      .pk-card { position: relative; cursor: pointer; border: 0; aspect-ratio: 3 / 4; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+        gap: 6px; padding: 12px; color: #fff; background: linear-gradient(170deg, #1d2d36, #0a1218); box-shadow: inset 0 0 0 1px #ffffff1a;
+        clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px)); transition: transform 0.2s, box-shadow 0.2s, filter 0.2s; }
+      .pk-card i { flex: 1; display: grid; place-items: center; font: normal 64px "Russo One", Impact, sans-serif; font-style: normal; color: #ffffff30; }
+      .pk-card b { font: 600 20px "Teko", sans-serif; letter-spacing: 0.14em; text-transform: uppercase; }
+      .pk-card em { position: absolute; top: 10px; left: 10px; font: 600 11px "Outfit", sans-serif; font-style: normal; letter-spacing: 0.12em; color: #ff8a80; }
+      .pk-card:not([disabled]):hover { transform: translateY(-6px); box-shadow: inset 0 0 0 2px #ffc107, 0 0 24px #ff980055; }
+      .pk-card[disabled] { cursor: default; filter: grayscale(1) brightness(0.6); }
+      .pk-card.on { filter: none; box-shadow: inset 0 0 0 3px #ffc107, 0 0 30px #ff9800aa; background: linear-gradient(170deg, #c45c18, #3a1606); }
+      .pk-card.on i { color: #fff8; }
+      #win-modal { position: absolute; inset: 0; z-index: 25; display: none; align-items: center; justify-content: center; pointer-events: auto;
+        background: radial-gradient(ellipse at center, #0006, #000b); }
+      #win-modal.on { display: flex; animation: winIn 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+      @keyframes winIn { from { opacity: 0; transform: scale(1.15); } }
+      .win-box { text-align: center; padding: 28px 56px 26px; background: linear-gradient(180deg, #10181ef2, #050808f2); border-top: 4px solid #ffc107;
+        clip-path: polygon(18px 0, 100% 0, calc(100% - 18px) 100%, 0 100%); box-shadow: 0 20px 60px #000c; }
+      #win-modal.z .win-box { border-top-color: #ff9800; } #win-modal.f .win-box { border-top-color: #42a5f5; }
+      .win-kicker { font: 600 15px "Teko", sans-serif; letter-spacing: 0.4em; color: #ffab40; }
+      .win-title { font: clamp(36px, 6vw, 64px)/1.05 "Russo One", Impact, sans-serif; letter-spacing: 0.08em; color: #fff8e7; margin: 6px 0; }
+      #win-modal.z .win-title { text-shadow: 0 0 30px #ff9800aa; } #win-modal.f .win-title { text-shadow: 0 0 30px #42a5f5aa; }
+      .win-sub { font: 600 15px "Outfit", sans-serif; color: #c5d4cc; }
+      .win-score { font: 600 34px "Teko", sans-serif; letter-spacing: 0.2em; color: #ffc107; margin: 8px 0 14px; }
+      #win-stats { cursor: pointer; border: 0; padding: 10px 26px 8px; font: 600 22px "Teko", sans-serif; letter-spacing: 0.22em; color: #2a0e00;
+        background: linear-gradient(90deg, #ffc107, #ff6f00); clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); }
+      #win-stats:hover { filter: brightness(1.15); }
+      #end-exit { position: absolute; z-index: 2; right: 24px; top: 20px; cursor: pointer; border: 0; padding: 10px 22px 8px;
+        font: 600 20px "Teko", sans-serif; letter-spacing: 0.22em; color: #2a0e00; background: linear-gradient(90deg, #ffc107, #ff6f00);
+        clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); }
+      #end-exit:hover { filter: brightness(1.15); }
+      #end-tops {
+        position: relative; z-index: 1; width: min(900px, 96vw); margin-bottom: max(16px, 5vh);
+        display: flex; gap: 12px; justify-content: space-between; font-family: "Outfit", sans-serif; text-shadow: 0 2px 8px #000;
+      }
+      #end-tops .es-col { flex: 1; min-width: 0; }
+      #end-tops .es-col.t-z { --tc: #ff6e40; }
+      #end-tops .es-col.t-f { --tc: #4fc3f7; }
+      #end-tops .es-tag { font: 600 12px/1 "Teko", sans-serif; letter-spacing: 0.3em; color: var(--tc); }
+      #end-tops .es-name { font-weight: 700; font-size: 17px; color: #fff8e7; margin: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #end-tops .es-st { font-size: 12px; color: #ccc; }
+      #end-tops .es-st b { color: #fff; }
       #announce {
         display: none; position: absolute; inset: 0; align-items: center; justify-content: center;
         font-size: 140px; letter-spacing: 0.08em; pointer-events: none;
@@ -854,6 +1136,17 @@
       .nametag.z { color: #ff6d00; text-shadow: 0 0 6px #000, 0 0 8px #ff3d00; }
       .nametag.f { color: #40c4ff; text-shadow: 0 0 6px #000, 0 0 8px #2979ff; }
       .nametag.yo { font-size: 12px; color: #fff59d; }
+      .nametag.away { opacity: 0.6; }
+      #dev-console { position: fixed; left: 0; right: 0; top: 0; height: 42vh; z-index: 100; display: flex; flex-direction: column;
+        background: #050a0ef0; border-bottom: 2px solid #ff9800; box-shadow: 0 10px 40px #000a; font: 13px/1.45 Consolas, "Cascadia Mono", monospace;
+        transform: translateY(-105%); transition: transform 0.18s ease; }
+      #dev-console.on { transform: none; }
+      #dev-console .dc-out { flex: 1; overflow-y: auto; padding: 8px 12px; color: #d7e3dc; white-space: pre-wrap; }
+      #dev-console .dc-out .in { color: #ffc107; }
+      #dev-console .dc-out .err { color: #ff8a80; }
+      #dev-console .dc-out .dim { color: #7e958a; }
+      #dev-console .dc-in { border: 0; border-top: 1px solid #ffffff1a; outline: none; padding: 8px 12px; background: #000; color: #fff; font: inherit; }
+      .nametag.away .nm::after { content: " · IA"; color: #ff8a80; }
       #menu {
         display: none; position: absolute; inset: 0; pointer-events: auto; z-index: 12;
         background: radial-gradient(ellipse at 30% 20%, #1b6b4e22 0%, transparent 45%),
@@ -883,6 +1176,7 @@
       #menu-box > p {
         font-size: 13px; opacity: 0.7; font-weight: 600; letter-spacing: 0.04em; margin: 0 0 14px;
       }
+      #menu.online #btn-spectate, #menu.online .menu-swap { display: none; }
       #menu-box .menu-actions { display: flex; flex-direction: column; gap: 8px; margin: 0 0 18px; }
       #menu-box .menu-actions button {
         pointer-events: auto; cursor: pointer; margin: 0; padding: 12px 16px 10px;
@@ -936,15 +1230,15 @@
         <span class="cm-main">CLICK PARA EMPEZAR</span>
       </div>
       <div id="scoreboard">
-        <div class="side z"><span class="lab">Z</span><span class="n" id="sc-z">0</span></div>
+        <div class="side z"><span class="n" id="sc-z">0</span></div>
         <div class="clock"><div id="clock">8:00</div><div class="balls" id="sc-orbs"></div></div>
-        <div class="side f"><span class="n" id="sc-f">0</span><span class="lab" id="sc-f-lab">FREEZER</span></div>
+        <div class="side f"><span class="n" id="sc-f">0</span></div>
       </div>
       <div id="panel-left">
-        <div class="tag" id="pl-team">GUERREROS Z</div>
+        <div class="tag" id="pl-team">NARANJA</div>
         <div class="who z" id="pl-name">—</div>
-        <div class="row"><span>HP</span><div class="bar"><i class="hp" id="bar-hp"></i></div></div>
-        <div class="row"><span>KI</span><div class="bar" id="bar-ki-wrap"><i class="ki" id="bar-ki"></i><b class="ki-mark"></b><i class="ki-hold" id="ki-hold"></i></div></div>
+        <div class="row"><span>HP</span><div class="bar"><i class="hp" id="bar-hp"></i><em class="val" id="val-hp"></em></div></div>
+        <div class="row"><span>KI</span><div class="bar" id="bar-ki-wrap"><i class="ki" id="bar-ki"></i><b class="ki-mark"></b><i class="ki-hold" id="ki-hold"></i><em class="val" id="val-ki"></em></div></div>
         <div class="meta">
           <span>ESFERA <b id="pl-ball">—</b></span>
           <span id="pl-fly">TIERRA</span>
@@ -971,8 +1265,8 @@
         <kbd>Tab</kbd> puntuación · <kbd>M</kbd> menú
       </div>
       <div id="tab-board">
-        <div class="col z"><h3>GUERREROS Z</h3><table id="tab-z"></table></div>
-        <div class="col f"><h3 id="tab-f-h">FREEZER</h3><table id="tab-f"></table></div>
+        <div class="col z"><h3>NARANJA</h3><table id="tab-z"></table></div>
+        <div class="col f"><h3 id="tab-f-h">AZUL</h3><table id="tab-f"></table></div>
       </div>
       <div id="announce"></div>
       <div id="hit-fx"></div>
@@ -984,13 +1278,26 @@
         <div class="ko-wait"><i id="ko-bar"></i></div>
         <div class="ko-sub" id="ko-sub">REAPARECIENDO</div>
       </div>
+      <div id="win-modal">
+        <div class="win-box">
+          <div class="win-kicker" id="win-kicker"></div>
+          <div class="win-title" id="win-title"></div>
+          <div class="win-sub" id="win-sub"></div>
+          <div class="win-score" id="win-score"></div>
+          <button type="button" id="win-stats">VER RESULTADOS ▸</button>
+        </div>
+      </div>
       <div id="end">
+        <canvas id="end-show"></canvas>
         <div class="end-card" id="end-card">
           <div class="end-kicker" id="end-kicker"></div>
           <div class="end-title" id="end-title"></div>
           <div class="end-sub" id="end-sub"></div>
           <div class="end-score" id="end-score"></div>
+          <div id="end-elo"></div>
         </div>
+        <div id="end-tops"></div>
+        <button type="button" id="end-exit">VOLVER AL MENÚ ▸</button>
       </div>
       <div id="menu">
         <div id="menu-box">
@@ -1000,17 +1307,18 @@
           <div class="menu-actions">
             <button type="button" id="btn-continuar" class="primary">CONTINUAR</button>
             <button type="button" id="btn-spectate">SPECTEAR<span class="ux-hint">← → cambia de personaje</span></button>
+            <button type="button" id="btn-exit">SALIR AL MENÚ PRINCIPAL</button>
           </div>
           <div class="menu-section">
             <h3>AJUSTES</h3>
             <div class="menu-tabs" id="menu-tabs"></div>
             <div id="menu-opts" class="opts"></div>
           </div>
-          <div class="menu-section">
+          <div class="menu-section menu-swap">
             <h3>CAMBIAR PERSONAJE</h3>
           <div class="cols">
-              <div class="col z"><b>Guerreros Z</b><div id="menu-z"></div></div>
-              <div class="col f"><b id="menu-f-h">Freezer</b><div id="menu-f"></div></div>
+              <div class="col z"><b>Naranja</b><div id="menu-z"></div></div>
+              <div class="col f"><b id="menu-f-h">Azul</b><div id="menu-f"></div></div>
             </div>
           </div>
         </div>
@@ -1039,30 +1347,241 @@
         <p class="tr-hint">PULSÁ PARA CONTINUAR</p>
         <button type="button" class="tr-skip" id="tr-skip">SALTAR</button>
       </div>
-      <div id="screen-title" class="screen">
-        <div class="title-hero">
-          <div class="title-balls" aria-hidden="true">
-            <span class="dball" data-n="1"><i class="star"></i></span>
-            <span class="dball" data-n="2"><i class="star"></i><i class="star"></i></span>
-            <span class="dball" data-n="3"><i class="star"></i><i class="star"></i><i class="star"></i></span>
-            <span class="dball" data-n="4"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span>
-            <span class="dball" data-n="5"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span>
-            <span class="dball" data-n="6"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span>
-            <span class="dball" data-n="7"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span>
-          </div>
-          <p class="title-kicker">FAN GAME</p>
-          <h1 class="title-logo db-logo">DRAGON BALL</h1>
-          <p class="title-arena">ARENA</p>
-        </div>
-        <nav class="title-nav" aria-label="Menú principal">
-          <button type="button" class="ux-btn primary" data-go="setup">
-            Nueva partida
+      <header id="topbar" hidden>
+        <button type="button" class="tb-logo" data-go="title" aria-label="Inicio"><b>DRAGON BALL</b><i>ARENA</i></button>
+        <nav class="tb-tabs" aria-label="Menú principal">
+          <button type="button" data-go="title" data-tab="title">Inicio</button>
+          <button type="button" data-go="play" data-tab="play">Jugar</button>
+          <button type="button" data-go="online" data-tab="online">Online</button>
+          <button type="button" data-go="extras" data-tab="extras">Extras</button>
+          <button type="button" data-go="opts" data-tab="opts">Opciones</button>
+          <span class="tb-ink" aria-hidden="true"></span>
+        </nav>
+        <div class="tb-me" id="tb-me"></div>
+      </header>
+      <div class="fx-wipe" aria-hidden="true"></div>
+      <div id="screen-title" class="screen hub">
+        <div class="hub-grid">
+          <button type="button" class="tile t-hero" data-go="setup" data-mode="quick" style="--i:0">
+            <div class="hero-art" aria-hidden="true">
+              <div class="hero-rays"></div>
+              <div class="hero-ring"><span class="dball" data-n="1"><i class="star"></i></span><span class="dball" data-n="2"><i class="star"></i><i class="star"></i></span><span class="dball" data-n="3"><i class="star"></i><i class="star"></i><i class="star"></i></span><span class="dball" data-n="4"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span><span class="dball" data-n="5"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span><span class="dball" data-n="6"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span><span class="dball" data-n="7"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></span></div>
+              <div class="hero-orb"><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i></div>
+              <div class="hero-sparks"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            </div>
+            <span class="t-kicker">Modo destacado</span>
+            <span class="t-title">Partida rápida</span>
+            <span class="t-sub">Juntá las 7 esferas antes que el equipo rival · equipos completos contra la IA</span>
+            <span class="t-cta">JUGAR ▸</span>
           </button>
-          <button type="button" class="ux-btn" data-go="opts">
-            Opciones
-            <span class="ux-hint">Audio, gráficos, controles</span>
+          <button type="button" class="tile t-online" data-go="search" style="--i:1">
+            <span class="t-kicker">Online <em class="ux-soon">Vista previa</em></span>
+            <span class="t-title">Buscar partida</span>
+            <span class="t-sub">5 vs 5 · mapa aleatorio</span>
+            <span class="t-dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><b>VS</b><i></i><i></i><i></i><i></i><i></i></span>
+          </button>
+          <div class="tile t-rank" id="hub-rank" style="--i:2"></div>
+          <button type="button" class="tile t-train" data-go="setup" data-mode="sandbox" style="--i:3">
+            <span class="t-kicker">Práctica</span>
+            <span class="t-title">Entrenamiento</span>
+            <span class="t-sub">Mapa libre, sin presión</span>
+          </button>
+          <button type="button" class="tile t-maps" id="hub-maps" data-go="setup" data-mode="quick" style="--i:4">
+            <span class="t-kicker">Escenarios</span>
+            <span class="t-title" id="hub-map-name">Namek</span>
+            <span class="t-sub" id="hub-map-sub">Planeta</span>
+            <span class="t-pips" id="hub-map-pips"></span>
+          </button>
+        </div>
+        <div class="hub-ticker" aria-hidden="true"><div>
+          <span>NUEVO · Ranking ELO con rangos de Terrícola a Ultra Instinto</span>
+          <span>NUEVO · Emparejamiento 5 vs 5 (vista previa)</span>
+          <span>NUEVO · Salas online con nicks y tamaño de mapa</span>
+          <span>NUEVO · Pantalla de fin con el top scorer de cada equipo</span>
+          <span>NUEVO · Tormentas de arena en Planeta Vegeta</span>
+        </div></div>
+        <p class="title-ver">v0.1 · fan game sin fines de lucro</p>
+      </div>
+      <div id="screen-play" class="screen sub">
+        <div class="sub-head">
+          <button type="button" class="ux-back" data-go="title">← ATRÁS</button>
+          <h2>JUGAR</h2>
+        </div>
+        <nav class="title-nav sub-nav" aria-label="Jugar">
+          <button type="button" class="ux-btn primary" data-go="setup" data-mode="quick">
+            Partida rápida
+            <span class="ux-hint">Equipos completos vs IA · elegí escenario</span>
+          </button>
+          <button type="button" class="ux-btn" data-go="setup" data-mode="sandbox">
+            Entrenamiento
+            <span class="ux-hint">Mapa libre para practicar</span>
+          </button>
+          <div class="sub-group">
+            <p class="sub-label">ONLINE <em class="ux-soon">Vista previa</em></p>
+            <button type="button" class="ux-btn" data-go="online">
+              Ir a online
+              <span class="ux-hint">Buscar partida, salas, código</span>
+            </button>
+          </div>
+        </nav>
+      </div>
+      <div id="screen-extras" class="screen sub">
+        <div class="sub-head">
+          <button type="button" class="ux-back" data-go="title">← ATRÁS</button>
+          <h2>EXTRAS</h2>
+        </div>
+        <nav class="title-nav sub-nav" aria-label="Extras">
+          <button type="button" class="ux-btn" data-tool="char">
+            Editor de personajes
+            <span class="ux-hint">Aspecto y moldeado · F2</span>
+          </button>
+          <button type="button" class="ux-btn" data-tool="anim">
+            Editor de animaciones
+            <span class="ux-hint">Poses y clips · F3</span>
+          </button>
+          <button type="button" class="ux-btn" data-go="credits">
+            Créditos
           </button>
         </nav>
+      </div>
+      <div id="screen-online" class="screen sub">
+        <div class="sub-head">
+          <button type="button" class="ux-back" data-go="title">← ATRÁS</button>
+          <h2>ONLINE</h2>
+        </div>
+        <div class="on-offline">SIN CONEXIÓN · VISTA PREVIA DE PANTALLAS</div>
+        <label class="on-nick">Tu nombre <input id="on-nick" maxlength="16" spellcheck="false" /></label>
+        <nav class="title-nav sub-nav" aria-label="Online">
+          <button type="button" class="ux-btn primary" data-go="search">
+            Buscar partida
+            <span class="ux-hint">Emparejamiento automático</span>
+          </button>
+          <button type="button" class="ux-btn" data-go="browse">
+            Salas públicas
+            <span class="ux-hint">Elegí una sala abierta</span>
+          </button>
+          <button type="button" class="ux-btn" data-go="create">
+            Crear sala
+            <span class="ux-hint">Pública o privada con código</span>
+          </button>
+          <button type="button" class="ux-btn" data-go="join">
+            Unirse con código
+            <span class="ux-hint">Entrar a una sala privada</span>
+          </button>
+        </nav>
+      </div>
+      <div id="screen-pick" class="screen">
+        <div class="pk-head">
+          <div><p class="pk-kick">SELECCIÓN DE PERSONAJE</p><h2 id="pk-map"></h2></div>
+          <p id="pk-t" class="pk-t">30</p>
+        </div>
+        <p class="pk-msg" id="pk-msg"></p>
+        <div class="pk-body">
+          <div id="pk-mine" class="pk-team"></div>
+          <div class="pk-grid" id="pk-grid"></div>
+          <div id="pk-foe" class="pk-team"></div>
+        </div>
+      </div>
+      <div id="screen-search" class="screen sub">
+        <div class="on-search">
+          <div class="on-spin" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <h2>BUSCANDO PARTIDA</h2>
+          <p id="on-search-t">00:00</p>
+          <p class="on-search-msg" id="on-search-msg">Buscando jugadores de nivel similar…</p>
+          <div class="on-slots" id="on-slots"></div>
+          <button type="button" class="ux-back" data-go="online">CANCELAR</button>
+        </div>
+      </div>
+      <div id="screen-browse" class="screen">
+        <div class="screen-scroll">
+          <div class="setup-head">
+            <div class="setup-titles"><h2>SALAS PÚBLICAS</h2><p id="on-browse-n">—</p></div>
+            <div class="on-head-btns">
+              <button type="button" class="ux-back" id="on-refresh">↻ ACTUALIZAR</button>
+              <button type="button" class="ux-back" data-go="online">← ATRÁS</button>
+            </div>
+          </div>
+          <div class="on-filters">
+            <input id="on-filter" placeholder="Buscar sala…" spellcheck="false" />
+            <select id="on-filter-map"><option value="">Todos los mapas</option></select>
+            <label><input type="checkbox" id="on-filter-free" /> Solo con lugar</label>
+          </div>
+          <table class="on-rooms">
+            <thead><tr><th>SALA</th><th>MAPA</th><th>JUGADORES</th><th>PING</th><th></th></tr></thead>
+            <tbody id="on-rooms"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="screen-create" class="screen">
+        <div class="screen-scroll">
+          <div class="setup-head">
+            <div class="setup-titles"><h2>CREAR SALA</h2><p>CONFIGURACIÓN</p></div>
+            <button type="button" class="ux-back" data-go="online">← ATRÁS</button>
+          </div>
+          <form class="on-form" id="on-create">
+            <label>Nombre de la sala <input name="name" maxlength="28" spellcheck="false" /></label>
+            <label>Mapa <select name="map"></select></label>
+            <label>Jugadores por equipo <input name="size" type="number" min="3" max="15" step="1" value="6" /></label>
+            <label>Tamaño de mapa (m) <input name="mapSize" type="number" min="1000" max="5000" step="250" value="2000" /></label>
+            <label>Duración <select name="mins"><option value="5">5 min</option><option value="10" selected>10 min</option><option value="20">20 min</option></select></label>
+            <label>Completar con IA <select name="bots"><option value="1" selected>Sí</option><option value="0">No</option></select></label>
+            <label>Visibilidad <select name="vis"><option value="pub">Pública</option><option value="priv">Privada (con código)</option></select></label>
+            <button type="submit" class="ux-btn primary">Crear sala</button>
+          </form>
+        </div>
+      </div>
+      <div id="screen-join" class="screen sub">
+        <div class="sub-head">
+          <button type="button" class="ux-back" data-go="online">← ATRÁS</button>
+          <h2>UNIRSE</h2>
+        </div>
+        <form class="on-join" id="on-join">
+          <input id="on-code" maxlength="6" placeholder="CÓDIGO" autocomplete="off" spellcheck="false" />
+          <p class="on-err" id="on-join-err"></p>
+          <button type="submit" class="ux-btn primary">Entrar</button>
+        </form>
+      </div>
+      <div id="screen-room" class="screen">
+        <div class="screen-scroll">
+          <div class="setup-head">
+            <div class="setup-titles"><h2 id="on-room-name">SALA</h2><p id="on-room-info">—</p></div>
+            <div class="on-head-btns">
+              <span class="on-code" id="on-room-code"></span>
+              <button type="button" class="ux-back" id="on-leave">SALIR DE LA SALA</button>
+            </div>
+          </div>
+          <div class="on-room">
+            <div class="on-team t-z"><h3 id="on-tz">EQUIPO Z</h3><ul id="on-slots-z"></ul><button type="button" class="ux-back on-switch" data-team="z">CAMBIAR A ESTE EQUIPO</button></div>
+            <div class="on-team t-f"><h3 id="on-tf">EQUIPO F</h3><ul id="on-slots-f"></ul><button type="button" class="ux-back on-switch" data-team="f">CAMBIAR A ESTE EQUIPO</button></div>
+            <div class="on-side">
+              <div class="on-chat">
+                <div class="on-chat-log" id="on-chat-log"></div>
+                <form id="on-chat-form"><input id="on-chat-in" maxlength="120" placeholder="Escribir mensaje…" autocomplete="off" /></form>
+              </div>
+              <div class="on-cfg">
+                <h3>AJUSTES DE LA SALA <em id="on-cfg-who"></em></h3>
+                <div class="on-cfg-grid" id="on-cfg"></div>
+              </div>
+            </div>
+          </div>
+          <div class="on-room-foot">
+            <label>Personaje <select id="on-hero"></select></label>
+            <button type="button" class="ux-btn" id="on-ready">Listo</button>
+            <button type="button" class="ux-btn primary" id="on-start">Iniciar partida</button>
+          </div>
+        </div>
+      </div>
+      <div id="on-toast"></div>
+      <div id="screen-credits" class="screen sub">
+        <div class="sub-head">
+          <button type="button" class="ux-back" data-go="extras">← ATRÁS</button>
+          <h2>CRÉDITOS</h2>
+        </div>
+        <div class="credits">
+          <p>Fan game no oficial inspirado en Dragon Ball.</p>
+          <p>Dragon Ball © Akira Toriyama / Bird Studio / Shueisha / Toei Animation.</p>
+          <p>Hecho con three.js.</p>
+        </div>
       </div>
       <div id="screen-opts" class="screen">
         <div class="screen-scroll">
@@ -1081,10 +1600,10 @@
         <div class="screen-scroll">
           <div class="setup-head">
             <div class="setup-titles">
-              <h2>NUEVA PARTIDA</h2>
+              <h2 id="setup-title">PARTIDA RÁPIDA</h2>
               <p>SELECCIONAR ESCENARIO</p>
             </div>
-            <button type="button" class="ux-back" data-go="title">← ATRÁS</button>
+            <button type="button" class="ux-back" data-go="play">← ATRÁS</button>
           </div>
           <div class="boot-pick">
             <div>

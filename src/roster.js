@@ -51,6 +51,47 @@ export function buildSandboxRoster(who, mapId = "namek") {
   return [namedEntry(who, "z", 0, stats, mapId)];
 }
 
+/** Personajes con nombre de cada bando en un mapa (para elegir en salas online). */
+export function teamHeroes(mapId = "namek") {
+  const zNamed =
+    mapId === "city" ? NAMED_Z_CITY : mapId === "vegeta" ? NAMED_Z_VEGETA : mapId === "cell" ? NAMED_Z_CELL : mapId === "earth" ? NAMED_Z_EARTH : NAMED_Z;
+  const fNamed =
+    mapId === "city" ? NAMED_F_CITY : mapId === "vegeta" ? NAMED_F_VEGETA : mapId === "cell" ? NAMED_F_CELL : mapId === "earth" ? NAMED_F_EARTH : NAMED_F;
+  return { z: Object.keys(zNamed), f: Object.keys(fNamed) };
+}
+
+/**
+ * Roster de una sala online: primero los jugadores de la sala (personaje elegido + nick),
+ * luego (si `room.bots`) IA hasta completar `room.size` por bando. TEAM_SIZE ya debe ser room.size.
+ */
+export function buildRoomRoster(mapId, room) {
+  const base = buildRoster(mapId);
+  const named = teamHeroes(mapId);
+  const out = [];
+  for (const fac of ["z", "f"]) {
+    const stats = fac === "z" ? namedStats(mapId).z : namedStats(mapId).f;
+    const humans = (room[fac] || []).filter((p) => named[fac].includes(p.hero)).slice(0, room.size);
+    const team = humans.map((p) => ({ ...namedEntry(p.hero, fac, 0, stats[p.hero], mapId), nick: p.nick, me: !!p.me }));
+    if (room.bots) {
+      const used = new Set(humans.map((p) => p.hero));
+      for (const d of base) {
+        if (team.length >= room.size) break;
+        if (d.faccion === fac && !used.has(d.nombre)) team.push(d);
+      }
+    }
+    team.forEach((d, i) => (d.id = `${fac}-${i}`));
+    out.push(...team);
+  }
+  return out;
+}
+
+function namedStats(mapId) {
+  return {
+    z: mapId === "city" ? NAMED_Z_CITY : mapId === "vegeta" ? NAMED_Z_VEGETA : mapId === "cell" ? NAMED_Z_CELL : mapId === "earth" ? NAMED_Z_EARTH : NAMED_Z,
+    f: mapId === "city" ? NAMED_F_CITY : mapId === "vegeta" ? NAMED_F_VEGETA : mapId === "cell" ? NAMED_F_CELL : mapId === "earth" ? NAMED_F_EARTH : NAMED_F,
+  };
+}
+
 export function buildRoster(mapId = "namek") {
   const zNamed =
     mapId === "city" ? NAMED_Z_CITY : mapId === "vegeta" ? NAMED_Z_VEGETA : mapId === "cell" ? NAMED_Z_CELL : mapId === "earth" ? NAMED_Z_EARTH : NAMED_Z;

@@ -77,6 +77,16 @@ export function applySandbox(map = 420, team = 1) {
   MATCH_SEC = 0;
 }
 
+/** Sala online: jugadores por bando, duración y tamaño de mapa, sin guardar en opciones. */
+export function applyRoom(team, mins, map) {
+  TEAM_SIZE = Math.round(clamp(team, 1, 15));
+  if (map) {
+    MAP = Math.round(clamp(map, 1000, 5000));
+    BASE_Z = Math.min(960 * MAP / 2200, MAP / 2 - 90);
+  }
+  MATCH_SEC = mins > 0 ? mins * 60 : 0;
+}
+
 export function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem(LS) || "{}");
