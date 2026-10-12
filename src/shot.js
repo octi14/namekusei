@@ -60,9 +60,10 @@ if (view === "head") {
   }
 } else box.setFromObject(mesh);
 const c = box.getCenter(new THREE.Vector3());
+c.y += +(q.get("dy") || 0);
 const r = box.getSize(new THREE.Vector3()).length() * 0.5;
 const cam = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
-const d = r / Math.sin(THREE.MathUtils.degToRad(15)) * 1.05;
+const d = (r / Math.sin(THREE.MathUtils.degToRad(15))) * 1.05 / +(q.get("zoom") || 1);
 
 const draw = () =>
   angles.forEach((a, i) => {

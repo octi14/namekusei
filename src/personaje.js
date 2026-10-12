@@ -88,6 +88,7 @@ export class Personaje {
       defensa: this.s.defensa,
       velocidad: this.s.velocidad,
       kiMax: this.s.kiMax,
+      hpMax: this.s.hpMax,
       kiRegen: KI_REGEN,
     };
     this.s.kiRegen = KI_REGEN;
@@ -288,7 +289,7 @@ export class Personaje {
     this.mesh.userData.syncRig?.();
     this.dead = false;
     this.deadT = 0;
-    this.deadMax = 2.8;
+    this.deadMax = 2.8; // die() lo pisa; la espera real es 5.2 + spawnWave*10
     this.aliveFor = 0;
     this.spawnWave = 0;
     this.stun = 0;
@@ -490,7 +491,7 @@ export class Personaje {
     if (this.dead) {
       this.hitFlash = 0;
       if (this.hitGlow) this.hitGlow.visible = false;
-      this.deadT -= dt;
+      this.deadT -= dt; // cuenta hacia el respawn; al llegar a 0 llama respawn()
       this.volando = false;
       this.swim = 0;
       this.flyBlend = THREE.MathUtils.damp(this.flyBlend || 0, 0, 8, dt);
@@ -1894,10 +1895,16 @@ export class Personaje {
 
   die(balls, killer, ki) {
     if (this.dead) return;
+    // Espera de respawn. spawnWave = racha (0..6, puede ser decimal).
+    // lived = segundos vivo desde el último spawn. Muerto no suma.
+    // Cada muerte mueve la racha entre −0.5 y +1, lineal con lo que duró esta vida:
+    //   0s → +1 · 60s → +0.5 · 120s → 0 · 180s o más → −0.5
+    // Sube rápido y baja lento; nunca vuelve a 0 de golpe.
+    // deadMax = 5.2 + racha*10 y esta muerte ya usa la racha nueva.
+    // HUD: Math.ceil(deadT) muestra un segundo de más los primeros ~0.2s.
     const lived = this.aliveFor || 0;
-    if (lived < 22) this.spawnWave = Math.min(6, (this.spawnWave || 0) + 1);
-    else if (lived < 50) this.spawnWave = Math.max(0, (this.spawnWave || 0) - 1);
-    else this.spawnWave = 0;
+    const delta = Math.max(-0.5, Math.min(1, 1 - lived / 120));
+    this.spawnWave = Math.max(0, Math.min(6, (this.spawnWave || 0) + delta));
     this.deadMax = 5.2 + this.spawnWave * 10;
     this.dead = true;
     this.deadT = this.deadMax;
@@ -1931,9 +1938,9 @@ export class Personaje {
     }
     if (killer) logKill(killer.alias, this.alias, ki, "", killer.faccion);
     else log(`${this.alias} cayó`, this.faccion);
-    // DEATH: atk/vel caen más; def/kiMax un poco menos. Piso = orig * STAT_FLOOR.
-    const mult = { ataque: DEATH_MULT_ATK, velocidad: DEATH_MULT_VEL, defensa: DEATH_MULT, kiMax: DEATH_MULT };
-    for (const k of ["ataque", "defensa", "velocidad", "kiMax"]) {
+    // DEATH: atk/vel caen más; def/kiMax/hpMax un poco menos. Piso = orig * STAT_FLOOR.
+    const mult = { ataque: DEATH_MULT_ATK, velocidad: DEATH_MULT_VEL, defensa: DEATH_MULT, kiMax: DEATH_MULT, hpMax: DEATH_MULT };
+    for (const k of ["ataque", "defensa", "velocidad", "kiMax", "hpMax"]) {
       this.s[k] = Math.max(this.orig[k] * STAT_FLOOR, this.s[k] * mult[k]);
     }
   }

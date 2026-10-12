@@ -3,6 +3,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { getSculptMap, setSculptMap } from "./pack.js";
 import { FACE_DECALS, hasFaceDecal, addFaceDecal, faceDecalHasScouter, sculptKeyApplies } from "./faceDecal.js";
 import { hasHairStyle, buildHairStyle } from "./hairStyles.js";
+import { HEAD_SCULPTS, hasHeadSculpt, buildHeadSculpt, headSculptPoreTex, buildHeadSculptExtras } from "./headSculpt.js";
 
 /** Calidad de malla: no escatimar en cara / ropa / accesorios. */
 const GEO = {
@@ -796,7 +797,8 @@ export const DEFAULT_SCULPT = {
   headSx: 1,
   headSy: 1,
   headSz: 1,
-  headType: "sphere", // sphere | oval | skull | capsule | pill | block
+  headType: "sphere", // sphere | oval | skull | capsule | pill | block | sculpt
+  headSculpt: "appule",
   headTopSx: 1,
   headTopSy: 1,
   headTopSz: 1,
@@ -884,6 +886,8 @@ export const DEFAULT_SCULPT = {
   plateSx: 1,
   plateSy: 1,
   plateSz: 1,
+  plateSzTop: 1,
+  plateSzBot: 1,
   padY: 0,
   padX: 0,
   padZ: 0,
@@ -983,6 +987,8 @@ export const DEFAULT_SCULPT = {
   underSz: 1,
   beltR: 0.155,
   beltThick: 0.034,
+  beltSz: 1, // profundidad del cinturón (frente-espalda) relativa al ancho: >1 ovalado hacia adelante
+
   beltY: 0,
   showBelt: 1,
   showSash: 1,
@@ -1019,21 +1025,23 @@ export const DEFAULT_SCULPT = {
   hornPitch: 0,
   hornScale: 1,
   hornLen: 1,
+  hornCurl: 1,
 };
 
 export const SCULPT_SELECTS = {
-  headType: ["sphere", "oval", "skull", "capsule", "pill", "block"],
+  headType: ["sphere", "oval", "skull", "capsule", "pill", "block", "sculpt"],
+  headSculpt: HEAD_SCULPTS,
   pecType: ["none", "sphere", "flat", "split", "armor"],
   earType: ["none", "round", "pointed", "wide"],
   eyeType: ["anime", "narrow", "none"],
   noseType: ["none", "namek"],
-  mouthType: ["none", "line", "open", "grit"],
+  mouthType: ["none", "line", "open", "grit", "smirk"],
   faceDecal: ["none", ...Object.keys(FACE_DECALS)],
   padType: ["none", "sphere", "spaulder", "spiked", "flat", "wing"],
   plateType: ["none", "dome", "flat", "ribbed", "split", "elite"],
   bracerType: ["none", "cuff", "plate", "wrap"],
   upperSuit: ["none", "freezerElite"],
-  bootType: ["tall", "combat", "armor", "soft", "saiyan", "ginyu"],
+  bootType: ["tall", "combat", "armor", "soft", "saiyan", "ginyu", "bare"],
   gloves: ["none", "on"],
 };
 
@@ -1044,6 +1052,8 @@ function migrateSculpt(j) {
   const out = { ...j };
   for (const k of INERT_KEYS) delete out[k];
   if (out.altura == null && out.moldAltura != null) out.altura = out.moldAltura;
+  if (out.plateSzTop == null) out.plateSzTop = out.plateSz ?? 1;
+  if (out.plateSzBot == null) out.plateSzBot = out.plateSz ?? 1;
   return out;
 }
 
@@ -1393,12 +1403,40 @@ function handMesh(r, mat, fingerLen = 1, sgn = 1) {
 /** Pie plano (suela en XZ). loft Y → rot X 90°: largo en Z, grosor en Y. */
 function footMesh(r, mat, o = {}) {
   const type = o.bootType || "tall";
+  if (type === "bare") return bareFootMesh(r, mat, o);
   if (type === "combat") return combatBootMesh(r, mat, o);
   if (type === "armor") return armorBootMesh(r, mat, o);
   if (type === "soft") return softBootMesh(r, mat, o);
   if (type === "saiyan") return saiyanBootMesh(r, mat, o);
   if (type === "ginyu") return ginyuBootMesh(r, mat, o);
   return tallBootMesh(r, mat, o);
+}
+
+/** Pie descalzo (sin caña): Freezer / Saibaman / Cell 1ª forma. */
+function bareFootMesh(r, mat, o = {}) {
+  const g = new THREE.Group();
+  const len = r * (o.footLen ?? 2.15);
+  const sx = o.footSx ?? 1.08;
+  const sy = o.footSy ?? 0.38;
+  const pitch = o.footPitch ?? 0;
+  const halfH = r * sy;
+  const y0 = -halfH * 0.15;
+  const z0 = len * 0.22;
+  const sole = loftMesh([r * 0.52, r * 0.9, r * 1.02, r * 0.94, r * 0.7], len, mat, { radial: 12, sx, sz: sy });
+  sole.rotation.x = Math.PI / 2 + pitch;
+  sole.position.set(0, y0, z0);
+  g.add(sole);
+  const heel = loftMesh([r * 0.7, r * 0.76, r * 0.58], r * 0.5, mat, { radial: 10, sx: sx * 0.92, sz: sy * 1.08 });
+  heel.rotation.x = Math.PI / 2 + pitch;
+  heel.position.set(0, y0 + halfH * 0.12, z0 - len * 0.36);
+  g.add(heel);
+  for (const [x, zf, k] of [[-0.4, 0.44, 0.8], [0, 0.5, 1], [0.4, 0.44, 0.8]]) {
+    const toe = loftMesh([r * 0.26 * k, r * 0.2 * k, r * 0.1 * k], r * 0.4 * k, mat, { radial: 8, sx: 1, sz: sy * 0.85 });
+    toe.rotation.x = Math.PI / 2 + pitch;
+    toe.position.set(x * r * sx, y0, z0 + len * zf);
+    g.add(toe);
+  }
+  return g;
 }
 
 /** Bota alta actual (caña + suela). */
@@ -1965,6 +2003,46 @@ function hairSpike(mat, s, hr, hl, o) {
   return m;
 }
 
+/** Curva en arco una geometría con base en y=0 y punta en y=len, hacia `dir`·eje ('x' | 'z'). */
+function bendGeo(geo, len, angle, axis = "x", dir = 1) {
+  if (!angle) return geo;
+  const p = geo.attributes.position;
+  const Rb = len / angle;
+  const ai = axis === "x" ? 0 : 2;
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i);
+    const th = (y / len) * angle;
+    const r = Rb - dir * p.getComponent(i, ai);
+    p.setComponent(i, ai, dir * (Rb - r * Math.cos(th)));
+    p.setY(i, r * Math.sin(th));
+  }
+  p.needsUpdate = true;
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Cuerno/antena: loft afinado (base en el origen → punta +Y) curvado en arco. */
+/** Toro → anillo ovalado: estira el eje local Y (= frente-espalda una vez acostado) sin deformar el grosor del tubo. */
+function ovalRing(geo, R, k) {
+  if (Math.abs(k - 1) < 1e-3) return geo;
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const l = Math.hypot(x, y) || 1;
+    pos.setY(i, y + (k - 1) * R * (y / l));
+  }
+  return geo;
+}
+
+function curvedHorn(mat, r, len, bend, axis, dir, profile = [0.06, 0.3, 0.55, 0.78, 0.93, 1]) {
+  const geo = loftGeo(profile.map((k) => k * r), len, { radial: 10, sub: 3 });
+  geo.translate(0, len * 0.5, 0);
+  const m = new THREE.Mesh(bendGeo(geo, len, bend, axis, dir), mat);
+  m.castShadow = true;
+  return m;
+}
+
 function hairCap(mat, s, y, sx, sy, sz, headR = 0.16) {
   // Casco de pelo: más bajo y ancho, cubre cráneo sin “pelota”
   const cap = new THREE.Mesh(
@@ -2108,16 +2186,21 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
     );
   } else if (t === "nail" || t === "dende" || t === "turban") {
     if (t !== "turban") {
-    for (const side of [-1, 1]) {
-        const ant = loftMesh(
-          [sc.antR * s, sc.antR * 0.85 * s, sc.antR * 0.65 * s],
-          sc.antLen * s,
-          hc,
-          { radial: 8 }
-        );
-        ant.position.set(side * sc.antSpread * s, 0.18 * s, 0.06 * s);
-      ant.rotation.z = side * -0.28;
-      ant.rotation.x = -0.35;
+      // nacen en la frente alta (sobre las cejas), suben y se curvan hacia atrás
+      const head = headG.children.find((c) => c.userData.moldId === "head");
+      const hb = new THREE.Box3();
+      if (head) {
+        head.updateMatrix();
+        if (!head.geometry.boundingBox) head.geometry.computeBoundingBox();
+        hb.copy(head.geometry.boundingBox).applyMatrix4(head.matrix);
+      } else hb.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(0.32, 0.32, 0.32).multiplyScalar(s * hk));
+      const hcen = hb.getCenter(new THREE.Vector3());
+      const hh = hb.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+      for (const side of [-1, 1]) {
+        const ant = curvedHorn(hc, sc.antR * s, sc.antLen * s, 1.1, "z", -1, [1.25, 0.9, 0.75, 0.7, 0.75, 0.85]);
+        ant.position.set(side * sc.antSpread * s * hsx, hcen.y + hh.y * 0.78 - hairRoot.position.y, hcen.z + hh.z * 0.5);
+        ant.rotation.z = side * -0.22;
+        ant.rotation.x = 0.15;
         tagHair(ant, `ant_${side > 0 ? "R" : "L"}`);
       }
     }
@@ -2206,9 +2289,14 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
   } else if (t === "frieza" || t === "ginyu") {
     for (const side of [-1, 1]) {
       const hs = sc.hornScale ?? 1;
-      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.035 * s * hr * hs, 0.2 * s * hl * hs * (sc.hornLen ?? 1), 12), hc);
-      horn.position.set(side * (sc.hornX ?? 0.11) * s, (sc.hornY ?? 0.11) * s, (sc.hornZ ?? 0) * s);
-      horn.rotation.set(sc.hornPitch ?? 0, 0, side * (sc.hornTilt ?? 0.55));
+      const tilt = sc.hornTilt ?? 0.55;
+      // curva hacia el lado que queda arriba tras el tilt
+      const len = 0.2 * s * hl * hs * (sc.hornLen ?? 1);
+      const horn = curvedHorn(hc, 0.035 * s * hr * hs, len, sc.hornCurl ?? 1.0, "x", side * Math.sign(tilt || 1));
+      horn.rotation.set(sc.hornPitch ?? 0, 0, side * tilt);
+      // hornX/Y/Z = centro del cuerno (sculpts guardados); la base va medio largo hacia adentro
+      const ax = new THREE.Vector3(0, len * 0.5, 0).applyEuler(horn.rotation);
+      horn.position.set(side * (sc.hornX ?? 0.11) * s, (sc.hornY ?? 0.11) * s, (sc.hornZ ?? 0) * s).sub(ax);
       tagHair(horn, `horn_${side > 0 ? "R" : "L"}`);
     }
   }
@@ -2397,6 +2485,23 @@ function addFace(headG, s, look, sc = DEFAULT_SCULPT) {
         tooth.position.set(mx + (i - 1.5) * 0.012 * s * mw, my + 0.002 * s, mz + 0.004 * s);
         headG.add(tooth);
       }
+    } else if (mt === "smirk") {
+      // media sonrisa ladeada: centro casi recto, comisura derecha (del personaje = -X) sube más que la otra
+      const hw = 0.024 * s * mw;
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(hw, 0.004 * s, -0.004 * s),
+        new THREE.Vector3(hw * 0.5, -0.001 * s, -0.001 * s),
+        new THREE.Vector3(-hw * 0.2, -0.003 * s, 0),
+        new THREE.Vector3(-hw * 0.8, 0.003 * s, -0.002 * s),
+        new THREE.Vector3(-hw * 1.1, 0.012 * s, -0.006 * s),
+      ]);
+      const geo = new THREE.TubeGeometry(curve, 24, 0.0035 * s, 6, false);
+      const m = new THREE.Mesh(geo, lineM);
+      m.rotation.set(mrx, mry, mrz);
+      m.position.set(mx, my, mz);
+      m.userData.moldId = "mouth";
+      m.userData.moldFamily = "face";
+      headG.add(m);
     } else {
       // line
       const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.004 * s, 0.038 * s * mw, 4, 8), lineM);
@@ -2541,10 +2646,16 @@ function makeHeadShell(sc, s, skin) {
     ];
     geo = new THREE.LatheGeometry(pts, 24);
     geo.scale(1, 1, 0.86);
+  } else if (type === "sculpt" && hasHeadSculpt(sc.headSculpt)) {
+    const poreTex = headSculptPoreTex(sc.headSculpt, skin.color.getHex());
+    if (poreTex) skin = sharedMat(`skinPores|${sc.headSculpt}|${skin.color.getHex()}`, () => celMat({ color: skin.color.clone(), map: poreTex }, 0.12, 0.18));
+    // la escultura está en tamaño final: headSx/Sy/Sz se cancelan acá (siguen ubicando las facciones)
+    geo = buildHeadSculpt(sc.headSculpt, s * (sc.headR / 0.16));
+    geo.scale(1 / (sc.headSx || 1), 1 / (sc.headSy || 1), 1 / (sc.headSz || 1));
   } else {
     geo = new THREE.SphereGeometry(r, GEO.head[0], GEO.head[1]);
   }
-  squashHeadHalves(geo, sc);
+  if (type !== "sculpt") squashHeadHalves(geo, sc);
   const head = new THREE.Mesh(geo, skin);
   head.scale.set(sc.headSx, sc.headSy, sc.headSz);
   head.castShadow = true;
@@ -2743,7 +2854,7 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
     const br = sc.beltR * s * 1.12;
     const thick = sc.beltThick * s * 2.8;
     const sash = new THREE.Mesh(
-      new THREE.TorusGeometry(br, thick, 16, 48),
+      ovalRing(new THREE.TorusGeometry(br, thick, 16, 48), br, sc.beltSz ?? 1),
       sashM
     );
     sash.rotation.x = Math.PI / 2;
@@ -2754,7 +2865,7 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
     // Capas extra del wrap del obi
     for (let i = 0; i < 3; i++) {
       const ridge = new THREE.Mesh(
-        new THREE.TorusGeometry(br * (0.98 + i * 0.015), thick * 0.35, 10, 40),
+        ovalRing(new THREE.TorusGeometry(br * (0.98 + i * 0.015), thick * 0.35, 10, 40), br * (0.98 + i * 0.015), sc.beltSz ?? 1),
         sashM
       );
       ridge.rotation.x = Math.PI / 2;
@@ -2794,7 +2905,7 @@ function addArmorPlate(torsoG, s, waistY, ty, sc, plateM, force = false, extras 
   const z = (sc.plateZ || 0) * s;
   const sx = sc.plateSx ?? 1;
   const sy = sc.plateSy ?? 1;
-  const sz = sc.plateSz ?? 1;
+  const sz = ((sc.plateSzTop ?? sc.plateSz ?? 1) + (sc.plateSzBot ?? sc.plateSz ?? 1)) / 2;
   const put = (mesh, id) => {
     mesh.position.set(x, y, z);
     mesh.scale.set(sx, sy, sz);
@@ -2857,6 +2968,62 @@ function addArmorPlate(torsoG, s, waistY, ty, sc, plateM, force = false, extras 
 
 /** Pechera Nappa/Saiyan: unwrap (u=0 espalda, u=0.5 frente), alta resolución. */
 const _eliteChestTexCache = new Map();
+/**
+ * Placas de pecho de la coraza elite, en (v, ang) de la superficie (v 0 cuello → 1 cintura; ang 0 = centro).
+ * Escote en U que sube por las hombreras; cada placa baja por la axila y su borde inferior cae hacia el centro.
+ */
+function eliteNeckV(ang, pecTop) {
+  const c = Math.max(0, Math.cos(ang));
+  return 0.025 + (pecTop - 0.005) * c * c * c;
+}
+function elitePecOutline(side, pecTop, pecBot, span) {
+  const aOut = span * Math.PI;
+  const aIn = 0.016;
+  const vArm = pecBot - 0.13;
+  const pts = [];
+  for (let i = 0; i <= 10; i++) {
+    const v = eliteNeckV(aIn, pecTop) + (pecBot - eliteNeckV(aIn, pecTop)) * (i / 10);
+    pts.push([v, side * aIn]);
+  }
+  // borde de abajo: más bajo en el centro, sube hacia la axila
+  for (let i = 1; i <= 20; i++) {
+    const t = i / 20;
+    pts.push([pecBot - (pecBot - vArm) * Math.pow(t, 1.5), side * (aIn + (aOut - aIn) * t)]);
+  }
+  // axila: sube a la hombrera
+  for (let i = 1; i <= 12; i++) {
+    const t = i / 12;
+    const v = vArm + (eliteNeckV(aOut, pecTop) - vArm) * t;
+    pts.push([v, side * (aOut + 0.06 * Math.sin(t * Math.PI))]);
+  }
+  return pts;
+}
+/** Pecs de espalda (fijos): mismo hex, anclado en ±π, bajan hasta las nervaduras. */
+function eliteBackPecOutline(side, pecTop) {
+  const pecBot = 0.44;
+  const span = 0.3;
+  const aOut = span * Math.PI;
+  const aIn = 0.016;
+  const vArm = pecBot - 0.1;
+  const a0 = side * (Math.PI - aIn);
+  const a1 = side * (Math.PI - aOut);
+  const pts = [];
+  for (let i = 0; i <= 10; i++) {
+    const v = eliteNeckV(a0, pecTop) + (pecBot - eliteNeckV(a0, pecTop)) * (i / 10);
+    pts.push([v, a0]);
+  }
+  for (let i = 1; i <= 20; i++) {
+    const t = i / 20;
+    pts.push([pecBot - (pecBot - vArm) * Math.pow(t, 1.5), a0 + (a1 - a0) * t]);
+  }
+  for (let i = 1; i <= 12; i++) {
+    const t = i / 12;
+    const v = vArm + (eliteNeckV(a1, pecTop) - vArm) * t;
+    pts.push([v, a1 + side * -0.06 * Math.sin(t * Math.PI)]);
+  }
+  return pts;
+}
+
 function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
   const borderW = Math.max(0.03, Math.min(0.18, opts.borderW ?? 0.08));
   const ribs = Math.max(3, Math.min(12, (opts.ribs ?? 7) | 0));
@@ -2866,7 +3033,7 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
   const pecBotFrac = Math.max(0.25, Math.min(0.6, opts.pecBot ?? 0.38));
   const pecSpanFrac = Math.max(0.14, Math.min(0.5, opts.pecSpan ?? 0.28));
   const pecYShift = Math.max(-0.2, Math.min(0.2, opts.pecYShift ?? 0));
-  const key = `wrap20|${fillHex >>> 0}|${ribHex >>> 0}|${borderW.toFixed(3)}|${ribs}|${absWFrac.toFixed(3)}|${absArchFrac.toFixed(3)}|${absGapFrac.toFixed(3)}|${pecBotFrac.toFixed(3)}|${pecSpanFrac.toFixed(3)}|${pecYShift.toFixed(3)}`;
+  const key = `wrap21|${fillHex >>> 0}|${ribHex >>> 0}|${borderW.toFixed(3)}|${ribs}|${absWFrac.toFixed(3)}|${absArchFrac.toFixed(3)}|${absGapFrac.toFixed(3)}|${pecBotFrac.toFixed(3)}|${pecSpanFrac.toFixed(3)}|${pecYShift.toFixed(3)}`;
   if (_eliteChestTexCache.has(key)) return _eliteChestTexCache.get(key);
 
   const w = 1024;
@@ -2970,16 +3137,16 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
 
   // Pecs primero (fondo recto: no bajan al abs)
   const drawPecHex = (side) => {
-    const outer = side < 0 ? fx0 : fx1;
-    const inn = side < 0 ? cx - strip * 0.35 : cx + strip * 0.35;
-    const pts = [
-      [inn, pecTopY + h * 0.02],
-      [outer + side * w * 0.01, pecTopY + h * 0.04],
-      [outer, h * 0.24],
-      [outer - side * w * 0.01, pecBotY],
-      [inn, pecBotY],
-      [inn, h * 0.18],
-    ];
+    // misma silueta que los tubos 3D (elitePecOutline) + escote de vuelta al centro
+    const pecTop = Math.max(0.02, 0.1 - pecYShift);
+    const span = pecSpanFrac;
+    const outl = elitePecOutline(side, pecTop, pecBotFrac, span);
+    const aEnd = Math.abs(outl[outl.length - 1][1]);
+    for (let i = 1; i < 12; i++) {
+      const a = aEnd + (0.016 - aEnd) * (i / 12);
+      outl.push([eliteNeckV(a, pecTop), side * a]);
+    }
+    const pts = outl.map(([v, a]) => [cx + (a / (Math.PI * 2)) * w, v * h]);
     const pecGrad = ctx.createLinearGradient(0, pecTopY, 0, pecBotY);
     pecGrad.addColorStop(0, fillLite);
     pecGrad.addColorStop(0.55, fill);
@@ -2990,10 +3157,50 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
     ctx.closePath();
     ctx.fill();
-    // Sin stroke blanco: borde = tubo 3D
+    // volumen: sombra hacia el borde de abajo y la axila (la placa se curva)
+    ctx.save();
+    ctx.clip();
+    const bx = cx + side * w * pecSpanFrac * 0.18;
+    const by = pecTop * h + (pecBotFrac - pecTop) * h * 0.3;
+    const sh = ctx.createRadialGradient(bx, by, 0, bx, by, w * pecSpanFrac * 0.62);
+    sh.addColorStop(0, "rgba(255,255,255,0.10)");
+    sh.addColorStop(0.55, "rgba(0,0,0,0)");
+    sh.addColorStop(1, "rgba(0,0,0,0.28)");
+    ctx.fillStyle = sh;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+    // entintado bajo el tubo 3D: asoma a los costados del borde (se lee también en corazas blancas)
+    ctx.strokeStyle = "rgba(10,10,14,0.85)";
+    ctx.lineWidth = 15;
+    ctx.lineJoin = "round";
+    ctx.stroke();
   };
   drawPecHex(-1);
   drawPecHex(1);
+
+  const pecTopB = Math.max(0.02, 0.1 - pecYShift);
+  const drawBackPecHex = (side) => {
+    const outl = eliteBackPecOutline(side, pecTopB);
+    const aEnd = outl[outl.length - 1][1];
+    const a0 = side * (Math.PI - 0.016);
+    for (let i = 1; i < 12; i++) {
+      const a = aEnd + (a0 - aEnd) * (i / 12);
+      outl.push([eliteNeckV(a, pecTopB), a]);
+    }
+    const pts = outl.map(([v, a]) => [cx + (a / (Math.PI * 2)) * w, v * h]);
+    ctx.fillStyle = fillLite;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(10,10,14,0.85)";
+    ctx.lineWidth = 15;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+  };
+  drawBackPecHex(-1);
+  drawBackPecHex(1);
 
   // Sin franja central blanca (costura 3D)
 
@@ -3053,12 +3260,20 @@ function eliteBreastplateTex(fillHex, ribHex, opts = {}) {
   ctx.restore();
 
   // Escote alpha (sin collar blanco pintado — aro 3D en el cuello)
+  // corte = misma curva que el aro 3D (eliteNeckV): U honda adelante, pegada al cuello atrás
   ctx.globalCompositeOperation = "destination-out";
-  ctx.beginPath();
-  ctx.moveTo(w * 0.34, 0);
-  ctx.quadraticCurveTo(cx, h * 0.12, w * 0.66, 0);
-  ctx.closePath();
-  ctx.fill();
+  {
+    const pecTop = Math.max(0.02, 0.1 - pecYShift);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    for (let i = 0; i <= 96; i++) {
+      const a = (i / 96) * Math.PI * 2 - Math.PI;
+      ctx.lineTo(cx + (a / (Math.PI * 2)) * w, eliteNeckV(a, pecTop) * h);
+    }
+    ctx.lineTo(w, 0);
+    ctx.closePath();
+    ctx.fill();
+  }
   ctx.globalCompositeOperation = "source-over";
 
   const tex = new THREE.CanvasTexture(c);
@@ -3081,7 +3296,7 @@ function lerpEliteProf(profile, t) {
 }
 
 /** Punto local de la coraza (y ∈ [-0.5,0.5]); misma fórmula que la malla. */
-function eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang) {
+function eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang, szTop = 1, szBot = 1) {
   const topW = neckW ?? pecW * 0.9;
   let sx;
   if (v < 0.2) {
@@ -3131,13 +3346,14 @@ function eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v,
     rx *= 1 - arm * 0.18;
     rz *= 1 - arm * 0.08;
   }
-  return new THREE.Vector3(sxn * rx, 0.5 - v, cz * rz);
+  const zMul = THREE.MathUtils.lerp(szTop, szBot, v);
+  return new THREE.Vector3(sxn * rx, 0.5 - v, cz * rz * zMul);
 }
 
-function eliteSurfLifted(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang, ys, lift) {
-  const p = eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang);
+function eliteSurfLifted(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang, ys, lift, szTop = 1, szBot = 1) {
+  const p = eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang, szTop, szBot);
   p.y *= ys;
-  const pA = eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang + 0.02);
+  const pA = eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang + 0.02, szTop, szBot);
   pA.y *= ys;
   const pV = eliteSurfAt(
     profile,
@@ -3148,7 +3364,9 @@ function eliteSurfLifted(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift
     neckW,
     pecVShift,
     Math.min(0.99, v + 0.012),
-    ang
+    ang,
+    szTop,
+    szBot
   );
   pV.y *= ys;
   const e1 = pA.clone().sub(p);
@@ -3164,7 +3382,7 @@ function eliteSurfLifted(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift
  * Coraza alta-poly que copia el loft del torso (mismo perfil + sx/sz del pecho).
  * v=0 cuello (arriba del loft), v=1 cintura — igual que PROF.torso.
  */
-function makeEliteCuirassGeo(profile, pecW, absW, torsoSz, inflate = 1.1, neckW = null, pecVShift = 0) {
+function makeEliteCuirassGeo(profile, pecW, absW, torsoSz, inflate = 1.1, neckW = null, pecVShift = 0, szTop = 1, szBot = 1) {
   const segsU = 112;
   const segsV = Math.max(56, (profile.length - 1) * 12);
   const positions = [];
@@ -3175,7 +3393,7 @@ function makeEliteCuirassGeo(profile, pecW, absW, torsoSz, inflate = 1.1, neckW 
     for (let iu = 0; iu <= segsU; iu++) {
       const u = iu / segsU;
       const ang = u * Math.PI * 2 + Math.PI;
-      const p = eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang);
+      const p = eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, ang, szTop, szBot);
       positions.push(p.x, p.y, p.z);
       uvs.push(u, 1 - v);
     }
@@ -3248,12 +3466,15 @@ function addEliteBreastplate(torsoG, s, x, y, z, sx, sy, sz, extras = {}) {
   const profile = mulProfile(PROF.torso, torsoMul * s);
   const ys = torsoLen * s; //altura del torso
 
+  const szTop = extras.plateSzTop ?? extras.plateSz ?? 1;
+  const szBot = extras.plateSzBot ?? extras.plateSz ?? 1;
+
   const g = new THREE.Group(); 
   g.position.set(x, y, z); //posición del torso
-  g.scale.set(sx, sy, sz); //escala del torso
+  g.scale.set(sx, sy, 1);
 
   const shell = new THREE.Mesh(
-    makeEliteCuirassGeo(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift),
+    makeEliteCuirassGeo(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, szTop, szBot),
     mat
   );
   shell.scale.set(1, ys, 1);
@@ -3266,7 +3487,7 @@ function addEliteBreastplate(torsoG, s, x, y, z, sx, sy, sz, extras = {}) {
   const lift = tubeR * 0.85;
   const args = [profile, pecW, absW, torsoSz, inflate, neckW, pecVShift];
   // onSurf(v, ang): v = 0 cuello → 1 cintura; ang ≈ 0 centro pecho, ± a los lados.
-  const onSurf = (v, ang) => eliteSurfLifted(...args, v, ang, ys, lift);
+  const onSurf = (v, ang) => eliteSurfLifted(...args, v, ang, ys, lift, szTop, szBot);
 
   const addTube = (pts, id, closed = true, r = tubeR) => {
     if (pts.length < 4) return;
@@ -3280,24 +3501,22 @@ function addEliteBreastplate(torsoG, s, x, y, z, sx, sy, sz, extras = {}) {
   const pecTop = Math.max(0.02, 0.1 - pecVShift);
   const pecBot = Math.min(0.55, extras.platePecBot ?? 0.38);
   const span = Math.max(0.14, Math.min(0.5, extras.platePecSpan ?? 0.28));
-  const aOutMax = span * Math.PI; // u = 0.5 ± span/2 → ang = ±span·π
   for (const side of [-1, 1]) {
-    const aOut = side * aOutMax;
-    const aIn = side * 0.02;
-    const pts = [];
-    const seg = (n, fn) => {
-      for (let i = 0; i <= n; i++) pts.push(fn(i / n));
-    };
-    seg(12, (t) => onSurf(pecTop, aIn + (aOut - aIn) * t));
-    seg(16, (t) => onSurf(pecTop + (pecBot - pecTop) * t, aOut));
-    seg(12, (t) => onSurf(pecBot, aOut + (aIn - aOut) * t));
-    seg(16, (t) => onSurf(pecBot + (pecTop - pecBot) * t, aIn));
-    addTube(pts, `armor_elite_pec_rim_${side > 0 ? "R" : "L"}`);
+    const pts = elitePecOutline(side, pecTop, pecBot, span).map(([v, a]) => onSurf(v, a));
+    addTube(pts, `armor_elite_pec_rim_${side > 0 ? "R" : "L"}`, false);
+  }
+  for (const side of [-1, 1]) {
+    const pts = eliteBackPecOutline(side, pecTop).map(([v, a]) => onSurf(v, a));
+    addTube(pts, `armor_elite_back_pec_rim_${side > 0 ? "R" : "L"}`, false);
   }
   {
+    // escote: anillo alrededor del cuello, hondo en U adelante, pegado al cuello atrás
     const pts = [];
-    for (let i = 0; i <= 20; i++) pts.push(onSurf(pecTop + ((pecBot - pecTop) * i) / 20, 0));
-    addTube(pts, "armor_elite_seam", false, tubeR * 0.75);
+    for (let i = 0; i < 64; i++) {
+      const a = (i / 64) * Math.PI * 2 - Math.PI;
+      pts.push(onSurf(eliteNeckV(a, pecTop), a));
+    }
+    addTube(pts, "armor_elite_neck_rim", true, tubeR * 1.15);
   }
 
   // —— Abs: óvalo 3D independiente de platePecBot (solo Abs gap / arch / ancho) ——
@@ -3305,20 +3524,25 @@ function addEliteBreastplate(torsoG, s, x, y, z, sx, sy, sz, extras = {}) {
     const absWFrac = extras.plateAbsW ?? 0.17;
     const absArch = extras.plateAbsArch ?? 0.085;
     const absGap = extras.plateAbsGap ?? 0.22;
-    const angH = Math.min(0.5, absWFrac * Math.PI * 1.15);
-    const v1 = 0.96;
-    const vH = 0.26 + absArch * 1.6;
-    const v0 = Math.max(0.48, Math.min(0.88, v1 - vH - absGap * 0.4));
-    const vMid = (v0 + v1) * 0.5;
-    const vRy = (v1 - v0) * 0.5;
+    // misma silueta que el abs pintado (arco arriba, lados rectos que bajan hasta el cinturón); abajo queda abierto
+    const angH = Math.min(0.5, absWFrac * Math.PI * 1.08);
+    const vBot = 0.94;
+    const vRy = absArch + 0.012;
+    const vPeak = Math.max(0.52, vBot - absArch - (0.18 + absGap * 0.5)) - 0.012;
+    const vCy = vPeak + vRy;
+    const flare = 0;
     const pts = [];
-    for (let i = 0; i < 50; i++) {
-      const t = (i / 50) * Math.PI * 2;
-      const ang = Math.cos(t) * angH;
-      const v = vMid + Math.sin(t) * vRy;
-      pts.push(onSurf(v, ang));
+    const vKnee = vBot - 0.13;
+    const foot = (t, sd) => onSurf(vKnee + 0.1 * Math.sin((t * Math.PI) / 2), sd * (angH + flare * (1 - Math.cos((t * Math.PI) / 2))));
+    for (let i = 8; i > 0; i--) pts.push(foot(i / 8, -1));
+    for (let i = 0; i < 8; i++) pts.push(onSurf(vKnee - ((vKnee - vCy) * i) / 8, -angH));
+    for (let i = 0; i <= 30; i++) {
+      const t = Math.PI + (i / 30) * Math.PI;
+      pts.push(onSurf(vCy + Math.sin(t) * vRy, Math.cos(t) * angH));
     }
-    addTube(pts, "armor_elite_abs_rim", true, tubeR * 0.9);
+    for (let i = 1; i <= 8; i++) pts.push(onSurf(vCy + ((vKnee - vCy) * i) / 8, angH));
+    for (let i = 1; i <= 8; i++) pts.push(foot(i / 8, 1));
+    addTube(pts, "armor_elite_abs_rim", false, tubeR * 0.9);
   }
 
   torsoG.add(g);
@@ -3342,6 +3566,8 @@ function addArmorPads(torsoG, s, waistY, ty, sc, padM, force = false, extras = {
     plateSx: sc.plateSx,
     plateSy: sc.plateSy,
     plateSz: sc.plateSz,
+    plateSzTop: sc.plateSzTop,
+    plateSzBot: sc.plateSzBot,
     platePecY: sc.platePecY,
     padZ: sc.padZ ?? extras.padZ,
     padX: sc.padX,
@@ -3393,8 +3619,8 @@ function addArmorPads(torsoG, s, waistY, ty, sc, padM, force = false, extras = {
 const WING_NECK_CX = -1.02;
 const WING_NECK_CR = 0.78;
 
-function makeWingPadShellGeo(arch = 0.9) {
-  const geo = new THREE.PlaneGeometry(2, 2, 40, 32);
+function makeWingPadShellGeo(arch = 0.9, mapPad = null) {
+  const geo = new THREE.PlaneGeometry(2, 2, 48, 40);
   const pos = geo.attributes.position;
   const ncx = WING_NECK_CX;
   const ncr = WING_NECK_CR;
@@ -3408,7 +3634,11 @@ function makeWingPadShellGeo(arch = 0.9) {
       y /= r;
       r2 = 1;
     }
-    // Mordida del cuello: proyectar al arco (cóncavo hacia el torso)
+    if (mapPad) {
+      const p = mapPad(x, y);
+      pos.setXYZ(i, p.x, p.y, p.z);
+      continue;
+    }
     const dx = x - ncx;
     const dy = y;
     const d2 = dx * dx + dy * dy;
@@ -3424,8 +3654,7 @@ function makeWingPadShellGeo(arch = 0.9) {
         r2 = 1;
       }
     }
-    const h = arch * Math.sqrt(Math.max(0, 1 - r2));
-    pos.setXYZ(i, x, y, h);
+    pos.setXYZ(i, x, y, arch * Math.sqrt(Math.max(0, 1 - r2)));
   }
   pos.needsUpdate = true;
   geo.computeVertexNormals();
@@ -3435,7 +3664,7 @@ function makeWingPadShellGeo(arch = 0.9) {
 function addWingPad(torsoG, s, side, baseX, py, ps, extras, id) {
   const ribHex = extras.ribHex ?? 0xffc107;
   const borderW = extras.padBorder ?? 0.09;
-  const tilt = extras.padTilt ?? 0.08;
+  const tilt = extras.padTilt ?? 0.22;
   const pitch = extras.padPitch ?? 0.04;
   const arch = extras.padArch ?? 0.9;
   const nLines = extras.padLines ?? 7;
@@ -3457,6 +3686,7 @@ function addWingPad(torsoG, s, side, baseX, py, ps, extras, id) {
   let ay = py;
   let az = 0.03 * s + (extras.padZ || 0) * s;
   const pecW = extras.pecW;
+  let cutWorld = null;
   if (pecW != null && extras.torsoMul != null && extras.waistY != null) {
     const absW = extras.absW ?? pecW * 0.92;
     const neckW = extras.neckW ?? pecW * 0.9;
@@ -3470,14 +3700,44 @@ function addWingPad(torsoG, s, side, baseX, py, ps, extras, id) {
     const ys = torsoLen * s;
     const psx = extras.plateSx ?? 1;
     const psy = extras.plateSy ?? 1;
-    const psz = extras.plateSz ?? 1;
+    const pszT = extras.plateSzTop ?? extras.plateSz ?? 1;
+    const pszB = extras.plateSzBot ?? extras.plateSz ?? 1;
     const plateX = (extras.plateX || 0) * s;
     const plateY = 0.92 * s - extras.waistY + (extras.ty || 0) + (extras.plateY || 0) * s;
     const plateZ = (extras.plateZ || 0) * s;
-    const pJoin = eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, 0.035, side * 0.88);
-    ax = plateX + pJoin.x * psx + side * (extras.padX || 0) * s;
-    ay = plateY + pJoin.y * ys * psy + (extras.padY || 0) * s + 0.008 * s;
-    az = plateZ + pJoin.z * psz + (extras.padZ || 0) * s;
+    const pecTop = Math.max(0.02, 0.1 - pecVShift);
+    const aOut = Math.max(0.14, Math.min(0.5, extras.platePecSpan ?? 0.28)) * Math.PI;
+    const pecBot = Math.min(0.55, extras.platePecBot ?? 0.38);
+    const vArm = pecBot - 0.13;
+    const vTop = eliteNeckV(aOut, pecTop);
+    const toW = (v, a) => {
+      const p = eliteSurfAt(profile, pecW, absW, torsoSz, inflate, neckW, pecVShift, v, a, pszT, pszB);
+      return new THREE.Vector3(plateX + p.x * psx, plateY + p.y * ys * psy, plateZ + p.z);
+    };
+    cutWorld = [];
+    for (let i = 3; i <= 12; i++) {
+      const t = i / 12;
+      const v = vArm + (vTop - vArm) * t;
+      const a = side * (aOut + 0.06 * Math.sin(t * Math.PI));
+      cutWorld.push(toW(v, a));
+    }
+    for (let i = 0; i <= 28; i++) {
+      const a = side * (aOut + (Math.PI - 2 * aOut) * (i / 28));
+      cutWorld.push(toW(eliteNeckV(a, pecTop), a));
+    }
+    const aBack = side * (Math.PI - 0.28 * Math.PI);
+    const vArmB = 0.22;
+    const vTopB = eliteNeckV(aBack, pecTop);
+    for (let i = 1; i <= 12; i++) {
+      const t = 1 - i / 12;
+      const v = vArmB + (vTopB - vArmB) * t;
+      const a = aBack + side * -0.06 * Math.sin((1 - t) * Math.PI);
+      cutWorld.push(toW(v, a));
+    }
+    const pJoin = toW(vTop, side * aOut);
+    ax = pJoin.x + side * (extras.padX || 0) * s;
+    ay = pJoin.y + (extras.padY || 0) * s;
+    az = pJoin.z + (extras.padZ || 0) * s;
   }
 
   const g = new THREE.Group();
@@ -3492,25 +3752,61 @@ function addWingPad(torsoG, s, side, baseX, py, ps, extras, id) {
   const R = 0.075 * s * ps;
   const sxBase = 2.35;
   const sx = sxBase * (extras.padSx ?? 1);
-  const sz = 1.2;
-  const archZ = R * sxBase * 0.7; // cúpula no crece con padSx
-  // Borde medial (mordida) en x≈0 del pivote → pegado al cuello/armadura
+  const sz = 1.7;
+  const archZ = R * sxBase * 1.05;
   const medialUnit = WING_NECK_CX + WING_NECK_CR;
   const ox = -medialUnit * R * sx;
 
-  const shell = new THREE.Mesh(makeWingPadShellGeo(arch), mat);
+  const shell = new THREE.Mesh(undefined, mat);
   shell.scale.set(R * sx, R * sz, archZ);
   shell.rotation.x = -Math.PI / 2;
   shell.position.set(ox, 0.01 * s, 0);
+  g.updateMatrix();
+  mir.updateMatrix();
+  shell.updateMatrix();
+  let mapPad = null;
+  let cutDisc = null;
+  if (cutWorld) {
+    const inv = new THREE.Matrix4().multiplyMatrices(g.matrix, mir.matrix).multiply(shell.matrix).invert();
+    cutDisc = cutWorld.map((p) => p.clone().applyMatrix4(inv));
+    if (cutDisc[0].y > cutDisc[cutDisc.length - 1].y) cutDisc.reverse();
+    const acc = [0];
+    for (let i = 1; i < cutDisc.length; i++) acc.push(acc[i - 1] + cutDisc[i].distanceTo(cutDisc[i - 1]));
+    const L = acc[acc.length - 1] || 1;
+    const curveAt = (u) => {
+      const d = THREE.MathUtils.clamp(u, 0, 1) * L;
+      let i = 1;
+      while (i < acc.length - 1 && acc[i] < d) i++;
+      const t = (d - acc[i - 1]) / (acc[i] - acc[i - 1] || 1);
+      return cutDisc[i - 1].clone().lerp(cutDisc[i], t);
+    };
+    mapPad = (x, y) => {
+      const xo = Math.sqrt(Math.max(0, 1 - y * y));
+      const M = curveAt((y + 1) / 2);
+      const span = xo - M.x;
+      const t = Math.abs(span) > 1e-4 ? THREE.MathUtils.clamp((x - M.x) / span, 0, 1) : 1;
+      const s = t * t * (3 - 2 * t);
+      const X = M.x + span * t;
+      const k = (1 - t) * (1 - t);
+      const Y = y + (M.y - y) * k;
+      const zOut = arch * Math.sqrt(Math.max(0, 1 - X * X - y * y));
+      const z = zOut * s + (M.z + 0.04) * (1 - s) + 0.2 * t * (1 - t) - 0.32 * Math.max(0, y) * (0.35 + 0.65 * (1 - t));
+      return new THREE.Vector3(X, Y, z);
+    };
+  }
+  shell.geometry = makeWingPadShellGeo(arch, mapPad);
   mir.add(tagCloth(shell, id));
 
-  // Borde: arco exterior + arco de mordida (intersección de dos círculos)
   const tubeR = 0.0058 * s * (0.75 + borderW * 4);
   const ncx = WING_NECK_CX;
   const ncr = WING_NECK_CR;
   const rr = 0.92;
   const rimPts = [];
   const onShell = (lx, ly) => {
+    if (mapPad) {
+      const p = mapPad(lx, ly);
+      return new THREE.Vector3(ox + p.x * R * sx, p.z * archZ + tubeR * 0.35, -p.y * R * sz);
+    }
     const r2 = Math.min(1, lx * lx + ly * ly);
     const lz = arch * Math.sqrt(Math.max(0, 1 - r2));
     return new THREE.Vector3(ox + lx * R * sx, lz * archZ + tubeR * 0.35, -ly * R * sz);
@@ -3523,11 +3819,16 @@ function addWingPad(torsoG, s, side, baseX, py, ps, extras, id) {
     const a = aOut0 + (i / 40) * (aOut1 - aOut0);
     rimPts.push(onShell(Math.cos(a) * rr, Math.sin(a) * rr));
   }
-  const aBite0 = Math.atan2(yInt, xInt - ncx);
-  const aBite1 = Math.atan2(-yInt, xInt - ncx);
-  for (let i = 0; i <= 28; i++) {
-    const a = aBite0 + (i / 28) * (aBite1 - aBite0);
-    rimPts.push(onShell(ncx + Math.cos(a) * ncr, Math.sin(a) * ncr));
+  if (cutDisc) {
+    const bite = cutDisc.slice().sort((a, b) => a.y - b.y);
+    for (let i = bite.length - 1; i >= 0; i--) rimPts.push(onShell(bite[i].x, bite[i].y));
+  } else {
+    const aBite0 = Math.atan2(yInt, xInt - ncx);
+    const aBite1 = Math.atan2(-yInt, xInt - ncx);
+    for (let i = 0; i <= 28; i++) {
+      const a = aBite0 + (i / 28) * (aBite1 - aBite0);
+      rimPts.push(onShell(ncx + Math.cos(a) * ncr, Math.sin(a) * ncr));
+    }
   }
   const rimGeo = makeArmorBorderTube(rimPts, tubeR, true);
   if (rimGeo) mir.add(tagCloth(new THREE.Mesh(rimGeo, borderM), `${id}_rim`));
@@ -3550,6 +3851,8 @@ function addFreezerEliteSuit(torsoG, s, waistY, ty, chestLocalY, sc, mats) {
     plateSx: sc.plateSx ?? 1.05,
     plateSy: sc.plateSy ?? 1.08,
     plateSz: sc.plateSz ?? 1.05,
+    plateSzTop: sc.plateSzTop,
+    plateSzBot: sc.plateSzBot,
     platePecY: sc.platePecY,
     padZ: sc.padZ,
     padX: sc.padX,
@@ -3827,23 +4130,56 @@ function addBodySpots(torsoG, s, waistY, ty, sc, skinHex) {
   });
 }
 
+/** (dir, lift) → punto sobre la superficie del mesh `head`, en coords de su padre, desde el centro de su caja. */
+function headSurface(head) {
+  head.updateMatrix();
+  head.matrixWorld.copy(head.matrix);
+  if (!head.geometry.boundingBox) head.geometry.computeBoundingBox();
+  const c = head.geometry.boundingBox.clone().applyMatrix4(head.matrix).getCenter(new THREE.Vector3());
+  const ray = new THREE.Raycaster();
+  const far = 2;
+  return (dir, lift = 0) => {
+    const d = dir.clone().normalize();
+    ray.set(d.clone().multiplyScalar(far).add(c), d.clone().negate());
+    ray.far = far;
+    const hit = ray.intersectObject(head, false)[0];
+    const r = hit ? far - hit.distance : 0;
+    return d.multiplyScalar(r + lift).add(c);
+  };
+}
+
 function addScouter(headG, s, look, sc) {
   if (sc.showScouter < 0.5 && look.scouter == null) return;
   const c = look.scouter ?? 0xd32f2f;
   const m = surf(c, { roughness: 0.35, metalness: 0.95 });
   const lens = surf(0x111111, { roughness: 0.2, metalness: 0.95 });
-  const band = new THREE.Mesh(new THREE.TorusGeometry(sc.headR * 0.95 * s, 0.012 * s, 8, 20, Math.PI * 0.7), m);
-  band.rotation.y = Math.PI / 2;
-  band.rotation.z = 0.15;
-  band.position.set(0.02 * s, 0.02 * s, 0);
+  const head = sc.headType === "sculpt" ? headG.children.find((o) => o.userData.moldId === "head") : null;
+  // cabeza esculpida: el arco y el auricular se apoyan sobre la superficie real (raycast desde el centro)
+  const onHead = head && headSurface(head);
+  let band;
+  if (onHead) {
+    const pts = [];
+    for (let i = 0; i <= 16; i++) {
+      const a = -Math.PI * 0.62 + (i / 16) * Math.PI * 0.72;
+      pts.push(onHead(new THREE.Vector3(0.3, Math.cos(a), Math.sin(a)), 0.006 * s));
+    }
+    band = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.012 * s, 8), m);
+  } else {
+    band = new THREE.Mesh(new THREE.TorusGeometry(sc.headR * 0.95 * s, 0.012 * s, 8, 20, Math.PI * 0.7), m);
+    band.rotation.y = Math.PI / 2;
+    band.rotation.z = 0.15;
+    band.position.set(0.02 * s, 0.02 * s, 0);
+  }
   headG.add(tagCloth(band, "scouter_band"));
   const cup = new THREE.Mesh(new THREE.SphereGeometry(0.04 * s, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.65), m);
-  cup.position.set(0.12 * s, 0.015 * s, 0.1 * s);
+  if (onHead) cup.position.copy(onHead(new THREE.Vector3(0.12, 0.015, 0.1), -0.012 * s));
+  else cup.position.set(0.12 * s, 0.015 * s, 0.1 * s);
   cup.rotation.y = -0.4;
   headG.add(tagCloth(cup, "scouter_cup"));
   if (faceDecalHasScouter(sc)) return;
   const glass = new THREE.Mesh(new THREE.CircleGeometry(0.028 * s, 14), lens);
-  glass.position.set(0.145 * s, 0.015 * s, 0.125 * s);
+  if (onHead) glass.position.copy(cup.position).add(new THREE.Vector3(0.025 * s, 0, 0.025 * s));
+  else glass.position.set(0.145 * s, 0.015 * s, 0.125 * s);
   glass.rotation.y = -0.35;
   headG.add(tagCloth(glass, "scouter_lens"));
 }
@@ -3935,6 +4271,9 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
     platePecBot: sc.platePecBot,
     platePecSpan: sc.platePecSpan,
     platePecY: sc.platePecY,
+    plateSz: sc.plateSz,
+    plateSzTop: sc.plateSzTop,
+    plateSzBot: sc.plateSzBot,
     pecW: sc.torsoChestSx ?? 1.18,
     absW: sc.torsoWaistSx ?? 1.18,
     neckW: sc.torsoNeckSx ?? sc.torsoChestSx ?? 1.05,
@@ -4105,7 +4444,7 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
   } else if ((kit === "namek") && sc.showSash > 0.5) {
     const sashY = (sc.sashY || 0) * s;
     const sash = new THREE.Mesh(
-      new THREE.TorusGeometry(sc.beltR * s * 1.08, sc.beltThick * s * 2.4, 10, 24),
+      ovalRing(new THREE.TorusGeometry(sc.beltR * s * 1.08, sc.beltThick * s * 2.4, 10, 24), sc.beltR * s * 1.08, sc.beltSz ?? 1),
       sashM
     );
     sash.rotation.x = Math.PI / 2;
@@ -4128,7 +4467,7 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
     }
   } else if (sc.showBelt > 0.5) {
   const belt = new THREE.Mesh(
-      new THREE.TorusGeometry(sc.beltR * s, sc.beltThick * s, 10, 24),
+      ovalRing(new THREE.TorusGeometry(sc.beltR * s, sc.beltThick * s, 10, 24), sc.beltR * s, sc.beltSz ?? 1),
       kit === "armor" || kit === "soldier" ? beltM : accent
   );
   belt.rotation.x = Math.PI / 2;
@@ -4190,8 +4529,8 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
   neck.userData.moldFamily = "head";
   torsoG.add(neck);
 
-  // Aro blanco de armadura alrededor del cuello (no solo dibujo en la pechera)
-  if (eliteSuit) {
+  // Aro blanco suelto alrededor del cuello: la coraza elite ya trae su escote (armor_elite_neck_rim)
+  if (eliteSuit && (sc.showNeckCollar ?? 0) > 0.5) {
     const colR = sc.neckR * s * (1.05 + (sc.collarFit ?? 0.12));
     const colTube = 0.018 * s * (sc.collarThick ?? 1.2);
     const armorCollar = new THREE.Mesh(
@@ -4209,6 +4548,7 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
   headG.position.y = neckY + sc.neckLen * s * 0.5 + sc.headR * (sc.headSy || 1) * s * 0.55;
   const head = makeHeadShell(sc, s, skin);
   headG.add(head);
+  if (sc.headType === "sculpt") for (const m of buildHeadSculptExtras(sc.headSculpt, s * (sc.headR / 0.16), skin)) headG.add(m);
   if (sc.jaw > 0.05) {
     const jaw = new THREE.Mesh(new THREE.SphereGeometry(sc.headR * 0.72 * s * sc.jaw, 14, 12), skin);
     jaw.position.set(
@@ -4256,7 +4596,7 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
     bracerMat: bracerM,
   };
   const legBase = {
-    boot: bootM,
+    boot: look.bareFoot ? skin : bootM,
     thighBulk: sc.thighBulk,
     muscleLeg: sc.muscleLeg ?? 1,
     shinBulk: sc.shinBulk,
@@ -4270,7 +4610,7 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
     footY: sc.footY,
     footPitch: sc.footPitch,
     bootCuff: sc.bootCuff,
-    bootType: sc.bootType || "tall",
+    bootType: look.bareFoot ? "bare" : sc.bootType || "tall",
     bootTip: gearMat(look.bootTip ?? 0xc2b25a, { kind: "cloth", detail: 0.4 }),
     bootBand: gearMat(look.bootBand ?? 0x2b2f3d, { kind: "cloth" }),
     bootBandSet: look.bootBand != null,

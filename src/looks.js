@@ -10,9 +10,9 @@ export const LOOK = {
   Krilin: L(0xff8f00, 0xf3d5c0, "krilin", 0x111, "armor", 0x1565c0, { pants: 0x1565c0, sash: 0x0d47a1, boots: 0x0d47a1, undershirt: 0x5d4037, wrist: 0xf5f5f5, sleeves: 0xff8f00 }),
   Pikoro: L(0x6a1b9a, 0x43a047, "turban", 0x1b5e20, "namek", 0xffc107, { cape: 0xfafafa, turban: true, sash: 0xffc107, pants: 0x6a1b9a, turbanC: 0xf5f5f5 }),
   Vegeta: L(0x0d47a1, 0xf3d5c0, "kingVegeta", 0x2a1a12, "armor", 0xffffff, { suit: 0x0d47a1, scouter: 0xd32f2f, boots: 0xffffff, trim: 0xf5f5f5, pads: 0xf5f5f5, pants: 0x0d47a1 }),
-  Nail: L(0x2e7d32, 0x66bb6a, "bald", 0x1b5e20, "gi", 0xffecb3, { cape: 0xfff8e1, sash: 0xffecb3, turban: false, pants: 0x2e7d32 }),
+  Nail: L(0x2e7d32, 0x66bb6a, "nail", 0x1b5e20, "gi", 0xffecb3, { cape: 0xfff8e1, sash: 0xffecb3, turban: false, pants: 0x2e7d32 }),
   Dendé: L(0xffb74d, 0xaed581, "dende", 0x33691e, "namek", 0xffecb3, { cape: 0xffecb3, sash: 0xffc107, pants: 0xffb74d }),
-  Freezer: L(0xfafafa, 0xf3e5f5, "frieza", 0xce93d8, "frost", 0xab47bc, { boots: 0xce93d8 }),
+  Freezer: L(0xfafafa, 0xf3e5f5, "frieza", 0xce93d8, "frost", 0xab47bc, { boots: 0xce93d8, bareFoot: true }),
   Zaabon: L(0xec407a, 0xf8bbd0, "zaabon", 0x81c784, "armor", 0xffffff, { suit: 0x4a148c, hairC: 0x66bb6a }),
   Dodoria: L(0xec407a, 0xf06292, "dodoria", 0x880e4f, "soldier", 0x880e4f),
   Gurdo: L(0x9ccc65, 0xaed581, "guldo", 0x33691e, "armor", 0xffffff, { suit: 0x558b2f }),
@@ -28,19 +28,19 @@ export const LOOK = {
   Yamcha: L(0xef6c00, 0xf3d5c0, "yamcha", 0x1a1208, "gi", 0x1565c0, { pants: 0x1565c0, sash: 0xffeb3b, boots: 0x0d47a1, undershirt: 0x5d4037, wrist: 0x1565c0 }),
   Chaoz: L(0xfafafa, 0xffe0b2, "turban", 0x111, "gi", 0xeeeeee, { pants: 0xf5f5f5, sash: 0x1565c0, boots: 0x37474f, undershirt: 0xeeeeee, wrist: 0x1565c0 }),
   Yajirobee: L(0xef6c00, 0xf3d5c0, "yajirobe", 0x111, "gi", 0xbf360c, { pants: 0x6d4c41, boots: 0x3e2723, sleeves: 0xef6c00 }),
-  Kami: L(0x2e7d32, 0x66bb6a, "bald", 0x1b5e20, "namek", 0xffc107, { cape: 0xfafafa, sash: 0xffc107 }),
+  Kami: L(0x2e7d32, 0x66bb6a, "nail", 0x1b5e20, "namek", 0xffc107, { cape: 0xfafafa, sash: 0xffc107 }),
   Nappa: L(0x37474f, 0xf3d5c0, "bald", 0x111, "armor", 0xffffff, { suit: 0x455a64, boots: 0xffffff }),
   Raditz: L(0x0d47a1, 0xf3d5c0, "raditzLong", 0x1a1208, "armor", 0xffffff, { suit: 0x1565c0, scouter: 0xd32f2f, boots: 0xffffff }),
-  Saibaman: L(0x558b2f, 0x7cb342, "bald", 0x33691e, "frost", 0x1b5e20),
+  Saibaman: L(0x558b2f, 0x7cb342, "bald", 0x33691e, "frost", 0x1b5e20, { bareFoot: true }),
   Trunks: L(0x1565c0, 0xf3d5c0, "bobTrunks", 0x7e57c2, "armor", 0xffffff, { suit: 0x1565c0, boots: 0xffffff }),
   "Gohan del futuro": L(0xef6c00, 0xf3d5c0, "fgohan", 0x1a1208, "gi", 0x1565c0, { pants: 0x1565c0, sash: 0x0d47a1, boots: 0x0d47a1, undershirt: 0x5d4037, wrist: 0x1565c0, sleeves: 0xef6c00 }),
   Bardock: L(0x0d47a1, 0xf3d5c0, "spikyBardock", 0x1a1208, "armor", 0xffffff, { suit: 0x1565c0, scouter: 0xd32f2f, boots: 0xffffff, trim: 0xf5f5f5, pads: 0xf5f5f5 }),
   "Rey Vegeta": L(0x0d47a1, 0xf3d5c0, "kingVegeta", 0x2a1a12, "armor", 0xffffff, { suit: 0x0d47a1, scouter: 0xffd54f, boots: 0xffffff, trim: 0xffecb3, pads: 0xfff8e1 }),
   Tooma: L(0xb71c1c, 0xf3d5c0, "tooma", 0x3e2723, "armor", 0xffffff, { suit: 0xb71c1c, scouter: 0xd32f2f, boots: 0xffffff }),
-  Paragus: L(0x455a64, 0xe0c8a0, "bald", 0x111, "armor", 0xffffff, { suit: 0x37474f, boots: 0xffffff, trim: 0xeeeeee }),
+  Paragus: L(0x455a64, 0xe0c8a0, "paragus", 0x111, "armor", 0xffffff, { suit: 0x37474f, boots: 0xffffff, trim: 0xeeeeee }),
   "Mr. Satan": L(0xc62828, 0xf3d5c0, "satan", 0x111, "gi", 0xc62828, { pants: 0x212121, sash: 0xffeb3b, boots: 0x212121, undershirt: 0xfafafa, wrist: 0xc62828 }),
-  Cell: L(0x33691e, 0x9ccc65, "frieza", 0x1b5e20, "frost", 0x7cb342, { boots: 0x1b5e20 }),
-  "Nº16": L(0x455a64, 0xb0bec5, "raditz", 0x111, "brute", 0x1b5e20, { boots: 0x37474f }),
+  Cell: L(0x33691e, 0x9ccc65, "frieza", 0x1b5e20, "frost", 0x7cb342, { boots: 0x1b5e20, bareFoot: true }),
+  "Nº16": L(0x455a64, 0xb0bec5, "n16", 0x111, "brute", 0x1b5e20, { boots: 0x37474f }),
   "Nº17": L(0x212121, 0xf3d5c0, "bob17", 0x111111, "gi", 0x1565c0, { pants: 0x1565c0, sash: 0xffeb3b, boots: 0x212121 }),
   "Nº18": L(0x212121, 0xf3d5c0, "bob18", 0xffe082, "gi", 0x1565c0, { pants: 0x1565c0, sash: 0xffeb3b, boots: 0x212121 }),
   "Nº19": L(0xc62828, 0xffcdd2, "bald", 0x111, "brute", 0xb71c1c),
@@ -128,6 +128,7 @@ export function lookFor(nombre, faccion, id, mapId = "namek") {
   if (tid && LOOK[tid]) {
     const saved = loadSavedLook(tid);
     const base = { ...LOOK[tid], ...saved, who: tid };
+    if (LOOK[tid].bareFoot) base.bareFoot = true;
     if (tid === "soldado") {
       if (saved.body == null) {
         base.body = SOLDIER_BODY[n % SOLDIER_BODY.length];

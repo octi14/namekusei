@@ -178,9 +178,8 @@ export const VEC_HANDLES = [
     label: "Mandíbula",
     color: 0xa1887f,
     space: "head",
-    get: (sc) => new THREE.Vector3(sc.jawX || 0, -0.08 + (sc.jawY || 0), sc.jawZ || 0),
+    get: (sc) => new THREE.Vector3(0, -0.08 + (sc.jawY || 0), sc.jawZ || 0),
     set: (sc, p) => {
-      sc.jawX = p.x;
       sc.jawY = p.y + 0.08;
       sc.jawZ = p.z;
       if ((sc.jaw ?? 0) < 0.1) sc.jaw = 0.4;
@@ -211,9 +210,8 @@ export const VEC_HANDLES = [
     label: "Gema cara",
     color: 0xba68c8,
     space: "head",
-    get: (sc) => new THREE.Vector3(sc.faceGemX || 0, 0.02 + (sc.faceGemY || 0), 0.15 + (sc.faceGemZ || 0)),
+    get: (sc) => new THREE.Vector3(0, 0.02 + (sc.faceGemY || 0), 0.15 + (sc.faceGemZ || 0)),
     set: (sc, p) => {
-      sc.faceGemX = p.x;
       sc.faceGemY = p.y - 0.02;
       sc.faceGemZ = p.z - 0.15;
       sc.showFaceGem = 1;
@@ -464,12 +462,11 @@ export const VEC_HANDLES = [
     space: "torso",
     get: (sc) =>
       new THREE.Vector3(
-        sc.frostGemX || 0,
+        0,
         1.12 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0) + (sc.frostGemY || 0),
         0.17 + (sc.frostGemZ || 0)
       ),
     set: (sc, p) => {
-      sc.frostGemX = p.x;
       sc.frostGemY = p.y - (1.12 - (sc.waistYMul ?? 0.62) + (sc.torsoY || 0));
       sc.frostGemZ = p.z - 0.17;
     },

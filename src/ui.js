@@ -244,6 +244,7 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
     } else by.textContent = "CAÍDA";
     const t = Math.max(0, p.deadT / Math.max(0.2, p.deadMax || 2.8));
     document.getElementById("ko-bar").style.transform = `scaleX(${t})`;
+    // deadMax es x.2 (5.2 + racha*10): ceil muestra un segundo de más los primeros ~0.2s.
     document.getElementById("ko-sub").textContent = `REAPARECE EN ${Math.ceil(p.deadT)}`;
   } else ko.classList.remove("on");
   const win = document.getElementById("win-modal");

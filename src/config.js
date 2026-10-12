@@ -9,7 +9,7 @@ export let SUPER_ATK2 = 27;
 export let SUPER_ATK3 = 30;
 export let MATCH_SEC = 20 * 60;
 export let STAT_FLOOR = 0.5; // Al morir, stats no bajan de orig * esto (0.5 = 50% del inicial)
-export let DEATH_MULT = 0.9; // def / kiMax al morir
+export let DEATH_MULT = 0.95; // def / kiMax al morir
 export let DEATH_MULT_ATK = 0.95; // ataque: pierde más (~5%)
 export let DEATH_MULT_VEL = 0.9; // velocidad: pierde más (~10%)
 export let HP_REGEN = 5;
@@ -49,7 +49,7 @@ export function snapshot() {
 }
 
 export function applySettings(s, save = true) {
-  if (s.TEAM_SIZE != null) TEAM_SIZE = Math.round(clamp(s.TEAM_SIZE, 5, 20));
+  if (s.TEAM_SIZE != null) TEAM_SIZE = Math.round(clamp(s.TEAM_SIZE, 3, 50));
   if (s.MAP != null) MAP = Math.round(clamp(s.MAP, 1000, 5000));
   BASE_Z = Math.min(960 * MAP / 2200, MAP / 2 - 90);
   if (s.MATCH_MIN != null) {

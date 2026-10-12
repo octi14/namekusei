@@ -46,7 +46,7 @@ const LOOK_COLORS = [
   ["accent", "Acento", (l) => l.accent ?? 0x1565c0],
 ];
 const KITS = ["gi", "namek", "armor", "soldier", "frost", "brute"];
-const HAIRS = ["goku", "gohan", "gohanKid", "fgohan", "yamcha", "yajirobe", "satan", "raditzLong", "tooma", "rikum", "kingVegeta", "vegeta", "raditz", "bald", "krilin", "dodoria", "guldo", "ginyu", "turban", "cui", "appule", "nail", "dende", "tien", "frieza", "helm", "bob18", "bob17", "bobTrunks", "spikyBardock", "zaabon", "jeice"];
+const HAIRS = ["goku", "gohan", "gohanKid", "fgohan", "yamcha", "yajirobe", "satan", "raditzLong", "tooma", "rikum", "kingVegeta", "vegeta", "raditz", "bald", "krilin", "dodoria", "guldo", "ginyu", "turban", "cui", "appule", "nail", "dende", "tien", "frieza", "helm", "bob18", "bob17", "bobTrunks", "spikyBardock", "zaabon", "jeice", "n16", "paragus"];
 const MOLD_PARTS = [
   ["all", "Todas (moldeables)"],
   ["head", "Cabeza"],
@@ -135,6 +135,7 @@ const SLIDERS = [
   ["armorDetail", "Detalle armadura", 0, 1.4, 0.05],
   ["beltR", "Cinturón radio", 0.1, 0.25, 0.005],
   ["beltThick", "Cinturón grosor", 0.01, 0.06, 0.001],
+  ["beltSz", "Cinturón prof. Z", 0.5, 1.6, 0.01],
   ["beltY", "Cinturón placa Y", -0.35, 0.35, 0.005],
   ["showBelt", "Cinturón on", 0, 1, 1],
   ["showSash", "Fajín on", 0, 1, 1],
@@ -198,7 +199,8 @@ const SLIDERS = [
   ["plateZ", "Placa armadura Z", -0.25, 0.25, 0.005],
   ["plateSx", "Placa ancho X", 0.5, 2, 0.01],
   ["plateSy", "Placa alto Y", 0.5, 2, 0.01],
-  ["plateSz", "Placa prof. Z", 0.5, 2, 0.01],
+  ["plateSzTop", "Placa prof. Z sup.", 0.5, 2, 0.01],
+  ["plateSzBot", "Placa prof. Z inf.", 0.5, 2, 0.01],
   ["plateBorder", "Pechera borde", 0.03, 0.2, 0.005],
   ["plateRibs", "Pechera nervaduras", 3, 12, 1],
   ["platePecY", "Pechera pecs Y", -0.2, 0.2, 0.005],
@@ -238,7 +240,7 @@ const SLIDERS = [
   ["neckY", "Cuello Y", -0.2, 0.25, 0.005],
   ["collarY", "Aro cuello Y", -0.2, 0.2, 0.005],
   ["collarThick", "Aro cuello grosor", 0.4, 2.2, 0.05],
-  ["collarFit", "Aro cuello holgura", 0, 0.35, 0.01],
+  ["collarFit", "Aro cuello holgura", 0, 1, 0.01],
   ["headR", "Cabeza radio", 0.1, 0.22, 0.005],
   ["headSx", "Cabeza X", 0.5, 1.4, 0.01],
   ["headSy", "Cabeza Y", 0.5, 1.4, 0.01],
@@ -342,6 +344,7 @@ const SLIDERS = [
   ["hornPitch", "Cuernos inclin. adelante", -1.5, 1.5, 0.01],
   ["hornScale", "Cuernos tamaño", 0.3, 2.5, 0.05],
   ["hornLen", "Cuernos largo", 0.3, 2.5, 0.05],
+  ["hornCurl", "Cuernos curva", 0, 2.5, 0.05],
   "Piel / extras",
   ["paleLift", "Palidez +L", 0, 0.15, 0.005],
   ["paleSat", "Palidez sat", 0.4, 1, 0.01],
@@ -355,6 +358,7 @@ const SLIDERS = [
 
 const SELECT_LABELS = {
   headType: "Tipo cabeza",
+  headSculpt: "Cabeza esculpida",
   pecType: "Tipo pectorales",
   earType: "Tipo orejas",
   eyeType: "Tipo ojos",
@@ -369,13 +373,14 @@ const SELECT_LABELS = {
   gloves: "Guantes",
 };
 const SELECT_OPTS = {
-  headType: { sphere: "Esfera", oval: "Óvalo", skull: "Cráneo", capsule: "Cápsula", pill: "Cápsula chata", block: "Angular" },
+  headType: { sphere: "Esfera", oval: "Óvalo", skull: "Cráneo", capsule: "Cápsula", pill: "Cápsula chata", block: "Angular", sculpt: "Esculpida" },
+  headSculpt: { appule: "Appule", cell: "Cell", kiwy: "Kiwy", ginyu: "Ginyu" },
   faceDecal: { none: "Ninguna (meshes)", piccolo: "Pikoro", trunks: "Trunks", freezer: "Freezer", recoome: "Rikum", raditz: "Raditz", nappa: "Nappa", a17: "Nº17", a18: "Nº18", a16: "Nº16", yamcha: "Yamcha", chaoz: "Chaoz", bardock: "Bardock", zaabon: "Zaabon", jeice: "Yiz", tien: "Ten Shin Han", goku: "Gokú", vegeta: "Vegeta", gohan: "Gohan", fgohan: "Gohan del futuro", krilin: "Krilin", yajirobe: "Yajirobee", satan: "Mr. Satan", guldo: "Gurdo", paragus: "Paragus", cell: "Cell", celljr: "Cell Jr.", nail: "Nail", kingvegeta: "Rey Vegeta" },
   pecType: { none: "Ninguno", sphere: "Esfera", flat: "Plano", split: "Split", armor: "Armadura" },
   earType: { none: "Ninguna", round: "Redonda", pointed: "Picuda", wide: "Ancha" },
   eyeType: { anime: "Anime", narrow: "Estrecho", none: "Ninguno" },
   noseType: { none: "Ninguna", namek: "Namek" },
-  mouthType: { none: "Ninguna", line: "Línea", open: "Abierta", grit: "Dientes" },
+  mouthType: { none: "Ninguna", line: "Línea", open: "Abierta", grit: "Dientes", smirk: "Media sonrisa" },
   padType: { none: "Ninguna", sphere: "Esfera", spaulder: "Hombrera", spiked: "Con pincho", flat: "Plana", wing: "Ala (Zarbon)" },
   plateType: { none: "Ninguna", dome: "Cúpula", flat: "Plana", ribbed: "Con nervios", split: "Doble", elite: "Freezer Force" },
   bracerType: { none: "Ninguno", cuff: "Aro", plate: "Placa", wrap: "Venda" },
@@ -387,6 +392,7 @@ const SELECT_OPTS = {
     soft: "Suave / corta",
     saiyan: "Bota saiyajin (puntera)",
     ginyu: "Bota Ginyu (franja)",
+    bare: "Pie descalzo",
   },
   gloves: { none: "No", on: "Sí" },
 };

@@ -515,6 +515,8 @@ export class Combat {
         atk.s.defensa += 1;
         atk.s.velocidad += 1;
         atk.s.kiMax += 8;
+        atk.s.hpMax += 40;
+        atk.s.hp += 40;
         // Recarga sube más lento que el tanque (~½ del ritmo de kiMax) → llena más lento, no tanto como antes.
         atk.s.kiRegen = (atk.s.kiRegen || KI_REGEN) + 0.38;
       }

@@ -272,7 +272,7 @@ const KING_VEGETA = [
 ];
 
 /** Barba de una pieza pegada a la cara (patillas → mentón) + bigote. Ángulos como sph(). */
-function beard(F, { top = 2.12, side = 1.5, bot = 2.75, th = 0.09, mus = true } = {}) {
+function beard(F, { top = 2.12, side = 1.5, bot = 2.75, th = 0.09, mus = true, chin = true, musW = 0.7, musDrop = 0.22, musTh = 0.035 } = {}) {
   const out = { pos: [], idx: [] };
   const A = F.ax;
   const lerp = THREE.MathUtils.lerp;
@@ -296,13 +296,14 @@ function beard(F, { top = 2.12, side = 1.5, bot = 2.75, th = 0.09, mus = true } 
       }
   };
   const edge = (a, t) => Math.sqrt(Math.sin(Math.PI * t)) * (1 - a ** 6);
-  sheet(28, 12, 1.4,
-    (a, t) => lerp(lerp(top, side, a ** 1.4), lerp(bot, side + 0.7, a ** 2), t),
-    (a, t) => th * edge(a, t) * (1 + 0.8 * t * (1 - a)) - 0.005);
+  if (chin)
+    sheet(28, 12, 1.4,
+      (a, t) => lerp(lerp(top, side, a ** 1.4), lerp(bot, side + 0.7, a ** 2), t),
+      (a, t) => th * edge(a, t) * (1 + 0.8 * t * (1 - a)) - 0.005);
   if (mus)
-    sheet(16, 4, 0.7,
-      (a, t) => lerp(1.9 + 0.08 * a * a, 2.0 + 0.22 * a * a, t),
-      (a, t) => 0.035 * edge(a, t) - 0.003);
+    sheet(16, 4, musW,
+      (a, t) => lerp(1.9 + 0.08 * a * a, 2.0 + musDrop * a * a, t),
+      (a, t) => musTh * edge(a, t) - 0.003);
   return out;
 }
 
@@ -331,6 +332,29 @@ const RIKUM = [
   { b: [1.1, 2.5], v1: [1.4, 2.6], v2: [1.8, 2.7], L: 0.85, w: 0.3 },
   { b: [1.3, Math.PI], v1: [1.7, Math.PI], v2: [2.1, Math.PI], L: 0.7, w: 0.3, center: true },
   { b: [1.45, 1.22], v1: [2.35, 1.28], v2: [2.7, 1.2], L: 0.35, w: 0.11 },
+];
+
+// Nº16: cresta corta al medio (frente → nuca), costados cortos peinados atrás.
+const N16 = [
+  { b: [0.55, 0], v1: [0.15, 0], v2: [0.55, Math.PI], L: 0.55, w: 0.28, center: true },
+  { b: [0.2, Math.PI], v1: [0.25, Math.PI], v2: [0.75, Math.PI], L: 0.55, w: 0.3, center: true },
+  { b: [0.75, Math.PI], v1: [0.85, Math.PI], v2: [1.3, Math.PI], L: 0.5, w: 0.3, center: true },
+  { b: [0.45, 0.4], v1: [0.35, 0.7], v2: [0.8, 2.6], L: 0.45, w: 0.22 },
+  { b: [0.6, 2.5], v1: [0.8, 2.6], v2: [1.25, 2.85], L: 0.45, w: 0.24 },
+];
+
+// Paragus: picos que nacen en la frente, se peinan atrás y caen hasta los hombros.
+const PARAGUS = [
+  { b: [0.6, 0.15], v1: [0.3, 0.2], v2: [1.0, 2.8], L: 1.0, w: 0.24 },
+  { b: [0.65, 0.6], v1: [0.5, 0.9], v2: [1.3, 2.5], L: 1.1, w: 0.24 },
+  { b: [0.3, 0], v1: [0.4, 2.9], v2: [1.6, 3.0], L: 1.5, w: 0.3, center: true },
+  { b: [0.4, 1.4], v1: [0.8, 1.9], v2: [1.9, 2.5], L: 1.6, w: 0.28 },
+  { b: [0.5, Math.PI], v1: [1.2, Math.PI], v2: [2.4, Math.PI], L: 2.0, w: 0.32, center: true },
+  { b: [0.6, 2.4], v1: [1.2, 2.5], v2: [2.3, 2.7], L: 1.9, w: 0.3 },
+  { b: [0.95, 1.8], v1: [1.4, 2.1], v2: [2.3, 2.4], L: 1.4, w: 0.27 },
+  { b: [1.2, 2.7], v1: [1.8, 2.8], v2: [2.6, 2.9], L: 1.5, w: 0.28 },
+  { b: [1.3, Math.PI], v1: [1.9, Math.PI], v2: [2.7, Math.PI], L: 1.4, w: 0.3, center: true },
+  { b: [1.45, 1.22], v1: [2.35, 1.28], v2: [2.7, 1.2], L: 0.4, w: 0.11 },
 ];
 
 /** Une dos peinados (pos/idx/uv) en uno; el segundo hereda uv 0 si no tiene. */
@@ -750,7 +774,9 @@ const STYLES = {
   yamcha: (F) => mane(F, { frontLift: 0.1, fringeTh: 1.0, lift: 0.16, cut: 1.2, cutBack: 1.7, flare: 0.3, fallBack: 0.45, zig: 0.6, spikes: 11, tufts: 0 }),
   // Yajirobee: greña tipo casco desprolijo, flequillo hasta las cejas, puntas desparejas.
   yajirobe: (F) => mane(F, { frontLift: 0.05, fringeTh: 1.15, lift: 0.1, cut: 0.25, cutBack: 0.35, flare: 0.08, zig: 0.25, spikes: 16, tufts: 0 }),
-  satan: (F) => afro(F),
+  satan: (F) => afro(F, { lift: 0.55, thMax: 1.85, n: 210 }),
+  n16: (F) => spiky(F, N16, { thFront: 0.55, thSide: 1.35, vol: 0.12, wMul: 1.3, tMul: 0.6 }),
+  paragus: (F) => joinOut(spiky(F, PARAGUS, { thFront: 0.6, vol: 0.2, wMul: 1.35, tMul: 0.6 }), beard(F, { th: 0.07 })),
   kingVegeta: (F) => joinOut(spiky(F, KING_VEGETA, { thFront: 0.75, vol: 0.22, wMul: 1.4, tMul: 0.6 }), beard(F)),
   tooma: (F) => spiky(F, TOOMA, { thFront: 0.6, vol: 0.2, wMul: 1.6, tMul: 0.6 }),
   rikum: (F) => spiky(F, RIKUM, { thFront: 0.6, vol: 0.2, wMul: 1.25, tMul: 0.6 }),

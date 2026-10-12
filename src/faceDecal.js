@@ -306,7 +306,7 @@ export const FACE_MESH_KEYS = new Set([
   "eyeType", "eyeSep", "irisSep", "irisY", "irisZ", "eyeTilt", "eyeY", "eyeZ", "eyeWhiteR", "eyeIrisR",
   "eyeSx", "eyeSy", "eyeShine", "lid", "lidX", "lidY", "lidZ", "lidSx", "lidSy", "lidTilt",
   "brow", "browX", "browY", "browZ", "browTilt", "nose", "noseX", "noseY", "noseZ", "noseType",
-  "mouth", "mouthX", "mouthY", "mouthZ", "mouthRx", "mouthRy", "mouthRz", "mouthType", "thirdEye",
+  "mouth", "mouthX", "mouthY", "mouthZ", "mouthType",
 ]);
 /** Colores de look que solo usan los meshes de la cara. */
 export const FACE_MESH_LOOK_KEYS = new Set(["iris", "eyeWhite"]);
@@ -346,7 +346,7 @@ export function addFaceDecal(headG, head, s, sc) {
     (sc.faceDecalY ?? -0.01) * s,
     r * 0.75 + (sc.faceDecalZ || 0) * s
   );
-  const rot = new THREE.Euler(0, 0, sc.faceDecalRot || 0);
+  const rot = new THREE.Euler(0, 0, 0);
   const geo = new DecalGeometry(head, pos, rot, new THREE.Vector3(w, h, r * 1.5));
   // Despegado de la piel: con near 0.1 / far 2600 el polygonOffset solo no alcanza de lejos.
   const lift = 0.004 * s;
