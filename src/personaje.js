@@ -503,7 +503,7 @@ export class Personaje {
         this.flyAlt = Math.max(0, this.flyAlt + this.vy * dt);
         if (this.flyAlt <= 0.04 && prevAlt > 0.35 && prevVy < -8 && this._scene) {
           const foot = this.pos().clone();
-          foot.y = surfaceHeight(foot.x, foot.z) + 0.05;
+          foot.y = (this._surfY ?? surfaceHeight(foot.x, foot.z)) + 0.05;
           spawnImpactRing(this._scene, foot, this._fxScratch, prevVy < -16);
         }
       } else {
@@ -1638,7 +1638,7 @@ export class Personaje {
       this._surfY = surfaceHeight(x, z);
     } else {
       this.swim = 0;
-      const surf = surfaceHeight(x, z);
+      const surf = surfaceHeight(x, z, this.mesh.position.y);
       if (this._surfY != null) {
         const drop = this._surfY - surf;
         if (this.flyAlt > 0.04 || drop > 0.7) {
@@ -1717,7 +1717,7 @@ export class Personaje {
     if (this.flyAlt <= 0.001) {
       if (prevAlt > 0.45 && prevVy < -5 && this._scene && !this.inSwim()) {
         const foot = this.pos().clone();
-        foot.y = surfaceHeight(foot.x, foot.z) + 0.05;
+        foot.y = (this._surfY ?? surfaceHeight(foot.x, foot.z)) + 0.05;
         spawnImpactRing(this._scene, foot, this._fxScratch, prevVy < -10);
       }
       this.flyAlt = 0;

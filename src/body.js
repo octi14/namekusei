@@ -91,6 +91,9 @@ function celMat(params, shine, rim) {
   return applyCel(new THREE.MeshToonMaterial({ gradientMap: toonGradient(), ...params }), shine, rim);
 }
 
+/** Toon de personajes para escenografía (bases, props). */
+export const toonMat = celMat;
+
 function surf(color, opts = {}) {
   const make = () => {
     const m = { color };

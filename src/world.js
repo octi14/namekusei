@@ -844,9 +844,10 @@ function roofAt(x, z) {
   return best;
 }
 
-export function surfaceHeight(x, z) {
+/** `y` (pies actuales) habilita pisos superiores de las naves. */
+export function surfaceHeight(x, z, y) {
   const land = Math.max(groundHeight(x, z), WATER_Y);
-  const ship = shipWalkHeight(x, z);
+  const ship = shipWalkHeight(x, z, y);
   const roof = roofAt(x, z);
   let h = land;
   if (ship > -1e8) h = Math.max(h, ship);
