@@ -199,22 +199,31 @@ function keyOutSkin(img, [cx, cy, cw, ch], [lo0, hi0] = [14, 60], keepSat = fals
         }
       if (!empty) break;
     }
-    const cell = (gx, gy, c2) => {
-      const k = (Math.max(0, Math.min(gh - 1, gy)) * gw + Math.max(0, Math.min(gw - 1, gx))) * 4;
-      return acc[k + 3] > 1e-3 ? acc[k + c2] / acc[k + 3] : 128;
-    };
+    const avg = new Float32Array(gw * gh * 3);
+    for (let k = 0; k < gw * gh; k++) {
+      const w = acc[k * 4 + 3];
+      for (let c2 = 0; c2 < 3; c2++) avg[k * 3 + c2] = w > 1e-3 ? acc[k * 4 + c2] / w : 128;
+    }
+    const clX = (gx) => Math.max(0, Math.min(gw - 1, gx));
+    const clY = (gy) => Math.max(0, Math.min(gh - 1, gy));
     for (let y = 0; y < H; y++) {
       const fy = ((y + 0.5) * gh) / H - 0.5;
       const y0 = Math.floor(fy);
       const ty = fy - y0;
+      const r0 = clY(y0) * gw;
+      const r1 = clY(y0 + 1) * gw;
       for (let x = 0; x < W; x++) {
         const fx = ((x + 0.5) * gw) / W - 0.5;
         const x0 = Math.floor(fx);
         const tx = fx - x0;
         const p = (y * W + x) * 3;
+        const a = (r0 + clX(x0)) * 3;
+        const b = (r0 + clX(x0 + 1)) * 3;
+        const q = (r1 + clX(x0)) * 3;
+        const e = (r1 + clX(x0 + 1)) * 3;
         for (let c2 = 0; c2 < 3; c2++) {
-          const top = cell(x0, y0, c2) * (1 - tx) + cell(x0 + 1, y0, c2) * tx;
-          const bot = cell(x0, y0 + 1, c2) * (1 - tx) + cell(x0 + 1, y0 + 1, c2) * tx;
+          const top = avg[a + c2] * (1 - tx) + avg[b + c2] * tx;
+          const bot = avg[q + c2] * (1 - tx) + avg[e + c2] * tx;
           skin[p + c2] = top * (1 - ty) + bot * ty;
         }
         skinW[y * W + x] = 1 - THREE.MathUtils.smoothstep(diffOf(y * W + x, p), lo * 0.6, lo * 1.4);

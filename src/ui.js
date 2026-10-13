@@ -219,6 +219,12 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
     toast.className = `on ${d.faccion}`;
     toast.innerHTML = `<b>${d.nombre}</b> depositó la esfera ${d.n} · ${team} ${match.score.z}–${match.score.f}`;
   } else toast.className = "";
+  const st = document.getElementById("steal-toast");
+  const steal = match.stealToast;
+  if (steal && match.phase === "play" && steal.faccion !== p.faccion) {
+    st.className = `on ${steal.faccion}`;
+    st.innerHTML = `<b>${steal.nombre}</b> robó la esfera ${steal.n} de tu base`;
+  } else st.className = "";
   const kt = document.getElementById("kill-toast");
   const kill =
     match.killToast &&

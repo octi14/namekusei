@@ -52,6 +52,10 @@ export class Match {
     }
   }
 
+  noteSteal(thief, n) {
+    this.stealToast = { nombre: thief.alias, faccion: thief.faccion, n, t: 2.6 };
+  }
+
   noteKill(killer, victim) {
     if (!killer || !victim) return;
     this.lastKill = {
@@ -130,6 +134,10 @@ export class Match {
     if (this.toast) {
       this.toast.t -= dt;
       if (this.toast.t <= 0) this.toast = null;
+    }
+    if (this.stealToast) {
+      this.stealToast.t -= dt;
+      if (this.stealToast.t <= 0) this.stealToast = null;
     }
     if (this.killToast) {
       this.killToast.t -= dt;

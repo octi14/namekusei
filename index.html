@@ -990,6 +990,17 @@
       #ball-toast.z { border-color: #ff6d00; color: #ffab40; }
       #ball-toast.f { border-color: #40c4ff; color: #80d8ff; }
       #ball-toast b { color: #fff; }
+      #steal-toast {
+        display: none; position: absolute; top: 128px; left: 50%; transform: translateX(-50%);
+        pointer-events: none; text-align: center; padding: 5px 16px; max-width: 90vw;
+        background: #0008; border-left: 3px solid #fff4;
+        letter-spacing: 0.06em; font-size: 14px; text-shadow: 0 0 8px #000;
+        opacity: 0.9; z-index: 2;
+      }
+      #steal-toast.on { display: block; }
+      #steal-toast.z { border-color: #ff6d00; color: #ffab40; }
+      #steal-toast.f { border-color: #40c4ff; color: #80d8ff; }
+      #steal-toast b { color: #fff; }
       #kill-toast {
         display: none; position: absolute; top: 42%; left: 50%;
         transform: translate(-50%, -50%);
@@ -1271,6 +1282,7 @@
       <div id="announce"></div>
       <div id="hit-fx"></div>
       <div id="ball-toast"></div>
+      <div id="steal-toast"></div>
       <div id="kill-toast"></div>
       <div id="ko-fx">
         <div class="ko-big">KO</div>

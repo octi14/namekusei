@@ -2,13 +2,16 @@ import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { SUPER_KI, superRank, KI_REGEN } from "./config.js";
 import { clipOnceDuration } from "./capsuleAnim.js";
-import { powerStyle, makePowerMesh, alignBeam, spawnBurst, spawnClash, spawnHit, spawnMuzzle, spawnMeleeArc, spawnImpactRing, spawnTelegraph } from "./powers.js";
+import { powerStyle, POWER_LIFE, counterMult, ALIGNED, STREAM, makeStreamMesh, updateStream, animPowerMesh, makePowerMesh, alignBeam, spawnBurst, spawnClash, spawnHit, spawnMuzzle, spawnMeleeArc, spawnImpactRing, spawnTelegraph } from "./powers.js";
 import { playSfx, atPos, stopSfxLoop } from "./sfx.js";
 import { healerSpec } from "./stats.js";
 import { blockedSight } from "./world.js";
 import { fxSparks, fxBoom, fxDust } from "./fx.js";
 
+const kindOf = (p) => powerStyle(p.nombre, p.faccion).kind;
+
 const _fxP = new THREE.Vector3();
+const _streamV = new THREE.Vector3();
 const _eye = new THREE.Vector3();
 const _seeTo = new THREE.Vector3();
 
@@ -285,6 +288,7 @@ export class Combat {
     if (at.cooldown > 0 || at.dead || at.stun > 0) return false;
     const style = powerStyle(at.nombre, at.faccion);
     const rank = superOn ? superRank(at.s.ki, at.s.kiMax, at.s.ataque) : 0;
+    // COSTO de ki: especial = kiMax*SUPER_KI (se cobra 38%+rank*16%), largo = 22, común = 12.
     const need = superOn ? at.s.kiMax * SUPER_KI : snipe ? 22 : 12;
     if (superOn && rank < 1) return false;
     if (!superOn && at.s.ki < need) return false;
@@ -305,18 +309,28 @@ export class Combat {
         playSfx(at.faccion === "f" ? "freezerSuperInit" : rank >= 2 ? "bestBigInit" : "enhancedBigInit", sx, sy, sz, 0.62);
         playSfx("bigBlastShoot", sx, sy, sz, 0.7);
         if (at.nombre === "Gokú" && rank >= 3) playSfx("kameShoot", sx, sy, sz, 0.75);
-      } else if (snipe || style.kind === "beam") playSfx("longBlastShoot", sx, sy, sz, 0.55);
+      } else if (snipe || ALIGNED.has(style.kind)) playSfx("longBlastShoot", sx, sy, sz, 0.55);
       else playSfx(Math.random() < 0.5 ? "smallBlast" : "smallBlastShoot2", sx, sy, sz, 0.5);
     }
     const dir = this.shotDir(at);
+    // DAÑO de cada poder de ki (no usa defensa del blanco; bloqueo = chip en blockedHit):
+    //   - Especial (super): base 180 + kiMax*1.2, × (0.78 + rank*0.36). En boom() cae con la distancia (40–100%).
+    //   - Largo alcance (snipe, T): base 30 + kiMax*0.4 + ataque*2.
+    //   - Común (click der): base 50 + kiMax*0.4 + ataque*2.
     const dmg = superOn
-      ? Math.round((180 + at.s.kiMax * 1.2) * (0.78 + rank * 0.36))
-      : Math.round((snipe ? 60 : 80) + at.s.kiMax * 0.4);
+      ? Math.round((200 + at.s.kiMax) * (1 + rank * 0.1))
+      : Math.round((snipe ? 30 : 50) + at.s.kiMax * 0.4 + at.s.ataque * 2);
+    // RADIO DE IMPACTO (hitR): qué tan cerca debe pasar el proyectil para pegar. style.r = grosor visual (powers.js).
+    //   - Especial: 3.8 + rank*1.35 + style.r*6. (La explosión aparte usa aoeR = 12 + rank*4.8.)
+    //   - Común y largo: style.r*1.15 + 0.7 (iguales).
     const hitR = superOn
-      ? 3.8 + rank * 1.35 + (style.r || 0.22) * 6
+      ? 5 + rank + (style.r || 0.22) * 6
       : (style.r || 0.22) * 1.15 + 0.7;
-    const rng = (style.range || 55) * (snipe ? 2.4 : 1) * (superOn ? 2.7 + rank * 0.35 : 1);
-    const life = (style.life || 1.4) * (snipe ? 1.5 : 1) * (superOn ? 2.15 + rank * 0.28 : 1);
+    // RANGO (rng): distancia máxima para fijar blanco (lock/autoapuntado). Base style.range (powers.js, 55 si falta).
+    //   - Común: ×1. Largo: ×2. Especial: ×(2.7 + rank*0.35).
+    // Lo lejos que viaja de verdad = speed × life (base POWER_LIFE; largo ×2, especial ×(2.15 + rank*0.28)).
+    const rng = (style.range || 55) * (snipe ? 2 : 1) * (superOn ? 2.7 + rank * 0.35 : 1);
+    const life = POWER_LIFE * (snipe ? 2 : 1) * (superOn ? 2.15 + rank * 0.28 : 1);
     const locked =
       at.lockFoe && !at.lockFoe.dead && (at.lockT || 0) > 0 && canSee(at, at.lockFoe, rng, this.cam, true)
         ? at.lockFoe
@@ -326,7 +340,7 @@ export class Combat {
     const mesh = makePowerMesh(style, superOn, rank);
     mesh.position.copy(at.pos()).addScaledVector(dir, spawnFwd);
     mesh.position.y = at.pos().y + at.height * (superOn ? 0.78 : 0.7);
-    if (style.kind === "beam") alignBeam(mesh, dir);
+    if (ALIGNED.has(style.kind)) alignBeam(mesh, dir);
     this.scene.add(mesh);
     const hand = at.pos().clone().addScaledVector(dir, 0.85);
     hand.y += at.height * 0.68;
@@ -344,6 +358,13 @@ export class Combat {
           : 0
         : 0.08 + rank * 0.03
       : 0.07 * (style.range > 100 ? 0.7 : 1);
+    const stream = STREAM.has(style.kind)
+      ? makeStreamMesh(style, superOn ? Math.max(0.14, (style.r || 0.2) * (3.4 + rank * 1.15) * 0.5) : Math.max(0.05, (style.r || 0.2) * 0.45))
+      : null;
+    if (stream) {
+      updateStream(stream, hand, mesh.position);
+      this.scene.add(stream);
+    }
     this.shots.push({
       mesh,
       dir,
@@ -364,9 +385,21 @@ export class Combat {
       aoe: superOn,
       aoeR: superOn ? 12 + rank * 4.8 : 0,
       snipe: !!snipe,
+      ...(stream && {
+        stream,
+        tail: hand.clone(),
+        // CHORRO: segundos pegado a la mano y largo máximo (especial > largo > común)
+        hold: superOn ? 0.75 : snipe ? 0.18 : 0.06,
+        maxLen: superOn ? 70 : snipe ? 18 : 7,
+      }),
     });
     if (superOn || snipe) this.jolt(at.pos(), snipe ? 0.14 : 0.16 + rank * 0.1);
     return true;
+  }
+
+  dropShot(s) {
+    this.scene.remove(s.mesh);
+    if (s.stream) this.scene.remove(s.stream);
   }
 
   pickHealAlly(at, dir, people, maxD, cone = 0.48) {
@@ -436,7 +469,7 @@ export class Combat {
       const d = pos.distanceTo(t.pos().clone().setY(t.pos().y + t.height * 0.7));
       if (d > s.aoeR) continue;
       const fall = 1 - d / s.aoeR;
-      const dmg = Math.max(1, Math.round(s.dmg * (0.4 + 0.6 * fall)));
+      const dmg = Math.max(1, Math.round(s.dmg * (0.4 + 0.6 * fall) * counterMult(s.kind, kindOf(t))));
       if (guarding(t, pos, true)) this.blockedHit(t, dmg, true, s.atk, pos);
       else this.hurt(t, dmg, true, s.atk, pos);
     }
@@ -627,7 +660,25 @@ export class Combat {
       _shotPrev.copy(s.mesh.position);
       s.mesh.position.addScaledVector(s.dir, s.speed * dt);
       if (s.kind === "disk") s.mesh.rotation.z += dt * 14;
-      if (s.kind === "beam") alignBeam(s.mesh, s.dir);
+      if (ALIGNED.has(s.kind)) alignBeam(s.mesh, s.dir);
+      animPowerMesh(s.mesh, s.kind, dt);
+      if (s.stream) {
+        const head = s.mesh.position;
+        s.hold -= dt;
+        if (s.hold > 0 && s.atk && !s.atk.dead) {
+          const ap = s.atk.pos();
+          _streamV.subVectors(head, ap).setY(0).normalize();
+          s.tail.copy(ap).addScaledVector(_streamV, 0.85);
+          s.tail.y += s.atk.height * 0.68;
+        } else {
+          _streamV.subVectors(head, s.tail);
+          const d = _streamV.length();
+          if (d > 1e-3) s.tail.addScaledVector(_streamV, Math.min(1, (s.speed * 1.3 * dt) / d));
+        }
+        _streamV.subVectors(s.tail, head);
+        if (_streamV.length() > s.maxLen) s.tail.copy(head).addScaledVector(_streamV.normalize(), s.maxLen);
+        updateStream(s.stream, s.tail, head);
+      }
       s.trail += dt;
       if (s.trail > 0.04) {
         s.trail = 0;
@@ -645,7 +696,9 @@ export class Combat {
         this.scene.add(t);
         this.fx.push({ mesh: t, v: new THREE.Vector3(), t: 0.18 });
       }
-      let clash = false;
+      // CHOQUE: fuerza = daño × counter contra el kind rival. Parejos (±12%) se anulan;
+      // si no, el más fuerte sigue con el daño que le sobra.
+      let sDies = false;
       for (let j = i - 1; j >= 0; j--) {
         const o = this.shots[j];
         if (o.faccion === s.faccion) continue;
@@ -654,16 +707,24 @@ export class Combat {
         const mid = s.mesh.position.clone().lerp(o.mesh.position, 0.5);
         spawnClash(this.scene, mid, s.color, o.color, this.fx);
         this.jolt(mid, 0.38);
-        this.scene.remove(o.mesh);
-        this.shots.splice(j, 1);
-        clash = true;
+        const fS = s.dmg * counterMult(s.kind, o.kind);
+        const fO = o.dmg * counterMult(o.kind, s.kind);
+        const oDies = fS >= fO * 0.88;
+        sDies = fO >= fS * 0.88;
+        if (!sDies) s.dmg = Math.max(1, Math.round(s.dmg * (1 - fO / fS)));
+        if (!oDies) o.dmg = Math.max(1, Math.round(o.dmg * (1 - fS / fO)));
+        if (sDies) {
+          this.dropShot(s);
+          this.shots.splice(i, 1);
+        }
+        if (oDies) {
+          this.dropShot(o);
+          this.shots.splice(j, 1);
+          if (!sDies) i--;
+        }
         break;
       }
-      if (clash) {
-        this.scene.remove(s.mesh);
-        this.shots.splice(i, 1);
-        continue;
-      }
+      if (sDies) continue;
       let hit = false;
       for (const t of people) {
         if (t.faccion === s.faccion || t.dead) continue;
@@ -680,18 +741,19 @@ export class Combat {
             return shotHits(s, o, _shotPrev, s.mesh.position);
           });
           if (t) {
-            if (guarding(t, s.mesh.position, true)) this.blockedHit(t, s.dmg, true, s.atk, s.mesh.position);
-            else this.hurt(t, s.dmg, true, s.atk, s.mesh.position);
+            const dmg = Math.max(1, Math.round(s.dmg * counterMult(s.kind, kindOf(t))));
+            if (guarding(t, s.mesh.position, true)) this.blockedHit(t, dmg, true, s.atk, s.mesh.position);
+            else this.hurt(t, dmg, true, s.atk, s.mesh.position);
             spawnBurst(this.scene, s.mesh.position, s.color, this.fx);
             this.jolt(s.mesh.position, 0.2);
             const hp = s.mesh.position;
-            playSfx(s.snipe || s.kind === "beam" ? "longBlastLand" : "smallBlastHit", hp.x, hp.y, hp.z, 0.5);
+            playSfx(s.snipe || ALIGNED.has(s.kind) ? "longBlastLand" : "smallBlastHit", hp.x, hp.y, hp.z, 0.5);
           }
         } else if (!s.aoe) {
           const hp = s.mesh.position;
-          playSfx(s.snipe || s.kind === "beam" ? "longBlastLand" : "smallBlastLand", hp.x, hp.y, hp.z, 0.4);
+          playSfx(s.snipe || ALIGNED.has(s.kind) ? "longBlastLand" : "smallBlastLand", hp.x, hp.y, hp.z, 0.4);
         }
-        this.scene.remove(s.mesh);
+        this.dropShot(s);
         this.shots.splice(i, 1);
       }
     }

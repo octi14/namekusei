@@ -27,9 +27,14 @@ export function baseDoorDir(faccion) {
   return faccion === "z" ? 1 : -1;
 }
 
+/** Radio interior real: la nave de Freezer suma un pasillo en anillo hasta layout.outR. */
+export function shipInnerR(faccion) {
+  return _shipWalk[faccion]?.layout?.outR ?? BASE_INNER_R;
+}
+
 export function inShipBase(pos, faccion) {
   const o = baseOrigin(faccion);
-  return Math.hypot(pos.x - o.x, pos.z - o.z) < BASE_INNER_R;
+  return Math.hypot(pos.x - o.x, pos.z - o.z) < shipInnerR(faccion);
 }
 
 /** Waypoints de puerta: out (rampa), door (umbral), in (interior). */
@@ -60,19 +65,30 @@ export function steerShipNav(px, pz, faccion, goal) {
   const dx = px - o.x;
   const dz = pz - o.z;
   const d = Math.hypot(dx, dz);
-  const inside = d < BASE_INNER_R - 0.4;
+  const R = shipInnerR(faccion);
+  const L = _shipWalk[faccion]?.layout;
+  const inside = d < R - 0.4;
   const nrm = (x, z) => {
     const len = Math.hypot(x, z) || 1;
     return { x: x / len, z: z / len, land: true, dist: len, inside };
   };
   // Pasillo de la puerta: franja centrada en x=0, del lado de la puerta.
   const front = dz * door;
-  const inCorridor = Math.abs(dx) < 5 && front > BASE_INNER_R - 10;
+  const inCorridor = Math.abs(dx) < 5 && front > R - 10;
+  // En el pasillo en anillo (fuera de la sala central) y lejos del frente: rodear por el anillo hacia la puerta.
+  const inRing = !!L && L.inR < R && d > L.inR + 0.3 && !(front > 0 && Math.abs(dx) < L.doorHalfW - 1.5);
+  const ringToFront = () => {
+    const th = Math.atan2(dx, front);
+    const sg = th >= 0 ? 1 : -1;
+    const k = ((L.inR + R) / 2 - d) * 0.25;
+    return nrm(-sg * Math.cos(th) + Math.sin(th) * k, (sg * Math.sin(th) + Math.cos(th) * k) * door);
+  };
 
   if (goal === "exit") {
+    if (inside && inRing) return ringToFront();
     if (inside) {
       // 1) ir al punto frente a la puerta (adentro, recto: el interior es convexo) 2) salir derecho
-      if (!inCorridor) return nrm(-dx, door * (BASE_INNER_R - 8) - dz);
+      if (!inCorridor) return nrm(-dx, door * (R - 8) - dz);
       return nrm(-dx * 0.3, door);
     }
     if (Math.abs(dx) < 11 && front > 0 && d < BASE_HULL_R + 8) return nrm(-dx * 0.3, door);
@@ -80,6 +96,7 @@ export function steerShipNav(px, pz, faccion, goal) {
   }
 
   if (goal === "enter" || goal === "deposit") {
+    if (inside && inRing) return ringToFront();
     if (inside) return goal === "deposit" ? nrm(-dx, -dz) : null;
     // Hueco libre del casco/postes: |dx| < ~13 del lado de la puerta
     if (Math.abs(dx) < 9 && front > BASE_INNER_R - 10 && front < BASE_HULL_R + 18) return nrm(-dx * 0.4, -door);
@@ -113,6 +130,79 @@ export function steerShipNav(px, pz, faccion, goal) {
     return nrm(-uz * s + ux * k, ux * s + uz * k);
   }
   return null;
+}
+
+/**
+ * En el 2º piso (ático) no hay salida: ir al tubo central para bajar a planta baja.
+ * Devuelve { x, z, shaft } normalizado o null si no está arriba.
+ */
+export function steerShipAttic(px, py, pz, faccion) {
+  const L = _shipWalk[faccion]?.layout;
+  if (!L?.atticR) return null;
+  const o = baseOrigin(faccion);
+  const door = baseDoorDir(faccion);
+  const s = px - o.x;
+  const f = (pz - o.z) * door;
+  const d = Math.hypot(s, f);
+  // Arriba del techo (afuera) no cuenta como ático
+  if (d >= L.atticR || py < L.atticY - 0.8 || py > L.roofY(Math.min(d, L.rimR)) - 0.5) return null;
+  // Tabique en f = partF con abertura |s| < partDoor
+  const tf = f < L.partF - 0.5 && Math.abs(s) > L.partDoor - 1 ? L.partF - 1.5 : 0;
+  const len = Math.hypot(s, tf - f) || 1;
+  return { x: -s / len, z: ((tf - f) * door) / len, shaft: d < L.shaftR - 0.8 };
+}
+
+/**
+ * Dentro de una nave con pasillo en anillo (Freezer): ruta p → t sin cruzar la pared sala/pasillo.
+ * Devuelve { x, z } normalizado o null si la recta está libre.
+ */
+export function steerShipInside(px, pz, tx, tz, faccion) {
+  const L = _shipWalk[faccion]?.layout;
+  if (!L || !(L.inR < L.outR)) return null;
+  const o = baseOrigin(faccion);
+  const door = baseDoorDir(faccion);
+  const ps = px - o.x;
+  const pf = (pz - o.z) * door;
+  const ts = tx - o.x;
+  const tf = (tz - o.z) * door;
+  const pd = Math.hypot(ps, pf);
+  const td = Math.hypot(ts, tf);
+  const pIn = pd < L.inR;
+  if (pIn && td < L.inR) return null;
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  const pth = Math.atan2(ps, pf);
+  const tth = Math.atan2(ts, tf);
+  const out = (s, f) => {
+    const len = Math.hypot(s, f) || 1;
+    return { x: s / len, z: (f * door) / len };
+  };
+  const orbit = (a) => {
+    const sg = wrap(a - pth) >= 0 ? 1 : -1;
+    const k = ((L.inR + L.outR) / 2 - pd) * 0.25;
+    return out(sg * Math.cos(pth) + Math.sin(pth) * k, -sg * Math.sin(pth) + Math.cos(pth) * k);
+  };
+  if (!pIn && td >= L.inR) {
+    // Ambos en el anillo: la cuerda no debe meterse en la sala
+    const sx = ts - ps;
+    const sf = tf - pf;
+    const t = Math.max(0, Math.min(1, -(ps * sx + pf * sf) / (sx * sx + sf * sf || 1)));
+    if (Math.hypot(ps + sx * t, pf + sf * t) > L.inR + 0.8) return null;
+    return orbit(tth);
+  }
+  // Zonas distintas: pasar por la abertura (puerta del frente o laterales) que menos rodeo pide
+  let a = 0;
+  let hw = L.doorHalfW;
+  let best = Math.abs(pth) + Math.abs(tth);
+  for (const sa of L.sideDoors || []) {
+    const c = Math.abs(wrap(pth - sa)) + Math.abs(wrap(tth - sa));
+    if (c < best) (best = c), (a = sa), (hw = L.sideHalfW);
+  }
+  const aligned = Math.abs(wrap(pth - a)) * L.inR < hw - 1.2;
+  if (pIn) {
+    if (aligned && pd > L.inR - 3) return out(Math.sin(a), Math.cos(a));
+    return out(Math.sin(a) * (L.inR + 2.5) - ps, Math.cos(a) * (L.inR + 2.5) - pf);
+  }
+  return aligned ? out(-ps, -pf) : orbit(a);
 }
 
 /**
@@ -398,7 +488,7 @@ function hullObstacles(cx, cz, r, doorYaw) {
     const dx = px - cx;
     const dz = pz - cz;
     if (Math.abs(dx) < 13 && (door > 0 ? dz > -4 : dz < 4)) continue;
-    _obst(px, pz, 2.6, 14);
+    _obst(px, pz, 2.6, 14, _gh(px, pz));
   }
 }
 

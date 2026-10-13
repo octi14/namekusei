@@ -42,6 +42,8 @@ addEventListener("nk-char-saved", (e) => {
 
 const canvas = document.getElementById("c");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+// el chequeo lee el log de cada shader y obliga a compilar en sincronía (~1.7 s al cargar); ?shaders lo reactiva
+renderer.debug.checkShaderErrors = new URLSearchParams(location.search).has("shaders");
 renderer.setPixelRatio(Math.min(devicePixelRatio, PIXEL));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;

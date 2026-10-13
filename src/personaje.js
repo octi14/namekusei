@@ -2025,7 +2025,10 @@ export class Personaje {
     }
     if (this.grabT >= 1.5) {
       const got = balls.pickup(this);
-      if (got?.stole) match.syncBalls(balls);
+      if (got?.stole) {
+        match.syncBalls(balls);
+        match.noteSteal(this, got.n);
+      }
       this.grabT = 0;
       this._grabbing = false;
       this._grabBall = null;

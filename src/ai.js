@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { BASE_Z, superRank, SUPER_KI, MELEE, MAP } from "./config.js";
 import { isWater, groundHeight, WATER_Y } from "./world.js";
-import { BASE_INNER_R, BASE_HULL_R, steerShipNav, nearAnyShip, shipDist, inShipBase, baseOrigin, baseDoorDir, steerAroundShips } from "./bases.js";
+import { BASE_INNER_R, BASE_HULL_R, steerShipNav, steerShipInside, steerShipAttic, nearAnyShip, shipDist, inShipBase, baseOrigin, baseDoorDir, steerAroundShips } from "./bases.js";
 import { powerStyle } from "./powers.js";
 import { aiTraceTick } from "./aiTrace.js";
 import { playSfx, atPos, stopSfxLoop } from "./sfx.js";
@@ -2756,11 +2756,14 @@ export function aiTick(p, people, balls, combat, match, dt) {
     } else if (carrying) {
       fac = own;
       goal = "deposit";
-    } else if (wantFoe && (inShipBase(pos, foeFac) || shipDist(pos, foeFac) < 160)) {
+    } else if (wantFoe && aimFac === foeFac && (inShipBase(pos, foeFac) || shipDist(pos, foeFac) < 160)) {
+      // Solo si el objetivo está DENTRO de la nave rival; si quedó afuera, cae en "salir por la puerta".
       fac = foeFac;
-      goal = inShipBase(pos, foeFac) ? "enter" : "enter";
+      goal = "enter";
     } else if (meFac && aimFac === meFac) {
       p.aiShipExit = null;
+      fac = meFac;
+      goal = "inside";
     } else if (p.aiShipExit || meFac) {
       // Dentro de una nave sin motivo: salir por la puerta sí o sí, y no soltar hasta estar bien afuera
       // (si se suelta en el umbral, el objetivo lo vuelve a meter y queda girando en la puerta).
@@ -2776,16 +2779,26 @@ export function aiTick(p, people, balls, combat, match, dt) {
       p.aiLeaveBase -= dt;
       if (!inShipBase(pos, own) && shipDist(pos, own) > BASE_INNER_R + 12) p.aiLeaveBase = 0;
     }
-    if (fac) {
-      if (goal === "enter" && inShipBase(pos, fac) && ball) {
-        dir.set(ball.mesh.position.x - pos.x, 0, ball.mesh.position.z - pos.z);
+    const attic = meFac ? steerShipAttic(pos.x, pos.y, pos.z, meFac) : null;
+    if (attic) {
+      dir.set(attic.x, 0, attic.z);
+      if (attic.shaft) p.descend();
+      shipGate = true;
+    } else if (fac) {
+      const bp = ball?.mesh.position;
+      const toBall = goal === "enter" && bp && inShipBase(pos, fac) && inShipBase(bp, fac);
+      const nav =
+        goal === "inside"
+          ? steerShipInside(pos.x, pos.z, aimX, aimZ, fac)
+          : toBall
+            ? steerShipInside(pos.x, pos.z, bp.x, bp.z, fac)
+            : steerShipNav(pos.x, pos.z, fac, goal);
+      if (nav) {
+        dir.set(nav.x, 0, nav.z);
         shipGate = true;
-      } else {
-        const nav = steerShipNav(pos.x, pos.z, fac, goal);
-        if (nav) {
-          dir.set(nav.x, 0, nav.z);
-          shipGate = true;
-        }
+      } else if (toBall) {
+        dir.set(bp.x - pos.x, 0, bp.z - pos.z);
+        shipGate = true;
       }
     }
     if (!shipGate && !meFac && (p.flyAlt || 0) < 24 && dir.lengthSq() > 0.01) {

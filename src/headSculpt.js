@@ -156,7 +156,8 @@ function baseGeo(id) {
   const nor = geo.attributes.normal;
   const uv = geo.attributes.uv;
   const vh = V ? veinHeight(V) : null;
-  const step = 0.004;
+  // paso grueso + bisección (8 iteraciones ≈ 0.00006) da la misma precisión; un paso fino traba la carga (Ginyu: 52k vértices)
+  const step = 0.016;
   const e = 0.0008;
   for (let i = 0; i < pos.count; i++) {
     const dx = pos.getX(i);
@@ -171,7 +172,7 @@ function baseGeo(id) {
         break;
       }
     }
-    for (let k = 0; k < 12; k++) {
+    for (let k = 0; k < 8; k++) {
       const tm = (t0 + t1) * 0.5;
       if (sdf(prims, dx * tm, dy * tm, dz * tm) > 0) t1 = tm;
       else t0 = tm;
@@ -282,13 +283,13 @@ function strokeVeins(g, V, W, H, wk) {
 function veinHeight(V) {
   const W = 1024;
   const H = 512;
+  // trazos sin filtro en un canvas aparte y un solo blur al final: el filtro por trazo (miles) trababa la carga
   const cv = document.createElement("canvas");
   cv.width = W;
   cv.height = H;
   const g = cv.getContext("2d");
   g.fillStyle = "#000";
   g.fillRect(0, 0, W, H);
-  g.filter = `blur(${V.blur ?? 2.5}px)`;
   g.strokeStyle = "#f00";
   strokeVeins(g, V, W, H, V.ridge ?? 1.8);
   if (V.groove) {
@@ -303,7 +304,15 @@ function veinHeight(V) {
       g.stroke();
     }
   }
-  const d = g.getImageData(0, 0, W, H).data;
+  const out = document.createElement("canvas");
+  out.width = W;
+  out.height = H;
+  const og = out.getContext("2d", { willReadFrequently: true });
+  og.fillStyle = "#000";
+  og.fillRect(0, 0, W, H);
+  og.filter = `blur(${V.blur ?? 2.5}px)`;
+  og.drawImage(cv, 0, 0);
+  const d = og.getImageData(0, 0, W, H).data;
   return (u, v) => {
     const x = (((u * W) % W) + W) % W;
     const y = THREE.MathUtils.clamp((1 - v) * H, 0, H - 1);

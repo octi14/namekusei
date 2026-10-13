@@ -1,55 +1,84 @@
 import * as THREE from "three";
 
+// TIPOS de poder (kind). Definen forma y counters.
+//   beam  rayo        ball  bola de ki    disk   disco cortante
+//   fire  fuego       light luz           drill  taladro espiral (makankosappo)
+//   magic magia       cold  hielo         spike  estrellas puntiagudas
+// Los que viajan alineados con la dirección del disparo (orientados como rayo):
+export const ALIGNED = new Set(["beam", "light", "drill", "cold"]);
+
+// COUNTERS: multiplicador de daño de un kind ATACANTE contra el kind del personaje golpeado
+// (y contra el kind del proyectil rival en un choque). Falta = 1 (sin cambios).
+// >1 fuerte, <1 débil. Se aplica sobre el daño normal (ataque/ki/defensa siguen igual).
+export const COUNTER = {
+  fire:  { cold: 1.3, ball: 1.2, beam: 0.8, spike: 0.7 },
+  cold:  { drill: 1.2, beam: 1.3, spike: 1.3, light: 0.7 },
+  drill: { beam: 1.25, disk: 1.25, cold: 0.8, ball: 0.8 },
+  beam:  { spike: 1.2, magic: 1.2, ball: 1.2, drill: 0.8, fire: 0.8, disk: 0.8 },
+  spike: { disk: 1.25, light: 1.25, beam: 0.8, cold: 0.8 },
+  disk:  { light: 1.2, ball: 1.2, spike: 1.3, drill: 0.7 },
+  magic: { light: 1.2, fire: 1.2, cold: 1.2, beam: 0.7 },
+  light: { ball: 1.2, cold: 1.3, magic: 0.7, spike: 0.7 },
+  ball:  { fire: 1.3, disk: 1.2, drill: 1.2, disk: 0.8, spike: 0.7 },
+};
+
+export function counterMult(atkKind, defKind) {
+  return COUNTER[atkKind]?.[defKind] ?? 1;
+}
+
+// Segundos que vive cualquier disparo común (igual para todos). Largo/especial lo multiplican en combat.js.
+export const POWER_LIFE = 2.5;
+
 // Velocidad de CADA poder (ki común, u/s). Largo y especial = este speed × combat.js blast().
 // K/D NO cambia este speed. Un kill sube s.velocidad (moverse) y s.kiMax/ataque (daño de ki), no el vuelo del rayo.
 const STYLES = {
-  Gokú: { kind: "beam", color: 0xdcebbe, speed: 80, r: 0.2, life: 2.2, range: 120 },
-  Gohan: { kind: "beam", color: 0x81d4fa, speed: 75, r: 0.18, life: 1.8, range: 100 },
-  Krilin: { kind: "disk", color: 0xffee58, speed: 65, r: 0.55, life: 1.85, range: 100 },
-  Pikoro: { kind: "beam", color: 0x69f0ae, speed: 70, r: 0.1, life: 1.8, range: 120 },
-  Vegeta: { kind: "beam", color: 0xce93d8, speed: 75, r: 0.18, life: 2.0, range: 120 },
-  Nail: { kind: "ball", color: 0xa5d6a7, speed: 65, r: 0.28, life: 1.2, range: 100 },
-  Dendé: { kind: "ball", color: 0xc5e1a5, speed: 60, r: 0.2, life: 1.2, range: 95 },
-  Freezer: { kind: "beam", color: 0xc045ed, speed: 80, r: 0.08, life: 2.2, range: 120 },
-  Zaabon: { kind: "ball", color: 0x0dd6ab, speed: 75, r: 0.25, life: 1.5, range: 100 },
-  Dodoria: { kind: "ball", color: 0x380e9c, speed: 75, r: 0.42, life: 1.6, range: 100 },
-  Gurdo: { kind: "ball", color: 0x34a868, speed: 65, r: 0.35, life: 1.2, range: 90 },
-  Rikum: { kind: "ball", color: 0xff5252, speed: 70, r: 0.3, life: 1.6, range: 100 },
-  Yiz: { kind: "beam", color: 0xf55a42, speed: 70, r: 0.14, life: 1.7, range: 100 },
-  Butter: { kind: "ball", color: 0xdce775, speed: 77, r: 0.26, life: 1.5, range: 100 },
-  Ginyu: { kind: "ball", color: 0xea80fc, speed: 75, r: 0.32, life: 1.8, range: 110 },
-  Kiwy: { kind: "ball", color: 0x80cbc4, speed: 65, r: 0.24, life: 1.3, range: 100 },
-  Appule: { kind: "ball", color: 0xce93d8, speed: 55, r: 0.22, life: 1.2, range: 95 },
-  "Ten Shin Han": { kind: "beam", color: 0xffee58, speed: 70, r: 0.16, life: 1.7, range: 90 },
-  Yamcha: { kind: "ball", color: 0xffcc80, speed: 65, r: 0.24, life: 1.3, range: 100 },
-  Chaoz: { kind: "ball", color: 0xeeeeee, speed: 60, r: 0.18, life: 1.0, range: 90 },
-  Yajirobee: { kind: "ball", color: 0xff8a65, speed: 60, r: 0.32, life: 1.0, range: 85 },
-  Kami: { kind: "beam", color: 0xa5d6a7, speed: 60, r: 0.12, life: 1.8, range: 90 },
-  Nappa: { kind: "ball", color: 0xffab40, speed: 75, r: 0.4, life: 1.5, range: 100 },
-  Raditz: { kind: "beam", color: 0x81c784, speed: 70, r: 0.16, life: 1.9, range: 100 },
-  Saibaman: { kind: "ball", color: 0x9ccc65, speed: 55, r: 0.2, life: 1.2, range: 80 },
-  Trunks: { kind: "beam", color: 0xce93d8, speed: 75, r: 0.16, life: 2.0, range: 110 },
-  "Gohan del futuro": { kind: "beam", color: 0x81d4fa, speed: 75, r: 0.18, life: 1.9, range: 110 },
-  Bardock: { kind: "beam", color: 0xff8a65, speed: 70, r: 0.16, life: 1.8, range: 100 },
-  "Rey Vegeta": { kind: "beam", color: 0xce93d8, speed: 72, r: 0.18, life: 2.0, range: 115 },
-  Tooma: { kind: "ball", color: 0xef5350, speed: 68, r: 0.26, life: 1.4, range: 90 },
-  Paragus: { kind: "ball", color: 0xb0bec5, speed: 60, r: 0.24, life: 1.3, range: 100 },
-  "Mr. Satan": { kind: "ball", color: 0xef5350, speed: 55, r: 0.28, life: 1.2, range: 85 },
-  Cell: { kind: "beam", color: 0x69f0ae, speed: 80, r: 0.14, life: 2.4, range: 130 },
-  "Nº16": { kind: "ball", color: 0x90a4ae, speed: 75, r: 0.38, life: 1.5, range: 120 },
-  "Nº17": { kind: "beam", color: 0x81d4fa, speed: 70, r: 0.12, life: 1.9, range: 100 },
-  "Nº18": { kind: "beam", color: 0xf8bbd0, speed: 70, r: 0.12, life: 1.9, range: 100 },
-  "Nº19": { kind: "ball", color: 0xef9a9a, speed: 60, r: 0.3, life: 1.5, range: 80 },
-  "Dr. Gero": { kind: "ball", color: 0xb0bec5, speed: 60, r: 0.22, life: 1.5, range: 90 },
+  Gokú: { kind: "beam", color: 0xdcebbe, speed: 80, r: 0.2, range: 120 },
+  Gohan: { kind: "ball", color: 0x81d4fa, speed: 75, r: 0.18, range: 100 },
+  Krilin: { kind: "disk", color: 0xffee58, speed: 65, r: 1, range: 100 },
+  Pikoro: { kind: "drill", color: 0x69f0ae, speed: 70, r: 0.1, range: 120 },
+  Vegeta: { kind: "beam", color: 0xce93d8, speed: 75, r: 0.18, range: 120 },
+  Nail: { kind: "drill", color: 0xa5d6a7, speed: 65, r: 0.28, range: 100 },
+  Dendé: { kind: "ball", color: 0xc5e1a5, speed: 60, r: 0.2, range: 95 },
+  Freezer: { kind: "disk", color: 0xc045ed, speed: 80, r: 0.08, range: 120 },
+  Zaabon: { kind: "light", color: 0x0dd6ab, speed: 75, r: 0.25, range: 100 },
+  Dodoria: { kind: "spike", color: 0x380e9c, speed: 75, r: 0.42, range: 100 },
+  Gurdo: { kind: "magic", color: 0x34a868, speed: 65, r: 0.35, range: 90 },
+  Rikum: { kind: "ball", color: 0xff5252, speed: 70, r: 0.3, range: 100 },
+  Yiz: { kind: "fire", color: 0xf55a42, speed: 70, r: 0.14, range: 100 },
+  Butter: { kind: "cold", color: 0xdce775, speed: 77, r: 0.26, range: 100 },
+  Ginyu: { kind: "beam", color: 0xea80fc, speed: 75, r: 0.32, range: 110 },
+  Kiwy: { kind: "cold", color: 0xb3e5fc, speed: 65, r: 0.24, range: 100 },
+  Appule: { kind: "ball", color: 0xce93d8, speed: 55, r: 0.22, range: 95 },
+  "Ten Shin Han": { kind: "cold", color: 0xffee58, speed: 70, r: 0.16, range: 90 },
+  Yamcha: { kind: "ball", color: 0xffcc80, speed: 65, r: 0.24, range: 100 },
+  Chaoz: { kind: "magic", color: 0xeeeeee, speed: 60, r: 0.18, range: 90 },
+  Yajirobee: { kind: "ball", color: 0xff8a65, speed: 60, r: 0.32, range: 85 },
+  Kami: { kind: "magic", color: 0xa5d6a7, speed: 60, r: 0.12, range: 90 },
+  Nappa: { kind: "ball", color: 0xffab40, speed: 75, r: 0.4, range: 100 },
+  Raditz: { kind: "fire", color: 0x81c784, speed: 70, r: 0.16, range: 100 },
+  Saibaman: { kind: "ball", color: 0x9ccc65, speed: 55, r: 0.2, range: 80 },
+  Trunks: { kind: "light", color: 0xce93d8, speed: 75, r: 0.16, range: 110 },
+  "Gohan del futuro": { kind: "fire", color: 0x81d4fa, speed: 75, r: 0.18, range: 110 },
+  Bardock: { kind: "light", color: 0xff8a65, speed: 70, r: 0.16, range: 100 },
+  "Rey Vegeta": { kind: "beam", color: 0xce93d8, speed: 72, r: 0.18, range: 115 },
+  Tooma: { kind: "disk", color: 0xef5350, speed: 68, r: 0.26, range: 90 },
+  Paragus: { kind: "ball", color: 0xb0bec5, speed: 60, r: 0.24, range: 100 },
+  "Mr. Satan": { kind: "ball", color: 0xef5350, speed: 55, r: 0.28, range: 85 },
+  Cell: { kind: "beam", color: 0x69f0ae, speed: 80, r: 0.14, range: 130 },
+  "Nº16": { kind: "ball", color: 0x90a4ae, speed: 75, r: 0.38, range: 120 },
+  "Nº17": { kind: "fire", color: 0x81d4fa, speed: 70, r: 0.12, range: 100 },
+  "Nº18": { kind: "light", color: 0xf8bbd0, speed: 70, r: 0.12, range: 100 },
+  "Nº19": { kind: "spike", color: 0xef9a9a, speed: 60, r: 0.3, range: 80 },
+  "Dr. Gero": { kind: "ball", color: 0xb0bec5, speed: 60, r: 0.22, range: 90 },
 };
 
 export function powerStyle(nombre, faccion) {
   // Fallback si el nombre no está en STYLES. speed acá también es u/s base.
   if (STYLES[nombre]) return { ...STYLES[nombre] };
   if (nombre.startsWith("Saibaman")) return { ...STYLES.Saibaman };
-  if (nombre.startsWith("Cell Jr.")) return { kind: "beam", color: 0xa5d6a7, speed: 36, r: 0.1, life: 1.6, range: 80 };
-  if (faccion === "z") return { kind: "ball", color: 0x81c784, speed: 36, r: 0.22, life: 1.15, range: 80 };
-  return { kind: "ball", color: 0x90caf9, speed: 36, r: 0.2, life: 1.1, range: 80 };
+  if (nombre.startsWith("Cell Jr.")) return { kind: "drill", color: 0xa5d6a7, speed: 50, r: 0.4, range: 80 };
+  if (faccion === "z") return { kind: "ball", color: 0x81c784, speed: 50, r: 0.5, range: 80 };
+  return { kind: "ball", color: 0x90caf9, speed: 50, r: 0.5, range: 80 };
 }
 
 let _glow;
@@ -144,6 +173,102 @@ export function makePowerMesh(style, superOn, rank = 0) {
     const halo = spr(c, 0.28);
     halo.scale.setScalar(R * 3.4);
     g.add(halo);
+  } else if (style.kind === "light") {
+    // luz: rayo muy fino y blanco con mucho brillo.
+    const len = 4.2 * s;
+    const r0 = Math.max(0.04, style.r * s * 0.35);
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(r0 * 0.5, r0 * 0.5, len, 8), mat(0xffffff, 0.98)));
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(r0 * 1.4, r0 * 1.4, len, 8), matAdd(c, 0.6)));
+    const tip = spr(0xffffff, 0.9);
+    tip.scale.setScalar(r0 * 7);
+    tip.position.y = len * 0.48;
+    g.add(tip);
+    const aura = spr(c, 0.35);
+    aura.scale.set(r0 * 7, len * 0.8, 1);
+    g.add(aura);
+  } else if (style.kind === "drill") {
+    // taladro espiral (makankosappo): eje fino + hélice que gira (hijo "spin").
+    const len = 3.8 * s;
+    const r0 = Math.max(0.05, style.r * s * 0.5);
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(r0 * 0.4, r0 * 0.4, len, 8), mat(0xffffff, 0.98)));
+    const spin = new THREE.Group();
+    spin.name = "spin";
+    const pts = [];
+    for (let i = 0; i <= 64; i++) {
+      const t = i / 64;
+      const a = t * Math.PI * 2 * 5;
+      pts.push(new THREE.Vector3(Math.cos(a) * r0 * 2.2, (t - 0.5) * len, Math.sin(a) * r0 * 2.2));
+    }
+    const curve = new THREE.CatmullRomCurve3(pts);
+    spin.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 96, r0 * 0.35, 6), mat(c, 0.95)));
+    g.add(spin);
+    const tip = spr(0xffffff, 0.7);
+    tip.scale.setScalar(r0 * 4);
+    tip.position.y = len * 0.5;
+    g.add(tip);
+  } else if (style.kind === "cold") {
+    // hielo: carámbano (octaedro estirado) apuntando al frente.
+    const R = Math.max(0.16, style.r * s * 1.2);
+    const shard = new THREE.Mesh(new THREE.OctahedronGeometry(R, 0), mat(c, 0.85));
+    shard.scale.set(0.7, 3.2, 0.7);
+    g.add(shard);
+    const core = new THREE.Mesh(new THREE.OctahedronGeometry(R * 0.5, 0), mat(0xffffff, 0.95));
+    core.scale.set(0.7, 3, 0.7);
+    g.add(core);
+    const halo = spr(c, 0.3);
+    halo.scale.set(R * 3, R * 6, 1);
+    g.add(halo);
+  } else if (style.kind === "spike") {
+    // estrella de púas: conos radiales que giran (hijo "spin").
+    const R = Math.max(0.16, style.r * s * 1.1);
+    const spin = new THREE.Group();
+    spin.name = "spin";
+    spin.add(new THREE.Mesh(new THREE.IcosahedronGeometry(R * 0.55, 0), mat(0xffffff, 0.95)));
+    const coneG = new THREE.ConeGeometry(R * 0.28, R * 1.3, 6);
+    const coneM = mat(c, 0.95);
+    const dirs = new THREE.IcosahedronGeometry(1, 0).attributes.position;
+    const seen = new Set();
+    for (let i = 0; i < dirs.count; i++) {
+      const v = new THREE.Vector3().fromBufferAttribute(dirs, i).normalize();
+      const k = `${v.x.toFixed(2)},${v.y.toFixed(2)},${v.z.toFixed(2)}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const cone = new THREE.Mesh(coneG, coneM);
+      cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v);
+      cone.position.copy(v).multiplyScalar(R * 0.8);
+      spin.add(cone);
+    }
+    g.add(spin);
+    const halo = spr(c, 0.3);
+    halo.scale.setScalar(R * 3.4);
+    g.add(halo);
+  } else if (style.kind === "fire") {
+    // fuego: bola con capas naranja/roja y llama (sprites) que titilan.
+    const R = Math.max(0.16, style.r * s * 1.35);
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(R * 0.5, 10, 8), mat(0xfff59d, 0.95)));
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(R, 12, 10), matAdd(c, 0.7)));
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(R * 1.35, 12, 10), matAdd(0xff6d00, 0.35)));
+    const flame = spr(0xff3d00, 0.5);
+    flame.name = "flicker";
+    flame.scale.setScalar(R * 4);
+    g.add(flame);
+  } else if (style.kind === "magic") {
+    // magia: esfera con dos anillos cruzados que giran (hijo "spin").
+    const R = Math.max(0.16, style.r * s * 1.2);
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(R * 0.6, 12, 10), mat(0xffffff, 0.92)));
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(R * 0.9, 12, 10), matAdd(c, 0.45)));
+    const spin = new THREE.Group();
+    spin.name = "spin";
+    const ringG = new THREE.TorusGeometry(R * 1.4, R * 0.08, 6, 32);
+    const r1 = new THREE.Mesh(ringG, mat(c, 0.9));
+    const r2 = new THREE.Mesh(ringG, mat(c, 0.9));
+    r1.rotation.x = Math.PI / 2;
+    r2.rotation.y = Math.PI / 2;
+    spin.add(r1, r2);
+    g.add(spin);
+    const halo = spr(c, 0.35);
+    halo.scale.setScalar(R * 4);
+    g.add(halo);
   } else {
     // bola de ki. misma speed de STYLES.
     const R = Math.max(0.14, style.r * s * 1.35);
@@ -156,6 +281,46 @@ export function makePowerMesh(style, superOn, rank = 0) {
     g.add(halo);
   }
   return g;
+}
+
+// Kinds con chorro continuo desde la mano (estilo Kamehameha). Pegado a la mano / largo máx en combat.js.
+export const STREAM = new Set(["beam", "fire", "light", "drill", "cold"]);
+
+const _up = new THREE.Vector3(0, 1, 0);
+const _sd = new THREE.Vector3();
+
+/** chorro: cilindros de alto 1 en +Y (punta = cabeza del disparo), se estiran con updateStream. */
+export function makeStreamMesh(style, r) {
+  const g = new THREE.Group();
+  const core = style.kind === "fire" ? 0xfff59d : 0xffffff;
+  g.add(new THREE.Mesh(new THREE.CylinderGeometry(r * 0.45, r * 0.25, 1, 10, 1, true), mat(core, 0.9)));
+  g.add(new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.55, 1, 12, 1, true), matAdd(style.color, 0.5)));
+  if (style.kind === "fire") g.add(new THREE.Mesh(new THREE.CylinderGeometry(r * 1.5, r * 0.7, 1, 10, 1, true), matAdd(0xff6d00, 0.25)));
+  return g;
+}
+
+export function updateStream(stream, tail, head) {
+  _sd.subVectors(head, tail);
+  const len = _sd.length();
+  stream.visible = len > 0.05;
+  if (!stream.visible) return;
+  stream.position.addVectors(head, tail).multiplyScalar(0.5);
+  stream.quaternion.setFromUnitVectors(_up, _sd.divideScalar(len));
+  stream.scale.set(1, len, 1);
+}
+
+/** anima por frame las partes que giran o titilan según el kind. */
+export function animPowerMesh(mesh, kind, dt) {
+  const spin = mesh.getObjectByName("spin");
+  if (spin) {
+    if (kind === "drill") spin.rotation.y += dt * 22;
+    else if (kind === "spike") {
+      spin.rotation.x += dt * 9;
+      spin.rotation.y += dt * 13;
+    } else spin.rotation.y += dt * 6;
+  }
+  const fl = mesh.getObjectByName("flicker");
+  if (fl) fl.material.opacity = 0.35 + Math.random() * 0.3;
 }
 
 /** alinea un efecto de poder de tipo beam. */

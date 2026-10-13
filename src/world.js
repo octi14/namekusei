@@ -647,7 +647,34 @@ function deepenSeabed(h) {
   return Math.min(h, shore - depth);
 }
 
+/** Malla del suelo ya construida: la colisión lee los mismos triángulos que se ven. */
+let _gridH = null;
+
+function gridHeight(x, z) {
+  const g = _gridH;
+  const fx = (x + g.half) / g.step;
+  const fz = (z + g.half) / g.step;
+  const ix = Math.floor(fx);
+  const iz = Math.floor(fz);
+  if (ix < 0 || iz < 0 || ix >= g.segs || iz >= g.segs) return null;
+  const u = fx - ix;
+  const v = fz - iz;
+  const W = g.segs + 1;
+  const h = g.h;
+  const ha = h[iz * W + ix];
+  const hb = h[(iz + 1) * W + ix];
+  const hc = h[(iz + 1) * W + ix + 1];
+  const hd = h[iz * W + ix + 1];
+  // Misma diagonal que PlaneGeometry (b–d)
+  if (u + v <= 1) return ha + (hd - ha) * u + (hb - ha) * v;
+  return hc + (hb - hc) * (1 - u) + (hd - hc) * (1 - v);
+}
+
 export function groundHeight(x, z) {
+  if (_gridH) {
+    const g = gridHeight(x, z);
+    if (g != null) return g;
+  }
   return deepenSeabed(applyBasePads(rawGroundHeight(x, z), x, z));
 }
 
@@ -795,13 +822,14 @@ export function blockedSight(ax, ay, az, bx, by, bz) {
   return false;
 }
 
+// Incluye techos: la esfera cae al terreno (ignora techos) y quien la busca queda parado arriba.
 export function insideObst(x, z, pad = 2.2) {
-  return !!hitObst(x, z, pad, 2.4, true);
+  return !!hitObst(x, z, pad, 2.4, false);
 }
 
 export function pushOutObst(p, pad = 2.4) {
   for (let n = 0; n < 5; n++) {
-    const o = hitObst(p.x, p.z, pad, 2.4, true);
+    const o = hitObst(p.x, p.z, pad, 2.4, false);
     if (!o) return p;
     const ox = p.x - o.x;
     const oz = p.z - o.z;
@@ -824,7 +852,7 @@ export function isWater(x, z) {
 }
 
 function roofAt(x, z) {
-  let best = 0;
+  let best = -Infinity;
   const ix = Math.floor(x / OBST_CELL);
   const iz = Math.floor(z / OBST_CELL);
   for (let dx = -1; dx <= 1; dx++) {
@@ -2247,7 +2275,7 @@ function addVegetaInstallations(scene) {
     dummy.scale.set(sc, sc * 0.65, sc);
     dummy.updateMatrix();
     rocks.setMatrixAt(r, dummy.matrix);
-    if (sc > 1.8) addObst(x, z, sc * 0.7, sc + 1);
+    if (sc > 1.8) addObst(x, z, sc * 0.7, sc + 1, gy);
     r++;
   }
   rocks.count = r;
@@ -2547,6 +2575,7 @@ export function createWorld(scene, id = "namek") {
   const prevRand = Math.random;
   Math.random = rng;
   try {
+  _gridH = null;
   pickPatriarchHill();
   layoutVegeta();
   layoutEarthSeed();
@@ -2568,6 +2597,12 @@ export function createWorld(scene, id = "namek") {
   } else {
     for (let i = 0; i < pos.count; i++) {
       pos.setY(i, groundHeight(pos.getX(i), pos.getZ(i)));
+    }
+    // En Vegeta las mesetas/crestas son más finas que la grilla: sin esto se camina sobre relieve invisible.
+    if (vegeta) {
+      const h = new Float32Array(pos.count);
+      for (let i = 0; i < pos.count; i++) h[i] = pos.getY(i);
+      _gridH = { h, segs, half: EXT / 2, step: EXT / segs };
     }
   }
   pos.needsUpdate = true;
@@ -2727,6 +2762,8 @@ export function buildMapMaquette(id = "namek") {
     earthLakes,
     cellIslands,
   };
+  const prevGrid = _gridH;
+  _gridH = null;
   mapId = id;
   WATER_Y = waterYFor(id);
   applyTerrainSeed((id.charCodeAt(0) * 9973 + (MAP | 0) * 131) >>> 0);
@@ -2857,5 +2894,6 @@ export function buildMapMaquette(id = "namek") {
   ({ vegetaClusters, vegetaDunes, vegetaMesas, vegetaRidges, vegetaLoners, earthPlateaus, earthLakes, cellIslands } =
     prevLayout);
   refreshBasePads();
+  _gridH = prevGrid;
   return root;
 }
