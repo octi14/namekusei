@@ -8,6 +8,44 @@ let _grassFileTex = null;
 let _grassNamekTex = null;
 
 const BASE_R = BASE_INNER_R;
+
+// Escenario levemente toon: la luz directa se escalona en 3 bandas suaves, mezclada con la original.
+const TOON_K = 0.4;
+const _toonFn = `
+float softToon(float x) {
+  float s = x * 3.0;
+  return mix(x, (floor(s) + smoothstep(0.3, 0.7, fract(s))) / 3.0, ${TOON_K.toFixed(2)});
+}
+`;
+const _dotNL = "float dotNL = saturate( dot( geometryNormal, directLight.direction ) );";
+const _toonChunks = ["lights_lambert_pars_fragment", "lights_phong_pars_fragment", "lights_physical_pars_fragment"];
+
+/** Aplica el sombreado toon suave a los materiales lit (no toon/basic) ya agregados a la escena. */
+export function softToonScene(root) {
+  root.traverse((o) => {
+    const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+    for (const m of mats) {
+      if (m._softToon || !(m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshStandardMaterial)) continue;
+      m._softToon = true;
+      const prev = m.onBeforeCompile;
+      const prevKey = m.customProgramCacheKey;
+      m.onBeforeCompile = (sh, r) => {
+        prev?.call(m, sh, r);
+        for (const c of _toonChunks) {
+          const inc = `#include <${c}>`;
+          if (!sh.fragmentShader.includes(inc)) continue;
+          sh.fragmentShader = sh.fragmentShader.replace(
+            inc,
+            _toonFn + THREE.ShaderChunk[c].replace(_dotNL, "float dotNL = softToon( saturate( dot( geometryNormal, directLight.direction ) ) );")
+          );
+        }
+      };
+      m.customProgramCacheKey = () => "softToon|" + (prevKey ? prevKey.call(m) : "");
+      m.needsUpdate = true;
+    }
+  });
+}
+
 export const patriarchHill = { x: 140, z: 0, baseY: 2 };
 const PAT_H = 50;
 const PAT_R = 36;
@@ -399,8 +437,9 @@ function layoutCellSeed() {
       ...isl,
       x,
       z,
-      rx: isl.rx * (0.82 + Math.random() * 0.4),
-      rz: isl.rz * (0.82 + Math.random() * 0.4),
+      // 0.92: ~15% menos superficie emergida que antes
+      rx: isl.rx * 0.92 * (0.82 + Math.random() * 0.4),
+      rz: isl.rz * 0.92 * (0.82 + Math.random() * 0.4),
       h: isl.h * (0.9 + Math.random() * 0.25),
     };
   });
@@ -980,7 +1019,7 @@ function addEarthTrees(scene, thick) {
     dummy.scale.set(p.cap * 0.7, p.cap * 0.55, p.cap * 0.7);
     dummy.updateMatrix();
     canopy2.setMatrixAt(i, dummy.matrix);
-    if (thick && i % 4 === 0) addObst(p.x, p.z, 0.9, p.h * 0.45);
+    if (thick && i % 4 === 0) addObst(p.x, p.z, 0.9, p.h * 0.45, p.gy);
   }
   trunk.instanceMatrix.needsUpdate = true;
   canopy.instanceMatrix.needsUpdate = true;
@@ -1144,7 +1183,7 @@ function addCellArchipelago(scene) {
     const top = new THREE.Mesh(new THREE.BoxGeometry(2.6 * s, 0.35 * s, 2.4 * s), roof);
     top.position.set(x, gy + 1.9 * s, z);
     scene.add(shadowMesh(top));
-    addObst(x, z, 1.8 * s, 2.4 * s);
+    addObst(x, z, 1.8 * s, 2.4 * s, gy);
   }
   const rockM = new THREE.MeshLambertMaterial({ color: 0xa1887f });
   const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), rockM, 220);
@@ -1164,7 +1203,7 @@ function addCellArchipelago(scene) {
     dummy.scale.set(sc, sc * (0.6 + Math.random() * 0.7), sc);
     dummy.updateMatrix();
     rocks.setMatrixAt(r, dummy.matrix);
-    if (sc > 1.6) addObst(x, z, sc * 0.7, sc + 1);
+    if (sc > 1) addObst(x, z, sc * 0.75, sc + 0.6, gy);
     r++;
   }
   rocks.count = r;
@@ -1185,7 +1224,7 @@ function addKameHouse(scene) {
   roof.rotation.y = Math.PI / 4;
   roof.position.set(x, y + 4.6, z);
   scene.add(shadowMesh(roof));
-  addObst(x, z, 4.4, 5);
+  addObst(x, z, 4.4, 5, y);
 }
 
 function addAjisa(scene) {
@@ -1464,7 +1503,7 @@ function addBulmaShip(scene) {
   const fin = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3.2, 2.4), orange);
   fin.position.set(x - 6.5, y + 5.2, z);
   scene.add(shadowMesh(fin));
-  addObst(x, z, 8.2, 7);
+  addObst(x, z, 8.2, 7, y);
 }
 
 function addFreezerShip(scene) {
@@ -1498,7 +1537,7 @@ function addFreezerShip(scene) {
     leg.position.set(x + Math.cos(a) * 28, y + 4, z + Math.sin(a) * 28);
     scene.add(shadowMesh(leg));
   }
-  addObst(x, z, 36, 14);
+  addObst(x, z, 36, 14, y);
 }
 
 function addLandmarks(scene) {
@@ -2275,7 +2314,7 @@ function addVegetaInstallations(scene) {
     dummy.scale.set(sc, sc * 0.65, sc);
     dummy.updateMatrix();
     rocks.setMatrixAt(r, dummy.matrix);
-    if (sc > 1.8) addObst(x, z, sc * 0.7, sc + 1, gy);
+    if (sc > 1.1) addObst(x, z, sc * 0.75, sc * 0.65 + 0.8, gy);
     r++;
   }
   rocks.count = r;
@@ -2462,7 +2501,7 @@ function addRocks(scene) {
       r.position.set(x, gy + s * 0.4, z);
       r.rotation.set(Math.random(), Math.random(), Math.random());
       scene.add(r);
-      addObst(x, z, s * 0.8, s + 2);
+      addObst(x, z, s * 0.85, s * 1.35, gy);
     }
     return;
   }
@@ -2485,7 +2524,7 @@ function addRocks(scene) {
       r.position.set(x, gy + s * 0.45, z);
       r.rotation.set(Math.random(), Math.random(), Math.random());
       scene.add(r);
-      addObst(x, z, s * 0.85, s + 1.5);
+      addObst(x, z, s * 0.9, s * 1.4, gy);
     }
   }
 }

@@ -11,7 +11,7 @@ export const ALIGNED = new Set(["beam", "light", "drill", "cold"]);
 // (y contra el kind del proyectil rival en un choque). Falta = 1 (sin cambios).
 // >1 fuerte, <1 débil. Se aplica sobre el daño normal (ataque/ki/defensa siguen igual).
 export const COUNTER = {
-  fire:  { cold: 1.3, ball: 1.2, beam: 0.8, spike: 0.7 },
+  fire:  { cold: 1.3, ball: 1.2, beam: 0.7, spike: 0.7 },
   cold:  { drill: 1.2, beam: 1.3, spike: 1.3, light: 0.7 },
   drill: { beam: 1.25, disk: 1.25, cold: 0.8, ball: 0.8 },
   beam:  { spike: 1.2, magic: 1.2, ball: 1.2, drill: 0.8, fire: 0.8, disk: 0.8 },
@@ -35,10 +35,10 @@ const STYLES = {
   Gokú: { kind: "beam", color: 0xdcebbe, speed: 80, r: 0.2, range: 120 },
   Gohan: { kind: "ball", color: 0x81d4fa, speed: 75, r: 0.18, range: 100 },
   Krilin: { kind: "disk", color: 0xffee58, speed: 65, r: 1, range: 100 },
-  Pikoro: { kind: "drill", color: 0x69f0ae, speed: 70, r: 0.1, range: 120 },
+  Pikoro: { kind: "drill", color: 0x69f0ae, speed: 70, r: 0.3, range: 120 },
   Vegeta: { kind: "beam", color: 0xce93d8, speed: 75, r: 0.18, range: 120 },
   Nail: { kind: "drill", color: 0xa5d6a7, speed: 65, r: 0.28, range: 100 },
-  Dendé: { kind: "ball", color: 0xc5e1a5, speed: 60, r: 0.2, range: 95 },
+  Dendé: { kind: "drill", color: 0xc5e1a5, speed: 60, r: 0.2, range: 95 },
   Freezer: { kind: "disk", color: 0xc045ed, speed: 80, r: 0.08, range: 120 },
   Zaabon: { kind: "light", color: 0x0dd6ab, speed: 75, r: 0.25, range: 100 },
   Dodoria: { kind: "spike", color: 0x380e9c, speed: 75, r: 0.42, range: 100 },
@@ -47,7 +47,7 @@ const STYLES = {
   Yiz: { kind: "fire", color: 0xf55a42, speed: 70, r: 0.14, range: 100 },
   Butter: { kind: "cold", color: 0xdce775, speed: 77, r: 0.26, range: 100 },
   Ginyu: { kind: "beam", color: 0xea80fc, speed: 75, r: 0.32, range: 110 },
-  Kiwy: { kind: "cold", color: 0xb3e5fc, speed: 65, r: 0.24, range: 100 },
+  Kiwy: { kind: "fire", color: 0xb3e5fc, speed: 65, r: 0.24, range: 100 },
   Appule: { kind: "ball", color: 0xce93d8, speed: 55, r: 0.22, range: 95 },
   "Ten Shin Han": { kind: "cold", color: 0xffee58, speed: 70, r: 0.16, range: 90 },
   Yamcha: { kind: "ball", color: 0xffcc80, speed: 65, r: 0.24, range: 100 },
@@ -280,6 +280,28 @@ export function makePowerMesh(style, superOn, rank = 0) {
     halo.scale.setScalar(R * 3.6);
     g.add(halo);
   }
+  return tame(g);
+}
+
+// Brillo de los poderes: menos glow aditivo y núcleos teñidos (no blanco puro) para que se lea la forma.
+const GLOW = 0.45;
+const SPRITE_K = 0.7;
+const _white = new THREE.Color(0xffffff);
+
+function tame(g) {
+  const tint = new THREE.Color();
+  let col = null;
+  g.traverse((o) => {
+    const m = o.material;
+    if (m?.color && !m.color.equals(_white)) col ??= m.color;
+  });
+  g.traverse((o) => {
+    const m = o.material;
+    if (!m) return;
+    if (m.blending === THREE.AdditiveBlending) m.opacity *= GLOW;
+    if (o.isSprite) o.scale.multiplyScalar(SPRITE_K);
+    if (col && m.color.equals(_white)) m.color.copy(tint.copy(col).lerp(_white, 0.55));
+  });
   return g;
 }
 
@@ -296,7 +318,7 @@ export function makeStreamMesh(style, r) {
   g.add(new THREE.Mesh(new THREE.CylinderGeometry(r * 0.45, r * 0.25, 1, 10, 1, true), mat(core, 0.9)));
   g.add(new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.55, 1, 12, 1, true), matAdd(style.color, 0.5)));
   if (style.kind === "fire") g.add(new THREE.Mesh(new THREE.CylinderGeometry(r * 1.5, r * 0.7, 1, 10, 1, true), matAdd(0xff6d00, 0.25)));
-  return g;
+  return tame(g);
 }
 
 export function updateStream(stream, tail, head) {
@@ -320,7 +342,7 @@ export function animPowerMesh(mesh, kind, dt) {
     } else spin.rotation.y += dt * 6;
   }
   const fl = mesh.getObjectByName("flicker");
-  if (fl) fl.material.opacity = 0.35 + Math.random() * 0.3;
+  if (fl) fl.material.opacity = (0.35 + Math.random() * 0.3) * GLOW;
 }
 
 /** alinea un efecto de poder de tipo beam. */

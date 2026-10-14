@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { makeBody, DEFAULT_SCULPT, SCULPT_SELECTS, saveSculpt, loadSavedSculpt, clearSavedSculpt, captureMolds, recomputeNormals } from "./body.js";
 import { LOOK, saveLook, loadSavedLook } from "./looks.js";
+import { PROP_FIT } from "./props.js";
 import { hasFaceDecal, sculptKeyApplies, FACE_MESH_LOOK_KEYS } from "./faceDecal.js";
 import { flushPack } from "./pack.js";
 import {
@@ -183,6 +184,7 @@ const SLIDERS = [
   ["hipFlapSz", "Faldones grosor", 1.4, 4.2, 0.05],
   ["hipFlapTilt", "Faldones inclinación", 0, 0.7, 0.01],
   ["hipFlapArch", "Faldones cúpula", 0.05, 1.2, 0.02],
+  ["hipFlapLink", "Faldones unión", 0, 0.25, 0.005],
   ["showFrontFlap", "Faldón delantero on", 0, 1, 1],
   ["frontFlapX", "Faldón front X", -0.2, 0.2, 0.005],
   ["frontFlapY", "Faldón front Y", -0.35, 0.35, 0.005],
@@ -322,6 +324,7 @@ const SLIDERS = [
   ["faceGemSz", "Gema cara prof.", 0.2, 3, 0.01],
   "Manos / pies",
   ["handScale", "Mano escala", 0.5, 1.8, 0.05],
+  ["wristY", "Muñequera pos. Y", 0.1, 1, 0.01],
   ["fingerLen", "Dedos largo", 0.4, 1.6, 0.05],
   ["handRx", "Puño rot X", -1.6, 1.6, 0.02],
   ["handRy", "Puño rot Y", -1.6, 1.6, 0.02],
@@ -351,10 +354,21 @@ const SLIDERS = [
   ["spots", "Manchas cuerpo", 0, 1, 1],
   ["spotScale", "Manchas escala", 0.4, 2.2, 0.05],
   ["showScouter", "Scouter on", 0, 1, 1],
+  ["scouterZ", "Scouter Z", -0.2, 0.2, 0.005],
   ["showTail", "Cola on", 0, 1, 1],
   ["tailLen", "Cola largo", 0.4, 2, 0.05],
   ["tailThick", "Cola grosor", 0.4, 2, 0.05],
 ];
+
+const PROP_OF = new Map(PROP_FIT.map(([id, , prop]) => [id, prop]));
+for (const [id, lab, , rot] of PROP_FIT) {
+  SLIDERS.push(lab);
+  SLIDERS.push([`${id}X`, `${lab} X`, -0.45, 0.45, 0.005]);
+  SLIDERS.push([`${id}Y`, `${lab} Y`, -0.55, 0.55, 0.005]);
+  SLIDERS.push([`${id}Z`, `${lab} Z`, -0.45, 0.45, 0.005]);
+  SLIDERS.push([`${id}S`, `${lab} tamaño`, 0.25, 2.5, 0.05]);
+  if (rot) SLIDERS.push([`${id}R`, `${lab} giro`, -1.5, 1.5, 0.02]);
+}
 
 const SELECT_LABELS = {
   headType: "Tipo cabeza",
@@ -371,6 +385,8 @@ const SELECT_LABELS = {
   upperSuit: "Traje superior",
   bootType: "Tipo calzado",
   gloves: "Guantes",
+  wristbands: "Muñequeras",
+  hipFlapSide: "Faldones lado",
 };
 const SELECT_OPTS = {
   headType: { sphere: "Esfera", oval: "Óvalo", skull: "Cráneo", capsule: "Cápsula", pill: "Cápsula chata", block: "Angular", sculpt: "Esculpida" },
@@ -395,6 +411,8 @@ const SELECT_OPTS = {
     bare: "Pie descalzo",
   },
   gloves: { none: "No", on: "Sí" },
+  wristbands: { auto: "Auto (gi)", on: "Sí", none: "No" },
+  hipFlapSide: { both: "Ambos", L: "Solo izquierdo", R: "Solo derecho" },
 };
 
 let open = false;
@@ -412,6 +430,7 @@ let altura = 1.85;
 let yaw = 0.4;
 let pitch = 0.15;
 let dist = 6.5;
+let lookY = 1.0;
 let drag = false;
 let moldStroke = false;
 let lastX = 0;
@@ -1066,6 +1085,24 @@ function applyFaceUi() {
   root.querySelectorAll("input[data-lookc]").forEach((el) => {
     el.closest("label").style.display = decal && FACE_MESH_LOOK_KEYS.has(el.dataset.lookc) ? "none" : "";
   });
+  const hasProp = new Set(look?.props || []);
+  root.querySelectorAll("#ce-sliders details").forEach((det) => {
+    const labs = [...det.querySelectorAll(".ce-sec-body > label")];
+    let propSec = false;
+    let any = false;
+    for (const lab of labs) {
+      const prop = PROP_OF.get((lab.querySelector("input[data-sculpt]")?.dataset.sculpt || "").slice(0, -1));
+      if (!prop) {
+        if (lab.style.display !== "none") any = true;
+        continue;
+      }
+      propSec = true;
+      const on = hasProp.has(prop);
+      lab.style.display = on ? "" : "none";
+      if (on) any = true;
+    }
+    if (propSec) det.style.display = any ? "" : "none";
+  });
 }
 
 function setStatus(msg) {
@@ -1172,6 +1209,16 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 
+function placeCamera() {
+  const d = dist;
+  camera.position.set(
+    Math.sin(yaw) * Math.cos(pitch) * d,
+    lookY + 0.1 + Math.sin(pitch) * d * 0.65,
+    Math.cos(yaw) * Math.cos(pitch) * d
+  );
+  camera.lookAt(0, lookY, 0);
+}
+
 function tick(now) {
   if (!open) return;
   raf = requestAnimationFrame(tick);
@@ -1184,13 +1231,7 @@ function tick(now) {
   }
   resize();
   tick._last = now;
-  const d = dist;
-  camera.position.set(
-    Math.sin(yaw) * Math.cos(pitch) * d,
-    1.1 + Math.sin(pitch) * d * 0.65,
-    Math.cos(yaw) * Math.cos(pitch) * d
-  );
-  camera.lookAt(0, 1.0, 0);
+  placeCamera();
   if (handleRoot?.visible && mesh && !dirty) {
     syncHandlePositions(handleRoot, sculpt, altura, mesh);
   }
@@ -1199,6 +1240,73 @@ function tick(now) {
 
 export function charEditorOpen() {
   return open;
+}
+
+if (import.meta.env?.DEV) {
+  window.__charEd = {
+    show(name, o) {
+      if (!open) setCharEditor(true);
+      const m = root.querySelector("#ce-mode");
+      if (m.value !== "orbit") {
+        m.value = "orbit";
+        m.dispatchEvent(new Event("change"));
+      }
+      const p = root.querySelector("#ce-preset");
+      if (name && p.value !== name) {
+        p.value = name;
+        p.dispatchEvent(new Event("change"));
+      }
+      if (o) this.cam(o);
+      this.render();
+      return p.value;
+    },
+    cam(o = {}) {
+      if (o.yaw != null) yaw = o.yaw;
+      if (o.pitch != null) pitch = o.pitch;
+      if (o.dist != null) dist = o.dist;
+      if (o.y != null) lookY = o.y;
+      if (camera) this.render();
+    },
+    get sculpt() {
+      return sculpt;
+    },
+    get look() {
+      return look;
+    },
+    get mesh() {
+      return mesh;
+    },
+    /** Caja en mundo de las mallas cuyo moldId matchea re: { min, max, n }. */
+    box(re) {
+      const b = new THREE.Box3();
+      let n = 0;
+      mesh?.updateMatrixWorld(true);
+      mesh?.traverse((o) => {
+        if (o.isMesh && o.visible && re.test(o.userData.moldId || "")) {
+          b.expandByObject(o);
+          n++;
+        }
+      });
+      const r = (v) => [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)];
+      return n ? { min: r(b.min), max: r(b.max), n } : null;
+    },
+    refresh() {
+      dirty = true;
+    },
+    render() {
+      if (dirty) rebuild();
+      resize();
+      placeCamera();
+      renderer.render(scene, camera);
+    },
+    /** Render + fuerza que el navegador recomponga el lienzo (si no, la captura sale vieja). */
+    snap() {
+      this.render();
+      const h = root.querySelector("#ce-hint");
+      h.textContent = h.textContent.endsWith(" ") ? h.textContent.trimEnd() : h.textContent + " ";
+      return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    },
+  };
 }
 
 export function setCharEditor(on) {

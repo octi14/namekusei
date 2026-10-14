@@ -5,7 +5,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { TEAM_SIZE, superRank, loadSettings, applySettings, applySandbox, applyRoom, snapshot, PIXEL, BLOOM, SHADOWS, MOUSE, FOV, MAP, MATCH_MINS } from "./config.js";
-import { createWorld, updateWorld, WATER_Y, buildMapMaquette } from "./world.js";
+import { createWorld, updateWorld, WATER_Y, buildMapMaquette, softToonScene } from "./world.js";
 import { buildRoster, buildSandboxRoster, buildRoomRoster, teamHeroes } from "./roster.js";
 import { setScenario, current } from "./scenario.js";
 import { Personaje, resolvePeople } from "./personaje.js";
@@ -702,6 +702,7 @@ async function startGame(id, opts = {}) {
   scene.fog = fogLand;
   renderer.toneMappingExposure = landExposure;
   createWorld(scene, id);
+  softToonScene(scene);
   applyGfx();
   const roster = opts.room ? buildRoomRoster(id, opts.room) : opts.sandbox && who ? buildSandboxRoster(who, id) : buildRoster(id);
   const zTeam = roster.filter((r) => r.faccion === "z");

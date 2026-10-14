@@ -427,7 +427,7 @@ function mane(F, o) {
     const a = Math.abs(Math.atan2(Math.sin(ph), Math.cos(ph)));
     const h = ss(a, 1.0, 1.75);
     const zig = tri(ph * (o.spikes ?? 14) + 0.5);
-    const thEnd = lerp((o.fringeTh ?? 1.08) + 0.14 * zig, thE, h);
+    const thEnd = lerp((o.fringeTh ?? 1.08) + (o.fringeZig ?? 0.14) * zig, thE, h);
     const liftEnd = lerp((o.frontLift ?? 0.05) * A * F.r, o.lift * A * F.r * 1.1, h);
     const pts = [];
     for (const s of [0, 0.25, 0.5, 0.75, 1]) {
@@ -737,7 +737,7 @@ function bob(F, o) {
 const STYLES = {
   spikyBardock: (F) => spiky(F, BARDOCK, { vol: 0.2, wMul: 1.35 }),
   // Jeice: melena batida (una masa), muy voluminosa, flequillo en picos, cae ensanchándose por la espalda.
-  jeice: (F) => mane(F, { frontLift: 0.3, fringeTh: 0.52, copete: 0.5, tufts: 230, lift: 0.32, cut: 1.5, cutBack: 1.4, flare: 0.55, fallBack: 0.8, zig: 0.32, spikes: 14 }),
+  jeice: (F) => mane(F, { frontLift: 0.22, fringeTh: 0.9, fringeZig: 0.4, copete: 0.15, tufts: 0, lift: 0.55, cut: 1.05, cutBack: 1.1, flare: 0.55, fallBack: 0.45, zig: 0.55, spikes: 9 }),
   // Nº18: carré a la mandíbula, mechón suelto sobre la frente.
   bob18: (F) => bob(F, { bang: true }),
   // Nº17: igual base, raya marcada a dos aguas (sube mucho al lado de la raya), más largo, puntas desparejas.

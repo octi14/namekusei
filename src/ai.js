@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { BASE_Z, superRank, SUPER_KI, MELEE, MAP } from "./config.js";
-import { isWater, groundHeight, WATER_Y } from "./world.js";
+import { isWater, groundHeight, WATER_Y, blockedSight } from "./world.js";
 import { BASE_INNER_R, BASE_HULL_R, steerShipNav, steerShipInside, steerShipAttic, nearAnyShip, shipDist, inShipBase, baseOrigin, baseDoorDir, steerAroundShips } from "./bases.js";
 import { powerStyle } from "./powers.js";
 import { aiTraceTick } from "./aiTrace.js";
@@ -956,6 +956,40 @@ function pickWanderTarget(p, homeZ, enemyZ) {
   return { x: lane * 0.7, z: homeZ * 0.15 + enemyZ * 0.25 };
 }
 
+/** Escondite cercano para esperar al raid sin retroceder: fuera de la vista rival, sin acercarse a su base. */
+function pickHoldSpot(p, people, foeFac) {
+  const px = p.pos().x;
+  const pz = p.pos().z;
+  const myD = shipDist(p.pos(), foeFac);
+  let bx = px;
+  let bz = pz;
+  let best = -1e9;
+  for (let i = 0; i < 12; i++) {
+    const a = seed(p) * 6.28 + i * 0.52;
+    const d = i === 0 ? 0 : 6 + (i % 4) * 6;
+    const x = px + Math.sin(a) * d;
+    const z = pz + Math.cos(a) * d;
+    if (isWater(x, z) || nearAnyShip({ x, z }, BASE_HULL_R - BASE_INNER_R + 12)) continue;
+    if (shipDist({ x, z }, foeFac) < myD - 5) continue;
+    const gy = groundHeight(x, z);
+    let s = -d * 0.15;
+    for (const o of people) {
+      if (o.dead || o.faccion === p.faccion) continue;
+      const op = o.pos();
+      const ed = Math.hypot(op.x - x, op.z - z);
+      if (ed > 140) continue;
+      if (ed < 25) s -= 30;
+      if (!blockedSight(op.x, op.y + o.height * 0.72, op.z, x, gy + 1.2, z)) s -= 18;
+    }
+    if (s > best) {
+      best = s;
+      bx = x;
+      bz = z;
+    }
+  }
+  return { x: bx, z: bz };
+}
+
 /** Spot de cobertura: lejos de enemigos, hacia la base, terreno alto, no agua. */
 function pickHideSpot(p, people, homeZ) {
   const px = p.pos().x;
@@ -1343,7 +1377,8 @@ function refreshRaid(sq, people, fac, lootCount, teamN, raids = []) {
       if (sq.phaseT > RAID_GATHER_MAX) return endRaid(sq, people, fac);
       return sq;
     }
-    const at = alive.filter((o) => Math.hypot(o.pos().x - sq.rally.x, o.pos().z - sq.rally.z) < 26).length;
+    // Los que esperan escondidos más adelante cuentan como presentes
+    const at = alive.filter((o) => o.aiRaidHold || Math.hypot(o.pos().x - sq.rally.x, o.pos().z - sq.rally.z) < 26).length;
     // Arrancar con el 80% del cupo en el punto de encuentro; al vencer la espera, con los presentes (mín. 2)
     const need = Math.max(2, Math.ceil((sq.slots + 1) * 0.8));
     const enough = at >= need && sq.phaseT > RAID_GATHER_MIN;
@@ -2599,7 +2634,33 @@ export function aiTick(p, people, balls, combat, match, dt) {
   } else {
     if ((p.lockT || 0) > 0) p.lockT = Math.max(0, p.lockT - dt * 2.2);
     if (p.lockT <= 0) p.lockFoe = null;
-    if (raiding && inRaid && raidSq && raidSq.phase === "gather") {
+    // Ya más adelantado que el punto de reunión: esperar escondido acá hasta que el raid lo alcance
+    let hold = false;
+    if (raiding && inRaid && raidSq) {
+      const foeFac = p.faccion === "z" ? "f" : "z";
+      const myD = shipDist(p.pos(), foeFac);
+      if (raidSq.phase === "gather") hold = !!p.aiRaidHold || myD < shipDist(raidSq.rally, foeFac) - 40;
+      else if (p.aiRaidHold) {
+        const mates = people.filter((o) => o !== p && !o.dead && (o.aiJoin === raidSq.id || o.id === raidSq.fromId));
+        hold = mates.length > 0 && !mates.some((o) => shipDist(o.pos(), foeFac) < myD + 35);
+      }
+      if (hold && (!p.aiHoldSpot || (p.aiHoldT = (p.aiHoldT || 0) - dt) <= 0)) {
+        p.aiHoldSpot = pickHoldSpot(p, people, foeFac);
+        p.aiHoldT = 4;
+      }
+    }
+    p.aiRaidHold = hold;
+    if (!hold) p.aiHoldSpot = null;
+    if (hold) {
+      goal = { x: p.aiHoldSpot.x, z: p.aiHoldSpot.z };
+      const hx = p.aiHoldSpot.x - p.pos().x;
+      const hz = p.aiHoldSpot.z - p.pos().z;
+      if (Math.hypot(hx, hz) > 2.5) dir.set(hx, 0, hz);
+      else {
+        dir.set(0, 0, 0);
+        p.duckHold();
+      }
+    } else if (raiding && inRaid && raidSq && raidSq.phase === "gather") {
       // Punto de encuentro: llegar y esperar al resto cargando ki
       goal = { x: raidSq.rally.x, z: raidSq.rally.z };
       const rx = raidSq.rally.x - p.pos().x;

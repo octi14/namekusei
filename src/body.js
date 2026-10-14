@@ -3,6 +3,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { getSculptMap, setSculptMap } from "./pack.js";
 import { FACE_DECALS, hasFaceDecal, addFaceDecal, faceDecalHasScouter, sculptKeyApplies } from "./faceDecal.js";
 import { hasHairStyle, buildHairStyle } from "./hairStyles.js";
+import { addCharProps, PROP_FIT } from "./props.js";
 import { HEAD_SCULPTS, hasHeadSculpt, buildHeadSculpt, headSculptPoreTex, buildHeadSculptExtras } from "./headSculpt.js";
 
 /** Calidad de malla: no escatimar en cara / ropa / accesorios. */
@@ -167,9 +168,41 @@ function skinMat(hex, sc = {}) {
     base.setHSL(hsl.h * 0.85, hsl.s * paleSat, Math.min(0.9, hsl.l + paleLift));
   }
   const outHex = base.getHex();
-  return sharedMat(`skin|${outHex}|${base.r},${base.g},${base.b}`, () =>
-    celMat({ color: base, map: skinAlbedoTex(outHex) }, 0.12, 0.18)
+  const sp = (sc.spots ?? 0) > 0.5 ? Math.round((sc.spotScale ?? 1) * 100) / 100 : 0;
+  return sharedMat(`skin|${outHex}|${base.r},${base.g},${base.b}|${sp}`, () =>
+    celMat({ color: base, map: sp ? spotSkinTex(outHex, sp) : skinAlbedoTex(outHex) }, 0.12, 0.18)
   );
+}
+
+/** Piel con manchas oscuras pintadas (Cell / Cell Jr). Escala baja = manchas más chicas y menos. */
+function spotSkinTex(hex, scale) {
+  const n = 256;
+  const c = document.createElement("canvas");
+  c.width = c.height = n;
+  const g = c.getContext("2d");
+  const base = new THREE.Color(hex);
+  g.fillStyle = `#${base.getHexString()}`;
+  g.fillRect(0, 0, n, n);
+  const dark = base.clone().multiplyScalar(0.32);
+  g.fillStyle = `#${dark.getHexString()}`;
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const count = Math.round(14 * Math.min(1.6, scale));
+  for (let i = 0; i < count; i++) {
+    const x = rnd() * n, y = rnd() * n;
+    const r = n * (0.035 + rnd() * 0.035) * Math.sqrt(scale);
+    const sx = 0.75 + rnd() * 0.6, rot = rnd() * Math.PI;
+    for (const dx of [-n, 0, n]) for (const dy of [-n, 0, n]) {
+      g.beginPath();
+      g.ellipse(x + dx, y + dy, r * sx, r, rot, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1.5, 1.5);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 /** Arrugas de tela (pliegues + costuras). */
@@ -877,6 +910,8 @@ export const DEFAULT_SCULPT = {
   bootCuff: 1.05,
   bootType: "tall", // tall | combat | armor | soft
   gloves: "none", // none | on
+  wristbands: "auto", // auto (gi) | on | none
+  wristY: 0.88, // posición en el antebrazo: 0 codo → 1 muñeca
   // capa / cinturón
   capeScale: 1,
   capeThick: 1,
@@ -918,6 +953,7 @@ export const DEFAULT_SCULPT = {
   showPlate: 0,
   showCape: 0,
   showScouter: 0,
+  scouterZ: 0,
   showTail: 0,
   showHipFlaps: 0,
   hipFlapX: 0,
@@ -928,6 +964,8 @@ export const DEFAULT_SCULPT = {
   hipFlapSz: 1,
   hipFlapTilt: 0.2,
   hipFlapArch: 0.35,
+  hipFlapSide: "both", // both | L | R
+  hipFlapLink: 0, // largo de la pieza que une el faldón con la armadura (0 = suelto)
   showFrontFlap: 0,
   frontFlapX: 0,
   frontFlapY: 0,
@@ -1031,11 +1069,19 @@ export const DEFAULT_SCULPT = {
   hornCurl: 1,
 };
 
+for (const [id, , , rot] of PROP_FIT) {
+  DEFAULT_SCULPT[id + "X"] = 0;
+  DEFAULT_SCULPT[id + "Y"] = 0;
+  DEFAULT_SCULPT[id + "Z"] = 0;
+  DEFAULT_SCULPT[id + "S"] = 1;
+  if (rot) DEFAULT_SCULPT[id + "R"] = 0;
+}
+
 export const SCULPT_SELECTS = {
   headType: ["sphere", "oval", "skull", "capsule", "pill", "block", "sculpt"],
   headSculpt: HEAD_SCULPTS,
   pecType: ["none", "sphere", "flat", "split", "armor"],
-  earType: ["none", "round", "pointed", "wide"],
+  earType: ["none", "round", "pointed", "wide", "human", "pierced"],
   eyeType: ["anime", "narrow", "none"],
   noseType: ["none", "namek"],
   mouthType: ["none", "line", "open", "grit", "smirk"],
@@ -1046,6 +1092,8 @@ export const SCULPT_SELECTS = {
   upperSuit: ["none", "freezerElite"],
   bootType: ["tall", "combat", "armor", "soft", "saiyan", "ginyu", "bare"],
   gloves: ["none", "on"],
+  wristbands: ["auto", "on", "none"],
+  hipFlapSide: ["both", "L", "R"],
 };
 
 const INERT_KEYS = ["torsoSx", "showLapels", "giLapelTilt", "bumpScale", "sheen", "sheenRough", "skinRough"];
@@ -1433,10 +1481,10 @@ function bareFootMesh(r, mat, o = {}) {
   heel.rotation.x = Math.PI / 2 + pitch;
   heel.position.set(0, y0 + halfH * 0.12, z0 - len * 0.36);
   g.add(heel);
-  for (const [x, zf, k] of [[-0.4, 0.44, 0.8], [0, 0.5, 1], [0.4, 0.44, 0.8]]) {
-    const toe = loftMesh([r * 0.26 * k, r * 0.2 * k, r * 0.1 * k], r * 0.4 * k, mat, { radial: 8, sx: 1, sz: sy * 0.85 });
-    toe.rotation.x = Math.PI / 2 + pitch;
-    toe.position.set(x * r * sx, y0, z0 + len * zf);
+  for (const [x, yaw, k] of [[-0.48, -0.32, 0.85], [0, 0, 1], [0.48, 0.32, 0.85]]) {
+    const toe = loftMesh([r * 0.3 * k, r * 0.3 * k, r * 0.24 * k, r * 0.12 * k, r * 0.02], r * 1.1 * k, mat, { radial: 8, sx: 1, sz: sy * 1.1 });
+    toe.rotation.set(Math.PI / 2 + pitch, yaw, 0, "YXZ");
+    toe.position.set(x * r * sx, y0 - halfH * 0.15, z0 + len * 0.5 + r * 0.1);
     g.add(toe);
   }
   return g;
@@ -1807,12 +1855,19 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
   if (extras?.band) {
     const atWrist = extras.bandAt === "wrist";
     const br = atWrist ? lowerR : upperR;
+    const v = Math.max(0, Math.min(1, extras.bandY ?? 0.88));
+    // El radio sigue el perfil del antebrazo (calibrado a 0.88, donde el perfil vale ~0.84)
+    const pf = PROF.foreArm;
+    const pi = v * (pf.length - 1);
+    const i0 = Math.min(pf.length - 2, Math.floor(pi));
+    const pv = pf[i0] + (pf[i0 + 1] - pf[i0]) * (pi - i0);
+    const k = atWrist ? pv / 0.84 : 1;
     const band = new THREE.Mesh(
-      new THREE.TorusGeometry(br * 1.55 * fit, br * 0.28, 10, 20),
+      new THREE.TorusGeometry(br * 1.55 * fit * k, br * 0.28, 10, 20),
       extras.band
     );
     band.rotation.x = Math.PI / 2;
-    band.position.y = atWrist ? -lowerLen * 0.88 : -upperLen * 0.35;
+    band.position.y = atWrist ? -lowerLen * v : -upperLen * 0.35;
     band.userData.moldId = `cloth_band_${side}`;
     band.userData.moldFamily = "cloth";
     (atWrist ? elbow : sh).add(band);
@@ -1847,8 +1902,27 @@ function makeArm(upperR, lowerR, upperLen, lowerLen, mat, x, y, extras) {
       elbow.add(wrap);
     }
   }
+  if (extras?.glove && extras.hand) {
+    // Puño del guante (estilo DBZ): caña acampanada sobre la muñeca + ribete en el borde
+    const wr = PROF.foreArm.at(-1) * lowerR * lBulk;
+    const h = lowerLen * 0.3;
+    const cuff = loftMesh([wr * 1.42, wr * 1.36, wr * 1.22, wr * 1.1, wr * 1.06], h, extras.hand, {
+      radial: 14,
+      sx: lSx * 1.04,
+      sz: lSx * 0.94,
+    });
+    cuff.position.y = -lowerLen + h * 0.42;
+    cuff.userData.moldId = `glove_${side}`;
+    cuff.userData.moldFamily = "cloth";
+    elbow.add(cuff);
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(wr * 1.4, wr * 0.09, 6, 20), extras.hand);
+    lip.rotation.x = Math.PI / 2;
+    lip.scale.set(lSx * 1.04, lSx * 0.94, 1);
+    lip.position.y = cuff.position.y + h * 0.5;
+    elbow.add(lip);
+  }
   if (extras?.hand) {
-    const hs = extras.handScale ?? 1;
+    const hs = (extras.handScale ?? 1) * (extras.glove ? 1.03 : 1);
     const hand = handMesh(lowerR * 1.25 * hs, extras.hand, extras.fingerLen ?? 1, side === "L" ? 1 : -1);
     hand.rotation.set(extras.handRx ?? 0.12, extras.handRy ?? 0, extras.handRz ?? 0);
     hand.scale.multiplyScalar(hs);
@@ -2199,11 +2273,12 @@ function addHeadGear(headG, s, look, sc = DEFAULT_SCULPT) {
       } else hb.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(0.32, 0.32, 0.32).multiplyScalar(s * hk));
       const hcen = hb.getCenter(new THREE.Vector3());
       const hh = hb.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+      const antM = head?.material ?? hc;
       for (const side of [-1, 1]) {
-        const ant = curvedHorn(hc, sc.antR * s, sc.antLen * s, 1.1, "z", -1, [1.25, 0.9, 0.75, 0.7, 0.75, 0.85]);
-        ant.position.set(side * sc.antSpread * s * hsx, hcen.y + hh.y * 0.78 - hairRoot.position.y, hcen.z + hh.z * 0.5);
-        ant.rotation.z = side * -0.22;
-        ant.rotation.x = 0.15;
+        const ant = curvedHorn(antM, sc.antR * s, sc.antLen * s, 0.95, "z", -1, [0.3, 1.0, 1.25, 0.95, 0.72, 0.68, 0.82, 1.1, 1.5]);
+        ant.position.set(side * sc.antSpread * s * hsx, hcen.y + hh.y * 0.38 - hairRoot.position.y, hcen.z + hh.z * 0.7);
+        ant.rotation.z = side * -0.12;
+        ant.rotation.x = -0.05;
         tagHair(ant, `ant_${side > 0 ? "R" : "L"}`);
       }
     }
@@ -2667,6 +2742,44 @@ function makeHeadShell(sc, s, skin) {
   return head;
 }
 
+/** Oreja humana: contorno en C (hélix arriba, lóbulo abajo) con borde y antehélix. */
+function humanEar(R, skin, side, pierced) {
+  const g = new THREE.Group();
+  const sh = new THREE.Shape();
+  sh.moveTo(-0.35 * R, 1.0 * R);
+  sh.bezierCurveTo(0.2 * R, 1.35 * R, 0.85 * R, 1.1 * R, 0.8 * R, 0.35 * R);
+  sh.bezierCurveTo(0.78 * R, -0.25 * R, 0.45 * R, -0.55 * R, 0.25 * R, -0.95 * R);
+  sh.bezierCurveTo(0.12 * R, -1.3 * R, -0.3 * R, -1.25 * R, -0.35 * R, -0.85 * R);
+  sh.bezierCurveTo(-0.45 * R, -0.3 * R, -0.5 * R, 0.5 * R, -0.35 * R, 1.0 * R);
+  if (pierced) {
+    const h = new THREE.Path();
+    h.absarc(0.0, -0.92 * R, 0.07 * R, 0, Math.PI * 2, true);
+    sh.holes.push(h);
+  }
+  const geo = new THREE.ExtrudeGeometry(sh, {
+    depth: 0.12 * R, bevelEnabled: true, bevelThickness: 0.08 * R, bevelSize: 0.1 * R, bevelSegments: 3, curveSegments: 14,
+  });
+  geo.translate(0, 0, -0.06 * R);
+  const shell = new THREE.Mesh(geo, skin);
+  g.add(shell);
+  const rim = new THREE.CatmullRomCurve3([
+    V3(-0.25, 0.95), V3(0.2, 1.18), V3(0.66, 0.95), V3(0.7, 0.3), V3(0.45, -0.3), V3(0.22, -0.6),
+  ].map((p) => p.multiplyScalar(R).setZ(0.14 * R)));
+  g.add(new THREE.Mesh(new THREE.TubeGeometry(rim, 24, 0.09 * R, 6, false), skin));
+  const anti = new THREE.CatmullRomCurve3([
+    V3(-0.05, 0.75), V3(0.35, 0.65), V3(0.42, 0.15), V3(0.15, -0.35),
+  ].map((p) => p.multiplyScalar(R).setZ(0.1 * R)));
+  g.add(new THREE.Mesh(new THREE.TubeGeometry(anti, 16, 0.07 * R, 6, false), skin));
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(0.16 * R, 8, 6).scale(1, 1.2, 0.8).translate(-0.3 * R, -0.1 * R, 0.1 * R), skin));
+  const ear = new THREE.Group();
+  g.scale.x = side;
+  g.rotation.y = side * Math.PI / 2;
+  ear.add(g);
+  ear.rotation.y = -side * 0.35;
+  return ear;
+}
+const V3 = (x, y) => new THREE.Vector3(x, y, 0);
+
 function addEars(headG, s, skin, sc) {
   if (sc.earType === "none") return;
   for (const side of [-1, 1]) {
@@ -2675,6 +2788,9 @@ function addEars(headG, s, skin, sc) {
       ear = new THREE.Mesh(new THREE.ConeGeometry(sc.earR * s, sc.earR * 2.2 * s, 10), skin);
       ear.rotation.z = -side * 0.9;
       ear.rotation.x = -0.2;
+    } else if (sc.earType === "human" || sc.earType === "pierced") {
+      ear = humanEar(sc.earR * s, skin, side, sc.earType === "pierced");
+      ear.scale.setScalar(sc.earSy);
     } else if (sc.earType === "wide") {
       ear = new THREE.Mesh(new THREE.SphereGeometry(sc.earR * 1.15 * s, 12, 10), skin);
       ear.scale.set(sc.earSx * 0.4, sc.earSy * 1.1, sc.earSz * 1.4);
@@ -2685,6 +2801,7 @@ function addEars(headG, s, skin, sc) {
     ear.position.set(side * sc.earX * s, 0, 0);
     ear.userData.moldId = `ear_${side > 0 ? "R" : "L"}`;
     ear.userData.moldFamily = "ear";
+    if (!ear.isMesh) ear.traverse((o) => { if (o.isMesh) o.userData.moldId = ear.userData.moldId; });
     headG.add(ear);
   }
 }
@@ -2851,51 +2968,7 @@ function addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM) {
     torsoG.add(tagCloth(flap, `gi_flap_${side > 0 ? "R" : "L"}`));
   }
 
-  // Fajín con pliegues horizontales (no torus liso)
-  if (sc.showSash > 0.5) {
-    const sashY = (sc.sashY || 0) * s;
-    const br = sc.beltR * s * 1.12;
-    const thick = sc.beltThick * s * 2.8;
-    const sash = new THREE.Mesh(
-      ovalRing(new THREE.TorusGeometry(br, thick, 16, 48), br, sc.beltSz ?? 1),
-      sashM
-    );
-    sash.rotation.x = Math.PI / 2;
-    sash.position.y = sashY;
-    sash.scale.set(1.05, 1.15, 1);
-    wrinkleGiMesh(sash, wr * 1.3, "sash", s);
-    torsoG.add(tagCloth(sash, "sash"));
-    // Capas extra del wrap del obi
-    for (let i = 0; i < 3; i++) {
-      const ridge = new THREE.Mesh(
-        ovalRing(new THREE.TorusGeometry(br * (0.98 + i * 0.015), thick * 0.35, 10, 40), br * (0.98 + i * 0.015), sc.beltSz ?? 1),
-        sashM
-      );
-      ridge.rotation.x = Math.PI / 2;
-      ridge.position.y = sashY + (i - 1) * thick * 0.45;
-      torsoG.add(tagCloth(ridge, `sash_ridge_${i}`));
-    }
-    const knot = new THREE.Mesh(new THREE.BoxGeometry(0.1 * s, 0.08 * s, 0.06 * s, 2, 2, 2), sashM);
-    knot.position.set(0.02 * s, sashY, 0.17 * s);
-    wrinkleGiMesh(knot, wr, "sash", s);
-    torsoG.add(tagCloth(knot, "sash_knot"));
-    if (sc.showSashTail > 0.5) {
-      for (const [ox, rot, tid] of [
-        [0.0, 0.05, "sash_tail"],
-        [0.04, -0.08, "sash_tail_2"],
-      ]) {
-        const tail = loftMesh(mulProfile([1, 1.05, 0.9, 0.7], 0.028 * s), 0.32 * s, sashM, {
-          radial: 16,
-          sx: 1.4,
-          sz: 0.45,
-        });
-        tail.position.set(ox * s, sashY - 0.14 * s, 0.14 * s);
-        tail.rotation.z = rot;
-        wrinkleGiMesh(tail, wr * 0.9, "sash", s);
-        torsoG.add(tagCloth(tail, tid));
-      }
-    }
-  }
+  // El fajín (obi) lo arma props.js con el torso ya construido, para ceñirlo a la superficie.
 }
 
 function addArmorPlate(torsoG, s, waistY, ty, sc, plateM, force = false, extras = {}) {
@@ -3958,7 +4031,10 @@ function addHipFlaps(torsoG, s, waistY, ty, sc, mats = {}) {
     const fsz = sc.hipFlapSz ?? 1;
     const ftilt = sc.hipFlapTilt ?? 0.2;
     const farch = sc.hipFlapArch ?? 0.35;
+    const only = sc.hipFlapSide === "L" ? -1 : sc.hipFlapSide === "R" ? 1 : 0;
+    const link = (sc.hipFlapLink || 0) * s;
     for (const side of [-1, 1]) {
+      if (only && side !== only) continue;
       const flap = new THREE.Group();
       const sx = 0.09 * s * fsx;
       const sy = 0.16 * s * fsy;
@@ -3966,6 +4042,12 @@ function addHipFlaps(torsoG, s, waistY, ty, sc, mats = {}) {
       const shell = new THREE.Mesh(makeHipFlapShellGeo(farch), mat);
       shell.scale.set(sx, sy, sz);
       flap.add(tagCloth(shell, `hip_flap_${side > 0 ? "R" : "L"}`));
+      if (link > 0) {
+        // Pieza de unión: sube desde el tope del faldón hasta la armadura (pasa por debajo del cinturón)
+        const strap = new THREE.Mesh(new THREE.PlaneGeometry(sx * 1.6, link + sy * 0.3), mat);
+        strap.position.set(0, sy + link * 0.5 - sy * 0.15, 0);
+        flap.add(tagCloth(strap, `hip_flap_${side > 0 ? "R" : "L"}_link`));
+      }
       addHipFlapRim(
         flap,
         shell,
@@ -4109,82 +4191,108 @@ function addSaiyanTail(g, s, sc, mat) {
   g.add(root);
 }
 
-function addBodySpots(torsoG, s, waistY, ty, sc, skinHex) {
-  if (sc.spots < 0.5) return;
-  const dark = new THREE.Color(skinHex).multiplyScalar(0.45);
-  const m = surf(dark.getHex(), { roughness: 0.9 });
-  const sca = sc.spotScale ?? 1;
-  const spots = [
-    [0.08, 1.05, 0.14],
-    [-0.1, 0.95, 0.13],
-    [0.12, 0.85, 0.12],
-    [-0.06, 0.78, 0.14],
-    [0, 1.12, 0.15],
-    [0.14, 1.0, -0.08],
-    [-0.14, 0.9, -0.06],
-  ];
-  spots.forEach(([x, y, z], i) => {
-    const spot = new THREE.Mesh(new THREE.SphereGeometry(0.035 * s * sca * (0.7 + (i % 3) * 0.15), 10, 8), m);
-    spot.position.set(x * s, y * s - waistY + ty, z * s);
-    spot.scale.set(1.2, 0.7, 1);
-    spot.userData.moldId = `spot_${i}`;
-    spot.userData.moldFamily = "limb";
-    torsoG.add(spot);
-  });
+let _scouterEarMat = null;
+function scouterEarMat() {
+  if (_scouterEarMat) return _scouterEarMat;
+  const n = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = n;
+  const g = c.getContext("2d");
+  g.fillStyle = "#f7f7f7";
+  g.fillRect(0, 0, n, n);
+  g.strokeStyle = "#3a3a3a";
+  g.lineWidth = 5;
+  g.lineCap = "butt";
+  for (let i = 0; i < 5; i++) {
+    const y = n * (0.2 + i * 0.15);
+    g.beginPath();
+    g.moveTo(n * 0.14, y);
+    g.lineTo(n * 0.86, y);
+    g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _scouterEarMat = celMat({ map: tex, color: 0xffffff }, 0.3);
+  return _scouterEarMat;
 }
 
-/** (dir, lift) → punto sobre la superficie del mesh `head`, en coords de su padre, desde el centro de su caja. */
-function headSurface(head) {
-  head.updateMatrix();
-  head.matrixWorld.copy(head.matrix);
-  if (!head.geometry.boundingBox) head.geometry.computeBoundingBox();
-  const c = head.geometry.boundingBox.clone().applyMatrix4(head.matrix).getCenter(new THREE.Vector3());
-  const ray = new THREE.Raycaster();
-  const far = 2;
-  return (dir, lift = 0) => {
-    const d = dir.clone().normalize();
-    ray.set(d.clone().multiplyScalar(far).add(c), d.clone().negate());
-    ray.far = far;
-    const hit = ray.intersectObject(head, false)[0];
-    const r = hit ? far - hit.distance : 0;
-    return d.multiplyScalar(r + lift).add(c);
-  };
-}
-
+/** Auricular blanco con nervaduras + botón rojo en la oreja derecha. Visor verde pegado al auricular. */
 function addScouter(headG, s, look, sc) {
   if (sc.showScouter < 0.5 && look.scouter == null) return;
-  const c = look.scouter ?? 0xd32f2f;
-  const m = surf(c, { roughness: 0.35, metalness: 0.95 });
-  const lens = surf(0x111111, { roughness: 0.2, metalness: 0.95 });
-  const head = sc.headType === "sculpt" ? headG.children.find((o) => o.userData.moldId === "head") : null;
-  // cabeza esculpida: el arco y el auricular se apoyan sobre la superficie real (raycast desde el centro)
-  const onHead = head && headSurface(head);
-  let band;
-  if (onHead) {
-    const pts = [];
-    for (let i = 0; i <= 16; i++) {
-      const a = -Math.PI * 0.62 + (i / 16) * Math.PI * 0.72;
-      pts.push(onHead(new THREE.Vector3(0.3, Math.cos(a), Math.sin(a)), 0.006 * s));
-    }
-    band = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.012 * s, 8), m);
-  } else {
-    band = new THREE.Mesh(new THREE.TorusGeometry(sc.headR * 0.95 * s, 0.012 * s, 8, 20, Math.PI * 0.7), m);
-    band.rotation.y = Math.PI / 2;
-    band.rotation.z = 0.15;
-    band.position.set(0.02 * s, 0.02 * s, 0);
-  }
-  headG.add(tagCloth(band, "scouter_band"));
-  const cup = new THREE.Mesh(new THREE.SphereGeometry(0.04 * s, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.65), m);
-  if (onHead) cup.position.copy(onHead(new THREE.Vector3(0.12, 0.015, 0.1), -0.012 * s));
-  else cup.position.set(0.12 * s, 0.015 * s, 0.1 * s);
-  cup.rotation.y = -0.4;
+  const side = 1;
+  const ear = headG.children.find((o) => o.userData.moldId === "ear_R");
+  const ex = ear ? ear.position.x : side * (sc.earX || 0.15) * s;
+  const ey = ear ? ear.position.y : 0;
+  const ez = (ear ? ear.position.z : 0) + (sc.scouterZ || 0) * s;
+  const white = surf(0xf5f5f5, { roughness: 0.4, metalness: 0.15 });
+  const red = surf(0xd32f2f, { roughness: 0.35, metalness: 0.3 });
+  const R = 0.056 * s;
+  const thick = 0.024 * s;
+  const cup = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.94, R, thick, 22), white);
+  cup.rotation.z = Math.PI / 2;
+  cup.scale.set(1, 1, 1.18);
+  cup.position.set(ex + side * 0.018 * s, ey, ez);
   headG.add(tagCloth(cup, "scouter_cup"));
+  const face = new THREE.Mesh(new THREE.CircleGeometry(R * 0.98, 22), scouterEarMat());
+  face.rotation.y = side * Math.PI / 2;
+  face.position.set(cup.position.x + side * (thick * 0.5 + 0.001 * s), cup.position.y, cup.position.z);
+  headG.add(tagCloth(face, "scouter_face"));
+  const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.01 * s, 0.01 * s, 0.007 * s, 10), red);
+  btn.rotation.z = Math.PI / 2;
+  btn.position.set(face.position.x + side * 0.004 * s, cup.position.y + R * 0.62, cup.position.z);
+  headG.add(tagCloth(btn, "scouter_btn"));
   if (faceDecalHasScouter(sc)) return;
-  const glass = new THREE.Mesh(new THREE.CircleGeometry(0.028 * s, 14), lens);
-  if (onHead) glass.position.copy(cup.position).add(new THREE.Vector3(0.025 * s, 0, 0.025 * s));
-  else glass.position.set(0.145 * s, 0.015 * s, 0.125 * s);
-  glass.rotation.y = -0.35;
+  const tint = look.scouterLens ?? 0x00e676;
+  const glassM = new THREE.MeshLambertMaterial({
+    color: tint,
+    emissive: tint,
+    emissiveIntensity: 0.4,
+    transparent: true,
+    opacity: 0.72,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  // Visor delante del ojo: la cabeza real define dónde queda la cara
+  const head = headG.children.find((o) => o.userData.moldId === "head");
+  const hb = new THREE.Box3();
+  if (head) {
+    head.updateMatrix();
+    if (!head.geometry.boundingBox) head.geometry.computeBoundingBox();
+    hb.copy(head.geometry.boundingBox).applyMatrix4(head.matrix);
+  } else hb.setFromCenterAndSize(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.32, 0.32, 0.32).multiplyScalar(s));
+  const hc = hb.getCenter(new THREE.Vector3());
+  const hh = hb.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+  const lx = hc.x + side * hh.x * 0.42;
+  const ly = ey + (sc.scouterLensY ?? -0.005) * s;
+  const lz = hc.z + hh.z * Math.sqrt(1 - 0.42 * 0.42) + 0.03 * s;
+  const lw = 0.075 * s;
+  const lh = 0.05 * s;
+  const sh = new THREE.Shape();
+  const rr = lh * 0.25;
+  sh.moveTo(-lw / 2 + rr, -lh / 2);
+  sh.lineTo(lw / 2 - rr, -lh / 2);
+  sh.quadraticCurveTo(lw / 2, -lh / 2, lw / 2, -lh / 2 + rr);
+  sh.lineTo(lw / 2, lh / 2 - rr);
+  sh.quadraticCurveTo(lw / 2, lh / 2, lw / 2 - rr, lh / 2);
+  sh.lineTo(-lw / 2 + rr, lh / 2);
+  sh.quadraticCurveTo(-lw / 2, lh / 2, -lw / 2, lh / 2 - rr);
+  sh.lineTo(-lw / 2, -lh / 2 + rr);
+  sh.quadraticCurveTo(-lw / 2, -lh / 2, -lw / 2 + rr, -lh / 2);
+  const glass = new THREE.Mesh(new THREE.ShapeGeometry(sh, 6), glassM);
+  glass.position.set(lx, ly, lz);
+  glass.rotation.set(-0.08, side * 0.32, 0);
   headG.add(tagCloth(glass, "scouter_lens"));
+  const rim = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(sh.getSpacedPoints(40).map((p) => new THREE.Vector3(p.x, p.y, 0)), true), 60, 0.0035 * s, 5, true), white);
+  rim.position.copy(glass.position);
+  rim.rotation.copy(glass.rotation);
+  headG.add(tagCloth(rim, "scouter_rim"));
+  // Brazo: del auricular, por la sien, al borde exterior del visor
+  const edge = new THREE.Vector3(side * lw / 2, 0, 0).applyEuler(glass.rotation).add(glass.position);
+  const a0 = new THREE.Vector3(cup.position.x, cup.position.y + R * 0.35, cup.position.z + R * 0.5);
+  const mid = a0.clone().lerp(edge, 0.5);
+  mid.x += side * 0.008 * s;
+  const arm = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([a0, mid, edge]), 16, 0.007 * s, 6), white);
+  headG.add(tagCloth(arm, "scouter_arm"));
 }
 
 /** opts.game: en partida junta también mallas moldeables (el editor necesita sus moldId). */
@@ -4195,7 +4303,7 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
   const s = altura;
   const kit = look.kit || "gi";
   const layered = kit === "gi" || kit === "armor" || kit === "soldier" || kit === "brute" || kit === "namek";
-  const skin = skinMat(look.skin, sc);
+  const skin = skinMat(look.skin, kit === "frost" ? sc : { ...sc, spots: 0 });
   const shirtHex = look.body ?? 0xf57c00;
   const pantsHex = look.pants ?? (kit === "armor" || kit === "soldier" ? look.suit ?? shirtHex : look.accent ?? shirtHex);
   const sashHex = look.sash ?? look.accent ?? 0x0d47a1;
@@ -4217,20 +4325,26 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
   const giKit = kit === "gi";
   const clothKind = giKit ? "gi" : "cloth";
   const clothDet = giKit ? Math.max(cd, 0.85) : cd;
-  const shirtM = gearMat(shirtHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.68 : undefined });
-  const pantsM = gearMat(pantsHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.7 : undefined });
-  const thighM = gearMat(thighHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.7 : undefined });
-  const shinM = gearMat(shinHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.72 : undefined });
+  const spotted = (m, hex) => {
+    if (kit === "frost" || (sc.spots ?? 0) < 0.5) return m;
+    const c = m.clone();
+    c.map = spotSkinTex(0xb8b8b8, sc.spotScale ?? 1);
+    return c;
+  };
+  const shirtM = spotted(gearMat(shirtHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.68 : undefined }), shirtHex);
+  const pantsM = spotted(gearMat(pantsHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.7 : undefined }), pantsHex);
+  const thighM = spotted(gearMat(thighHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.7 : undefined }), thighHex);
+  const shinM = spotted(gearMat(shinHex, { kind: clothKind, detail: clothDet, roughness: giKit ? 0.72 : undefined }), shinHex);
   const sashM = gearMat(sashHex, { kind: clothKind, detail: clothDet * 0.95, roughness: giKit ? 0.65 : undefined });
-  const sleeveM = gearMat(sleeveHex, {
+  const sleeveM = spotted(gearMat(sleeveHex, {
     kind: armoredKit ? "armor" : clothKind,
     detail: armoredKit ? ad : clothDet,
     roughness: giKit ? 0.66 : undefined,
-  });
-  const forearmM = gearMat(forearmHex, {
+  }), sleeveHex);
+  const forearmM = spotted(gearMat(forearmHex, {
     kind: armoredKit ? "armor" : clothKind,
     detail: armoredKit ? ad : clothDet,
-  });
+  }), forearmHex);
   const suitM = gearMat(suitHex, { kind: "armor", detail: ad, roughness: 0.48, metalness: 0.9 });
   const plateM = gearMat(plateHex, { kind: "armor", detail: ad, roughness: 0.38, metalness: 0.92 });
   const padM = gearMat(padHex, { kind: "armor", detail: ad, roughness: 0.4, metalness: 0.98 });
@@ -4293,8 +4407,9 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
     metalness: 0.92,
   });
   const bracerM = gearMat(look.wrist ?? padHex, { kind: "armor", detail: ad, roughness: 0.45, metalness: 0.85 });
+  const limbHex = new THREE.Color(shirtHex).multiplyScalar(0.78).getHex();
   const torsoC = layered || kit === "frost" ? skin : shirtM;
-  const limbC = layered || kit === "frost" ? skin : gearMat(new THREE.Color(shirtHex).multiplyScalar(0.78).getHex(), { kind: "cloth", detail: cd, roughness: 0.88 });
+  const limbC = layered || kit === "frost" ? skin : spotted(gearMat(limbHex, { kind: "cloth", detail: cd, roughness: 0.88 }), limbHex);
   const hipsMat =
     kit === "frost" && look.hipsColor == null
       ? torsoC
@@ -4444,30 +4559,8 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
 
   if (kit === "gi") {
     addGiDetails(torsoG, s, waistY, ty, sc, shirtM, underM, sashM);
-  } else if ((kit === "namek") && sc.showSash > 0.5) {
-    const sashY = (sc.sashY || 0) * s;
-    const sash = new THREE.Mesh(
-      ovalRing(new THREE.TorusGeometry(sc.beltR * s * 1.08, sc.beltThick * s * 2.4, 10, 24), sc.beltR * s * 1.08, sc.beltSz ?? 1),
-      sashM
-    );
-    sash.rotation.x = Math.PI / 2;
-    sash.position.y = sashY;
-    sash.userData.moldId = "sash";
-    sash.userData.moldFamily = "cloth";
-    torsoG.add(sash);
-    const knot = new THREE.Mesh(new THREE.BoxGeometry(0.08 * s, 0.07 * s, 0.05 * s), sashM);
-    knot.position.set(0, sashY, 0.16 * s);
-    knot.userData.moldId = "sash_knot";
-    knot.userData.moldFamily = "cloth";
-    torsoG.add(knot);
-    if (sc.showSashTail > 0.5) {
-      const tail = new THREE.Mesh(new THREE.BoxGeometry(0.055 * s, 0.26 * s, 0.02 * s), sashM);
-      tail.position.set(0.02 * s, sashY - 0.14 * s, 0.15 * s);
-      tail.rotation.z = 0.08;
-      tail.userData.moldId = "sash_tail";
-      tail.userData.moldFamily = "cloth";
-      torsoG.add(tail);
-    }
+  } else if (kit === "namek" && sc.showSash > 0.5) {
+    // obi: props.js
   } else if (sc.showBelt > 0.5) {
   const belt = new THREE.Mesh(
       ovalRing(new THREE.TorusGeometry(sc.beltR * s, sc.beltThick * s, 10, 24), sc.beltR * s, sc.beltSz ?? 1),
@@ -4501,6 +4594,8 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
     line.userData.moldId = "frost_line";
     line.userData.moldFamily = "cloth";
     torsoG.add(line);
+  }
+  if (kit === "frost" && look.frostGem !== false) {
     const gem = new THREE.Mesh(new THREE.SphereGeometry(0.045 * s, 12, 10), accent);
     gem.position.set(
       (sc.frostGemX || 0) * s,
@@ -4515,7 +4610,6 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
   if ((kit === "namek" || sc.showCape > 0.5) && !eliteSuit) {
     addCapeMesh(torsoG, s, waistY, ty, chestLocalY, sc, capeM);
   }
-  addBodySpots(torsoG, s, waistY, ty, sc, look.skin);
 
   const neck = new THREE.Mesh(
     new THREE.CylinderGeometry(sc.neckR * s, sc.neckR * 1.15 * s, sc.neckLen * s, 14),
@@ -4576,8 +4670,10 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
   const giWrinkle = gi ? 0.65 + Math.max(0, (sc.clothDetail ?? 0.55) - 0.4) * 0.6 : 0;
   const armBase = {
     hand: sc.gloves === "on" ? gearMat(look.gloves ?? 0xf5f5f5, { kind: "cloth", detail: cd * 0.6 }) : skin,
-    band: gi && !eliteSuit ? wristM : null,
+    glove: sc.gloves === "on",
+    band: (sc.wristbands === "on" || (sc.wristbands !== "none" && gi && !eliteSuit)) ? wristM : null,
     bandAt: "wrist",
+    bandY: sc.wristY ?? 0.88,
     upperBulk: sc.upperArmBulk,
     muscleArm: sc.muscleArm ?? 1,
     lowerBulk: sc.foreArmBulk,
@@ -4700,6 +4796,8 @@ export function makeBody(altura, look, sculpt = {}, opts = {}) {
     headG,
     neck,
   };
+  const sashOn = (kit === "gi" || kit === "namek") && sc.showSash > 0.5;
+  addCharProps(g, { s, sc, look, limbs: g.userData.limbs, waistY, ty, gearMat, surf, skin, capeM, sleeveM, sashHex: sashOn ? sashHex : null });
   g.traverse((o) => {
     if (o.isMesh) o.castShadow = true;
   });
