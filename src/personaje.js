@@ -293,7 +293,7 @@ export class Personaje {
     this.aliveFor = 0;
     this.spawnWave = 0;
     this.stun = 0;
-    this.st = { k: 0, a: 0, d: 0, dmg: 0, esf: 0 };
+    this.st = { k: 0, d: 0, dmg: 0, esf: 0 };
     this.aiHeat = 0;
     this.hitBy = [];
     this.refreshAnims();

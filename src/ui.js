@@ -290,11 +290,11 @@ export function renderHud(p, match, keysOn, people, tabOn, balls) {
     board.classList.add("on");
     const row = (o) => {
       const me = o === p ? " me" : "";
-      return `<tr class="t-${o.faccion}${me}"><td>${o.alias}</td><td>${o.st.k}</td><td>${o.st.a}</td><td>${o.st.d}</td><td>${o.st.esf}</td><td>${Math.round(o.st.dmg)}</td></tr>`;
+      return `<tr class="t-${o.faccion}${me}"><td>${o.alias}</td><td>${o.st.k}</td><td>${o.st.d}</td><td>${o.st.esf}</td><td>${Math.round(o.st.dmg)}</td></tr>`;
     };
     const sort = (fac) =>
       people.filter((o) => o.faccion === fac).sort((a, b) => b.st.k - a.st.k || b.st.dmg - a.st.dmg);
-    const head = `<tr><th>NOMBRE</th><th>K</th><th>A</th><th>D</th><th>ESF</th><th>DMG</th></tr>`;
+    const head = `<tr><th>NOMBRE</th><th>K</th><th>D</th><th>ESF</th><th>DMG</th></tr>`;
     document.getElementById("tab-z").innerHTML = head + sort("z").map(row).join("");
     document.getElementById("tab-f").innerHTML = head + sort("f").map(row).join("");
   } else board.classList.remove("on");

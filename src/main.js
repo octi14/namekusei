@@ -1218,11 +1218,16 @@ function loop(now) {
   }
   const view = viewChar();
   cam.followAiLook = spectating;
-  cam.update(view, dt);
   if (freeCam) {
     if (cam._fpBody) cam._setFp(cam._fpBody, false);
+    if (camera.fov !== FOV || camera.near !== 0.1) {
+      camera.fov = FOV;
+      camera.near = 0.1;
+      camera.updateProjectionMatrix();
+      cam._fov = 0;
+    }
     updateFreeCam(dt);
-  }
+  } else cam.update(view, dt);
   {
     const t = !spectating && player.lockT > 0 && player.lockFoe && !player.lockFoe.dead ? player.lockFoe : null;
     if (t) {
@@ -1248,10 +1253,15 @@ function loop(now) {
     bloomPass.strength = nowUw ? 0.15 : landBloom;
     uwEl.classList.toggle("on", nowUw);
   }
-  crosshairEl.classList.toggle("on", !cam.third && !view.dead);
+  crosshairEl.classList.toggle("on", !freeCam && !cam.third && !view.dead);
   updateSeenBars(camera, view, people);
   renderHud(view, match, keysOn, people, keys.has("Tab"), balls);
-  const camP = view.pos();
+  if (freeCam) {
+    document.getElementById("ko-fx").classList.remove("on");
+    document.getElementById("kill-toast").className = "";
+    document.getElementById("hud").classList.remove("koed");
+  }
+  const camP = freeCam ? camera.position : view.pos();
   updateWorld(camP, dt, _earFwd);
   for (const p of people) {
     const d = p.pos().distanceToSquared(camP);

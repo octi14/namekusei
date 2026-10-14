@@ -530,9 +530,6 @@ export class Combat {
       if (atk) {
         this.match.noteKill(atk, t);
         atk.st.k++;
-        for (const h of t.hitBy || []) {
-          if (h.p !== atk && now - h.t < 8) h.p.st.a++;
-        }
       }
       t.st.d++;
       t.aiHeat = (t.aiHeat || 0) - 1.15;

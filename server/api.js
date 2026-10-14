@@ -53,7 +53,7 @@ function send(res, code, obj) {
 const blank = (id) => ({ _id: id, nick: "Jugador", elo: START_ELO, games: 0, wins: 0, losses: 0 });
 const pub = (p) => ({ id: p._id, nick: p.nick, elo: p.elo, games: p.games, wins: p.wins, losses: p.losses });
 const num = (v) => (Number.isFinite(+v) ? +v : 0);
-const cleanSt = (st = {}) => ({ k: num(st.k), a: num(st.a), d: num(st.d), esf: num(st.esf), dmg: num(st.dmg) });
+const cleanSt = (st = {}) => ({ k: num(st.k), d: num(st.d), esf: num(st.esf), dmg: num(st.dmg) });
 
 /** use(path, handler) estilo connect (Vite `server.middlewares.use`). */
 export function mountApi(use, env) {

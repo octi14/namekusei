@@ -19,7 +19,7 @@ function statsHtml(o, fac) {
     `<div class="es-col t-${fac}">` +
     `<div class="es-tag">TOP · ${fac === "z" ? "ROJO" : "AZUL"}</div>` +
     `<div class="es-name">${o.alias || o.nombre}</div>` +
-    `<div class="es-st"><b>${o.st.k}</b> K · <b>${o.st.a}</b> A · <b>${o.st.d}</b> D</div>` +
+    `<div class="es-st"><b>${o.st.k}</b> K · <b>${o.st.d}</b> D</div>` +
     `<div class="es-st"><b>${o.st.esf}</b> ESF · <b>${Math.round(o.st.dmg)}</b> DMG</div>` +
     `</div>`
   );
